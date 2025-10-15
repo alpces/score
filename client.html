@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Cliente - Visualização de Mesa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, onValue } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
+            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
+            projectId: "contador-de-pontos-321ee",
+            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
+            messagingSenderId: "817191889469",
+            appId: "1:817191889469:web:cfb88023612f6b37491854",
+            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { ref, onValue };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <script>
+        window.addEventListener('firebaseReady', () => {
+            const { useState, useEffect, createElement: h } = React;
+            const { rtdb, fbModules } = window;
+            const { ref, onValue } = fbModules;
+
+            function App() {
+                const [registered, setRegistered] = useState(false);
+                const [sessionCode, setSessionCode] = useState('');
+                const [tableNumber, setTableNumber] = useState('');
+                const [teamName, setTeamName] = useState('');
+                const [emails, setEmails] = useState(['']);
+                const [gameData, setGameData] = useState(null);
+                const [myTable, setMyTable] = useState(null);
+                const [error, setError] = useState('');
+                const [connecting, setConnecting] = useState(false);
+
+                useEffect(() => {
+                    if (!registered || !sessionCode) return;
+
+                    const sessionRef = ref(rtdb, `sessions/${sessionCode}`);
+                    const unsubscribe = onValue(sessionRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            setGameData(data);
+                            const table = data.tables?.find(t => t.id === parseInt(tableNumber));
+                            if (table) setMyTable(table);
+                        }
+                    });
+
+                    return () => unsubscribe();
+                }, [registered, sessionCode, tableNumber]);
+
+                const handleRegister = () => {
+                    setError('');
+                    
+                    if (!sessionCode.trim()) {
+                        setError('Código da sessão é obrigatório');
+                        return;
+                    }
+                    
+                    if (!tableNumber || tableNumber < 1 || tableNumber > 12) {
+                        setError('Número da mesa inválido (1-12)');
+                        return;
+                    }
+
+                    setConnecting(true);
+
+                    const sessionRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}`);
+                    onValue(sessionRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data || !data.active) {
+                            setError('Código de sessão inválido ou jogo não iniciado');
+                            setConnecting(false);
+                        } else {
+                            setSessionCode(sessionCode.toUpperCase());
+                            setRegistered(true);
+                            setConnecting(false);
+                        }
+                    }, (err) => {
+                        setError('Erro ao conectar. Tenta novamente.');
+                        setConnecting(false);
+                    }, { onlyOnce: true });
+                };
+
+                if (!registered) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
+                        h('div', { className: 'max-w-md w-full bg-white rounded-2xl shadow-2xl p-6' },
+                            h('div', { className: 'text-center mb-6' },
+                                h('h1', { className: 'text-3xl font-bold text-gray-800' }, '👥 Registo de Mesa')
+                            ),
+                            error && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4' }, error),
+                            h('div', { className: 'space-y-4' },
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Código da Sessão *'),
+                                    h('input', {
+                                        type: 'text',
+                                        value: sessionCode,
+                                        onChange: (e) => setSessionCode(e.target.value.toUpperCase()),
+                                        placeholder: 'Ex: ABC123',
+                                        maxLength: 6,
+                                        className: 'w-full px-4 py-3 text-lg font-mono border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 uppercase'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Número da Mesa *'),
+                                    h('input', {
+                                        type: 'number',
+                                        min: 1,
+                                        max: 12,
+                                        value: tableNumber,
+                                        onChange: (e) => setTableNumber(e.target.value),
+                                        placeholder: '1-12',
+                                        className: 'w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Nome da Equipa'),
+                                    h('input', {
+                                        type: 'text',
+                                        value: teamName,
+                                        onChange: (e) => setTeamName(e.target.value),
+                                        placeholder: 'Nome da vossa equipa',
+                                        className: 'w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'flex items-center justify-between mb-2' },
+                                        h('label', { className: 'block text-sm font-semibold text-gray-700' }, 'E-mails (Opcional)'),
+                                        h('button', {
+                                            onClick: () => setEmails([...emails, '']),
+                                            className: 'text-sm text-purple-600 hover:text-purple-700 font-semibold'
+                                        }, '+ Adicionar')
+                                    ),
+                                    h('div', { className: 'space-y-2 max-h-48 overflow-y-auto' },
+                                        emails.map((email, index) =>
+                                            h('div', { key: index, className: 'flex gap-2' },
+                                                h('span', { className: 'text-gray-400 mt-3' }, '✉️'),
+                                                h('input', {
+                                                    type: 'email',
+                                                    value: email,
+                                                    onChange: (e) => {
+                                                        const newEmails = [...emails];
+                                                        newEmails[index] = e.target.value;
+                                                        setEmails(newEmails);
+                                                    },
+                                                    placeholder: 'email@exemplo.com',
+                                                    className: 'flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
+                                                }),
+                                                emails.length > 1 && h('button', {
+                                                    onClick: () => setEmails(emails.filter((_, i) => i !== index)),
+                                                    className: 'px-3 py-2 bg-red-500 text-white text-sm rounded-lg hover:bg-red-600'
+                                                }, '✕')
+                                            )
+                                        )
+                                    )
+                                ),
+                                h('button', {
+                                    onClick: handleRegister,
+                                    disabled: connecting,
+                                    className: `w-full py-4 rounded-lg text-lg font-bold transition-colors shadow-lg ${
+                                        connecting ? 'bg-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'
+                                    }`
+                                }, connecting ? 'A Conectar...' : 'Conectar ao Jogo')
+                            )
+                        )
+                    );
+                }
+
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col' },
+                    h('div', { className: 'max-w-4xl mx-auto w-full flex-1 flex flex-col' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4 mb-4' },
+                            h('div', { className: 'flex items-center justify-between' },
+                                h('div', null,
+                                    h('div', { className: 'text-sm text-gray-600' }, `Mesa ${tableNumber}`),
+                                    h('div', { className: 'text-2xl font-bold text-gray-800' }, teamName || `Mesa ${tableNumber}`)
+                                ),
+                                h('div', { className: 'text-sm text-gray-500' }, `Sessão: ${sessionCode}`)
+                            )
+                        ),
+                        gameData?.categories && gameData.categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-4 mb-4' },
+                            gameData.yellowCategory && h('div', { className: 'bg-yellow-400 text-gray-900 rounded-xl p-8 font-black shadow-xl flex items-center justify-center min-h-[200px]' },
+                                h('span', { className: 'text-center leading-tight text-3xl sm:text-4xl md:text-5xl' }, gameData.yellowCategory)
+                            ),
+                            gameData.redCategory && h('div', { className: 'bg-red-500 text-white rounded-xl p-8 font-black shadow-xl flex items-center justify-center min-h-[200px]' },
+                                h('span', { className: 'text-center leading-tight text-3xl sm:text-4xl md:text-5xl' }, gameData.redCategory)
+                            )
+                        ),
+                        h('div', { className: 'flex-1 flex items-center justify-center' },
+                            h('div', { className: 'bg-white rounded-3xl shadow-2xl p-12 text-center' },
+                                h('div', { className: 'text-6xl mb-6' }, '🏆'),
+                                h('div', { className: 'text-6xl sm:text-8xl font-black text-purple-600 mb-4' }, myTable?.score ?? '---'),
+                                h('div', { className: 'text-2xl text-gray-600 font-semibold' }, 'pontos')
+                            )
+                        ),
+                        !gameData && h('div', { className: 'text-center text-white mt-4' },
+                            h('div', { className: 'animate-pulse' }, 'A aguardar início do jogo...')
+                        )
+                    )
+                );
+            }
+
+            ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+        });
+    </script>
+</body>
+</html>
