@@ -33,19 +33,23 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
-        // Som de buzzer
+        // Som de buzzer melhorado - tipo "plim" agradável
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
-            oscillator.frequency.value = 800;
-            oscillator.type = 'square';
+            
+            // Tom mais agradável tipo "plim"
+            oscillator.frequency.value = 1000;
+            oscillator.type = 'sine';
+            
             gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+            
             oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.3);
+            oscillator.stop(audioContext.currentTime + 0.15);
         };
 
         window.addEventListener('firebaseReady', () => {
@@ -243,44 +247,48 @@
                     );
                 }
 
-                return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col' },
-                    h('div', { className: 'max-w-4xl mx-auto w-full flex-1 flex flex-col' },
-                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4 mb-4' },
+                return h('div', { className: 'h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col overflow-hidden' },
+                    h('div', { className: 'max-w-4xl mx-auto w-full h-full flex flex-col' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-3 mb-3 flex-shrink-0' },
                             h('div', { className: 'flex items-center justify-between' },
                                 h('div', null,
-                                    h('div', { className: 'text-sm text-gray-600' }, `Mesa ${tableNumber}`),
-                                    h('div', { className: 'text-2xl font-bold text-gray-800' }, teamName || `Mesa ${tableNumber}`)
+                                    h('div', { className: 'text-xs text-gray-600' }, `Mesa ${tableNumber}`),
+                                    h('div', { className: 'text-lg font-bold text-gray-800' }, teamName || `Mesa ${tableNumber}`)
                                 ),
-                                h('div', { className: 'text-sm text-gray-500' }, `Sessão: ${sessionCode}`)
+                                h('div', { className: 'text-xs text-gray-500' }, `Sessão: ${sessionCode}`)
                             )
                         ),
-                        gameData?.categories && gameData.categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-4 mb-4' },
-                            gameData.yellowCategory && h('div', { className: 'bg-yellow-400 text-gray-900 rounded-xl p-8 font-black shadow-xl flex items-center justify-center min-h-[200px]' },
-                                h('span', { className: 'text-center leading-tight text-3xl sm:text-4xl md:text-5xl' }, gameData.yellowCategory)
+                        gameData?.categories && gameData.categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-2 mb-3 flex-shrink-0' },
+                            gameData.yellowCategory && h('div', { className: 'bg-yellow-400 text-gray-900 rounded-xl p-4 font-black shadow-xl flex items-center justify-center h-24' },
+                                h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.yellowCategory)
                             ),
-                            gameData.redCategory && h('div', { className: 'bg-red-500 text-white rounded-xl p-8 font-black shadow-xl flex items-center justify-center min-h-[200px]' },
-                                h('span', { className: 'text-center leading-tight text-3xl sm:text-4xl md:text-5xl' }, gameData.redCategory)
+                            gameData.redCategory && h('div', { className: 'bg-red-500 text-white rounded-xl p-4 font-black shadow-xl flex items-center justify-center h-24' },
+                                h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.redCategory)
                             )
                         ),
-                        h('div', { className: 'flex-1 flex flex-col items-center justify-center gap-6' },
-                            h('div', { className: 'bg-white rounded-3xl shadow-2xl p-12 text-center' },
-                                h('div', { className: 'text-6xl mb-6' }, '🏆'),
-                                h('div', { className: 'text-6xl sm:text-8xl font-black text-purple-600 mb-4' }, myTable?.score ?? '---'),
-                                h('div', { className: 'text-2xl text-gray-600 font-semibold' }, 'pontos')
-                            ),
+                        h('div', { className: 'flex-1 flex items-center justify-center' },
                             h('button', {
                                 onClick: pressBuzzer,
                                 disabled: !buzzerState.enabled || buzzerState.pressed,
-                                className: `w-64 h-64 rounded-full text-white font-black text-4xl shadow-2xl transition-all transform ${
+                                className: `w-56 h-56 sm:w-64 sm:h-64 rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
                                     buzzerState.pressed 
                                         ? 'bg-gray-400 cursor-not-allowed opacity-50' 
                                         : buzzerState.enabled
                                             ? 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
                                             : 'bg-gray-400 cursor-not-allowed'
                                 }`
-                            }, buzzerState.pressed ? '🔒 BLOQUEADO' : '🔔 BUZZER')
+                            }, h('div', { className: 'flex flex-col items-center gap-2' },
+                                h('div', { className: 'text-5xl' }, buzzerState.pressed ? '🔒' : '🔔'),
+                                h('div', null, buzzerState.pressed ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER'))
+                            ))
                         ),
-                        !gameData && h('div', { className: 'text-center text-white mt-4' },
+                        h('div', { className: 'flex-shrink-0 mb-3' },
+                            h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 text-center' },
+                                h('div', { className: 'text-5xl sm:text-6xl font-black text-purple-600 mb-2' }, myTable?.score ?? '---'),
+                                h('div', { className: 'text-lg text-gray-600 font-semibold' }, 'pontos')
+                            )
+                        ),
+                        !gameData && h('div', { className: 'text-center text-white' },
                             h('div', { className: 'animate-pulse' }, 'A aguardar início do jogo...')
                         )
                     )
