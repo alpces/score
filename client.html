@@ -11,7 +11,7 @@
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getDatabase, ref, onValue } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+        import { getDatabase, ref, onValue, set, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
@@ -25,7 +25,7 @@
 
         const app = initializeApp(firebaseConfig);
         window.rtdb = getDatabase(app);
-        window.fbModules = { ref, onValue };
+        window.fbModules = { ref, onValue, set, update };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -33,10 +33,25 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
+        // Som de buzzer
+        const playBuzzer = () => {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            oscillator.frequency.value = 800;
+            oscillator.type = 'square';
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.3);
+        };
+
         window.addEventListener('firebaseReady', () => {
             const { useState, useEffect, createElement: h } = React;
             const { rtdb, fbModules } = window;
-            const { ref, onValue } = fbModules;
+            const { ref, onValue, set, update } = fbModules;
 
             function App() {
                 const [registered, setRegistered] = useState(false);
@@ -48,12 +63,15 @@
                 const [myTable, setMyTable] = useState(null);
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
+                const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
 
                 useEffect(() => {
                     if (!registered || !sessionCode) return;
 
-                    const sessionRef = ref(rtdb, `sessions/${sessionCode}`);
-                    const unsubscribe = onValue(sessionRef, (snapshot) => {
+                    const gameStateRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
+                    const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
+
+                    const unsubGame = onValue(gameStateRef, (snapshot) => {
                         const data = snapshot.val();
                         if (data) {
                             setGameData(data);
@@ -62,10 +80,23 @@
                         }
                     });
 
-                    return () => unsubscribe();
+                    const unsubBuzzer = onValue(buzzerRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            setBuzzerState(data);
+                        } else {
+                            // Inicializar buzzer se não existir
+                            set(buzzerRef, { pressed: false, enabled: true, timestamp: null });
+                        }
+                    });
+
+                    return () => {
+                        unsubGame();
+                        unsubBuzzer();
+                    };
                 }, [registered, sessionCode, tableNumber]);
 
-                const handleRegister = () => {
+                const handleRegister = async () => {
                     setError('');
                     
                     if (!sessionCode.trim()) {
@@ -80,13 +111,28 @@
 
                     setConnecting(true);
 
-                    const sessionRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}`);
-                    onValue(sessionRef, (snapshot) => {
+                    const sessionRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/gameState`);
+                    onValue(sessionRef, async (snapshot) => {
                         const data = snapshot.val();
                         if (!data || !data.active) {
                             setError('Código de sessão inválido ou jogo não iniciado');
                             setConnecting(false);
                         } else {
+                            // Registar cliente
+                            await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`), {
+                                tableNumber: parseInt(tableNumber),
+                                teamName: teamName || `Mesa ${tableNumber}`,
+                                emails: emails.filter(e => e.trim()),
+                                connectedAt: Date.now()
+                            });
+
+                            // Inicializar buzzer
+                            await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`), {
+                                pressed: false,
+                                enabled: true,
+                                timestamp: null
+                            });
+
                             setSessionCode(sessionCode.toUpperCase());
                             setRegistered(true);
                             setConnecting(false);
@@ -95,6 +141,22 @@
                         setError('Erro ao conectar. Tenta novamente.');
                         setConnecting(false);
                     }, { onlyOnce: true });
+                };
+
+                const pressBuzzer = async () => {
+                    if (!buzzerState.enabled || buzzerState.pressed) return;
+
+                    playBuzzer();
+
+                    try {
+                        await update(ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`), {
+                            pressed: true,
+                            timestamp: Date.now(),
+                            enabled: false
+                        });
+                    } catch (e) {
+                        console.error('Erro ao pressionar buzzer:', e);
+                    }
                 };
 
                 if (!registered) {
@@ -200,12 +262,23 @@
                                 h('span', { className: 'text-center leading-tight text-3xl sm:text-4xl md:text-5xl' }, gameData.redCategory)
                             )
                         ),
-                        h('div', { className: 'flex-1 flex items-center justify-center' },
+                        h('div', { className: 'flex-1 flex flex-col items-center justify-center gap-6' },
                             h('div', { className: 'bg-white rounded-3xl shadow-2xl p-12 text-center' },
                                 h('div', { className: 'text-6xl mb-6' }, '🏆'),
                                 h('div', { className: 'text-6xl sm:text-8xl font-black text-purple-600 mb-4' }, myTable?.score ?? '---'),
                                 h('div', { className: 'text-2xl text-gray-600 font-semibold' }, 'pontos')
-                            )
+                            ),
+                            h('button', {
+                                onClick: pressBuzzer,
+                                disabled: !buzzerState.enabled || buzzerState.pressed,
+                                className: `w-64 h-64 rounded-full text-white font-black text-4xl shadow-2xl transition-all transform ${
+                                    buzzerState.pressed 
+                                        ? 'bg-gray-400 cursor-not-allowed opacity-50' 
+                                        : buzzerState.enabled
+                                            ? 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
+                                            : 'bg-gray-400 cursor-not-allowed'
+                                }`
+                            }, buzzerState.pressed ? '🔒 BLOQUEADO' : '🔔 BUZZER')
                         ),
                         !gameData && h('div', { className: 'text-center text-white mt-4' },
                             h('div', { className: 'animate-pulse' }, 'A aguardar início do jogo...')
