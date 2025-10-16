@@ -35,7 +35,8 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
-        // Som de sirene de polícia
+        const CLIENT_URL = 'https://alpces.github.io/score/client.html';
+
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -44,20 +45,21 @@
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
-            // Sirene: alterna entre duas frequências
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.15);
-            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.3);
-            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.45);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.3);
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.6);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.9);
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 1.2);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 1.5);
             
             oscillator.type = 'sine';
             
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
-            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 0.6);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.7);
+            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 1.8);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 2);
             
             oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.7);
+            oscillator.stop(audioContext.currentTime + 2);
         };
 
         window.addEventListener('firebaseReady', () => {
@@ -70,7 +72,6 @@
                 const [numTables, setNumTables] = useState(0);
                 const [initialScore, setInitialScore] = useState(1);
                 const [buzzerText, setBuzzerText] = useState('BUZZER');
-                const [clientUrl, setClientUrl] = useState('https://inginheiro.github.io/norte/client.html');
                 const [blockBuzzerAtZero, setBlockBuzzerAtZero] = useState(true);
                 const [tables, setTables] = useState([]);
                 const [categories, setCategories] = useState([]);
@@ -91,7 +92,10 @@
                 const [buzzers, setBuzzers] = useState({});
                 const [showSessionCode, setShowSessionCode] = useState(true);
                 const [showQRCode, setShowQRCode] = useState(false);
-                const [showEmailsModal, setShowEmailsModal] = useState(false);
+                const [showHistory, setShowHistory] = useState(false);
+                const [sessionHistory, setSessionHistory] = useState([]);
+                const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);
+                const [buzzerFlash, setBuzzerFlash] = useState(false);
 
                 useEffect(() => {
                     (async () => {
@@ -105,6 +109,23 @@
                 }, []);
 
                 useEffect(() => {
+                    if (showHistory) {
+                        (async () => {
+                            try {
+                                const snap = await getDocs(collection(db, 'sessionHistory'));
+                                const history = [];
+                                snap.forEach(d => {
+                                    const data = d.data();
+                                    history.push({ id: d.id, ...data });
+                                });
+                                history.sort((a, b) => b.timestamp - a.timestamp);
+                                setSessionHistory(history);
+                            } catch (e) { console.error(e); }
+                        })();
+                    }
+                }, [showHistory]);
+
+                useEffect(() => {
                     if (!setupComplete || !sessionId) return;
 
                     const clientsRef = ref(rtdb, `sessions/${sessionId}/clients`);
@@ -114,7 +135,6 @@
                         const data = snapshot.val() || {};
                         setConnectedClients(data);
                         
-                        // Adicionar mesas dinamicamente se não foram criadas
                         if (numTables === 0) {
                             const newTables = Object.values(data).map(client => ({
                                 id: client.tableNumber,
@@ -131,7 +151,6 @@
                                 return merged.sort((a, b) => a.id - b.id);
                             });
                         } else {
-                            // Atualizar nomes das mesas existentes
                             setTables(prev => prev.map(t => {
                                 const client = Object.values(data).find(c => c.tableNumber === t.id);
                                 return client ? { ...t, name: client.teamName || t.name } : t;
@@ -144,10 +163,11 @@
                         const prevBuzzers = { ...buzzers };
                         setBuzzers(data);
                         
-                        // Tocar som se houver novo buzzer
                         Object.keys(data).forEach(key => {
                             if (data[key].pressed && !prevBuzzers[key]?.pressed) {
                                 playBuzzer();
+                                setBuzzerFlash(true);
+                                setTimeout(() => setBuzzerFlash(false), 500);
                             }
                         });
                     });
@@ -232,15 +252,46 @@
                     } catch (e) { console.error(e); }
                 };
 
+                const saveSession = async () => {
+                    if (!sessionId) return;
+                    try {
+                        const historyData = {
+                            sessionId: sessionId,
+                            timestamp: Date.now(),
+                            tables: tables.map(t => ({
+                                id: t.id,
+                                name: t.name,
+                                score: t.score
+                            })),
+                            emails: {}
+                        };
+
+                        Object.values(connectedClients).forEach(client => {
+                            historyData.emails[client.tableNumber] = client.emails || [];
+                        });
+
+                        await setDoc(doc(collection(db, 'sessionHistory')), historyData);
+                        alert('Sessão gravada com sucesso!');
+                    } catch (e) { 
+                        console.error(e);
+                        alert('Erro ao gravar sessão');
+                    }
+                };
+
                 const resetGame = async () => {
-                    if (!confirm('Tem a certeza que deseja iniciar uma nova sessão? Todos os dados atuais serão perdidos.')) return;
+                    if (!confirm('Tem a certeza que deseja iniciar uma nova sessão?')) return;
+                    
+                    const saveChoice = confirm('Deseja gravar a sessão atual antes de iniciar uma nova?');
+                    if (saveChoice) {
+                        await saveSession();
+                    }
+
                     if (sessionId) try { await remove(ref(rtdb, `sessions/${sessionId}`)); } catch (e) {}
                     setSetupComplete(false); setTables([]); setCategories([]); setYellowCategory(null); setRedCategory(null);
                     setUsedCategories([]); setTempNames({}); setTempCategories(['']); setInitialScore(1); setNumTables(0);
                     setShowLeaderboard(false); setLeaderboardRevealPosition(null); setShowScores(false);
                     setFlashEffects({}); setSessionId(null); setCodeCopied(false); setConnectedClients({}); setBuzzers({});
-                    setShowSessionCode(true); setBuzzerText('BUZZER'); setClientUrl('https://inginheiro.github.io/norte/client.html');
-                    setBlockBuzzerAtZero(true); setShowQRCode(false); setShowEmailsModal(false);
+                    setShowSessionCode(true); setBuzzerText('BUZZER'); setBlockBuzzerAtZero(true); setShowQRCode(false);
                 };
 
                 const resetAllScores = () => {
@@ -248,22 +299,16 @@
                     setTables(prev => prev.map(t => ({ ...t, score: initialScore })));
                 };
 
-                const getAllEmails = () => {
-                    const emails = [];
-                    Object.values(connectedClients).forEach(client => {
-                        if (client.emails && Array.isArray(client.emails)) {
-                            client.emails.forEach(email => {
-                                if (email && email.trim()) {
-                                    emails.push({ table: client.tableNumber, team: client.teamName, email: email.trim() });
-                                }
-                            });
-                        }
-                    });
-                    return emails;
+                const deleteHistoryEntry = async (entryId) => {
+                    if (!confirm('Tem a certeza que deseja eliminar este registo?')) return;
+                    try {
+                        await deleteDoc(doc(db, 'sessionHistory', entryId));
+                        setSessionHistory(sessionHistory.filter(h => h.id !== entryId));
+                    } catch (e) { console.error(e); }
                 };
 
                 const generateQRCodeUrl = () => {
-                    const url = `${clientUrl}?session=${sessionId}`;
+                    const url = `${CLIENT_URL}?session=${sessionId}`;
                     return `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(url)}`;
                 };
 
@@ -276,9 +321,79 @@
                         .map(([id, b], idx) => ({ tableId: parseInt(id), order: idx + 1, timestamp: b.timestamp }));
                 };
 
+                const formatDate = (timestamp) => {
+                    const date = new Date(timestamp);
+                    return date.toLocaleDateString('pt-PT') + ' ' + date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+                };
+
+                // HISTÓRIA
+                if (showHistory) {
+                    if (selectedHistoryEntry) {
+                        const entry = selectedHistoryEntry;
+                        const sortedTables = [...entry.tables].sort((a, b) => a.id - b.id);
+                        return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
+                            h('div', { className: 'max-w-4xl mx-auto pt-4' },
+                                h('div', { className: 'bg-white rounded-2xl p-4' },
+                                    h('div', { className: 'flex justify-between mb-4' },
+                                        h('h2', { className: 'text-xl font-bold' }, `Sessão ${entry.sessionId} - ${formatDate(entry.timestamp)}`),
+                                        h('button', { onClick: () => setSelectedHistoryEntry(null), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
+                                    ),
+                                    h('div', { className: 'space-y-3' },
+                                        sortedTables.map(t => h('div', { key: t.id, className: 'bg-gray-50 p-4 rounded-lg' },
+                                            h('div', { className: 'flex justify-between items-start mb-2' },
+                                                h('div', null,
+                                                    h('div', { className: 'font-bold text-lg text-gray-800' }, `Mesa ${t.id}`),
+                                                    h('div', { className: 'text-sm text-gray-600' }, t.name)
+                                                ),
+                                                h('div', { className: 'text-2xl font-bold text-indigo-600' }, `${t.score} pts`)
+                                            ),
+                                            (entry.emails[t.id] && entry.emails[t.id].length > 0) && h('div', { className: 'mt-3 border-t pt-3' },
+                                                h('div', { className: 'text-xs font-semibold text-gray-600 mb-2' }, 'E-mails:'),
+                                                h('div', { className: 'space-y-1' },
+                                                    entry.emails[t.id].map((email, idx) => h('div', { key: idx, className: 'text-sm text-gray-700' }, email))
+                                                )
+                                            )
+                                        ))
+                                    )
+                                )
+                            )
+                        );
+                    }
+
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
+                        h('div', { className: 'max-w-4xl mx-auto pt-4' },
+                            h('div', { className: 'bg-white rounded-2xl p-4' },
+                                h('div', { className: 'flex justify-between mb-4' },
+                                    h('h2', { className: 'text-xl font-bold' }, 'Histórico de Sessões'),
+                                    h('button', { onClick: () => setShowHistory(false), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
+                                ),
+                                sessionHistory.length === 0
+                                    ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma sessão gravada')
+                                    : h('div', { className: 'space-y-2' },
+                                        sessionHistory.map(entry => h('div', { key: entry.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
+                                            h('button', { 
+                                                onClick: () => setSelectedHistoryEntry(entry),
+                                                className: 'flex-1 text-left hover:bg-gray-100 p-2 rounded transition'
+                                            }, h('span', { className: 'font-semibold' }, `${entry.sessionId} - ${formatDate(entry.timestamp)}`)),
+                                            h('button', { 
+                                                onClick: () => deleteHistoryEntry(entry.id),
+                                                className: 'px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 ml-2'
+                                            }, 'Apagar')
+                                        ))
+                                    )
+                            )
+                        )
+                    );
+                }
+
+                // CONFIGURAÇÃO
                 if (!setupComplete) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3 overflow-y-auto' },
                         h('div', { className: 'max-w-2xl mx-auto py-4' },
+                            h('button', { 
+                                onClick: () => setShowHistory(true),
+                                className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4'
+                            }, 'Histórico de Sessões'),
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4' },
                                 h('h1', { className: 'text-2xl font-bold text-gray-800 text-center mb-4' }, 'Configuração do Jogo'),
                                 h('div', { className: 'space-y-4' },
@@ -294,10 +409,6 @@
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Texto do Botão Buzzer'),
                                         h('input', { type: 'text', value: buzzerText, onChange: e => setBuzzerText(e.target.value), placeholder: 'BUZZER', className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' })
-                                    ),
-                                    h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'URL da App Cliente'),
-                                        h('input', { type: 'text', value: clientUrl, onChange: e => setClientUrl(e.target.value), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none text-sm' })
                                     ),
                                     h('div', { className: 'flex items-center gap-2' },
                                         h('input', { type: 'checkbox', id: 'blockBuzzer', checked: blockBuzzerAtZero, onChange: e => setBlockBuzzerAtZero(e.target.checked), className: 'w-4 h-4' }),
@@ -343,6 +454,7 @@
                     );
                 }
 
+                // LEADERBOARD
                 if (showLeaderboard) {
                     const s = sorted();
                     const visible = s.slice(leaderboardRevealPosition - 1);
@@ -350,7 +462,7 @@
                         h('div', { className: 'max-w-4xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
                                 h('div', { className: 'flex justify-between mb-4' },
-                                    h('h2', { className: 'text-xl font-bold' }, '🏆 Classificação'),
+                                    h('h2', { className: 'text-xl font-bold' }, 'Classificação'),
                                     h('button', { onClick: () => { setShowLeaderboard(false); setLeaderboardRevealPosition(null); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                 ),
                                 leaderboardRevealPosition > 1 && h('button', { onClick: () => setLeaderboardRevealPosition(leaderboardRevealPosition - 1), className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold mb-4 animate-pulse' }, `Revelar ${leaderboardRevealPosition - 1}º Lugar`),
@@ -368,9 +480,7 @@
                     );
                 }
 
-                const buzzerOrder = getBuzzerOrder();
-                const allEmails = getAllEmails();
-
+                // QR CODE
                 if (showQRCode && sessionId) {
                     return h('div', { className: 'h-screen bg-white flex flex-col items-center justify-center p-8', onClick: () => setShowQRCode(false) },
                         h('div', { className: 'text-center mb-8' },
@@ -382,32 +492,8 @@
                     );
                 }
 
-                if (showEmailsModal) {
-                    return h('div', { className: 'h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-4 flex items-center justify-center' },
-                        h('div', { className: 'bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto' },
-                            h('div', { className: 'flex justify-between items-center mb-4' },
-                                h('h2', { className: 'text-2xl font-bold' }, '📧 E-mails dos Participantes'),
-                                h('button', { onClick: () => setShowEmailsModal(false), className: 'px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Fechar')
-                            ),
-                            allEmails.length === 0 
-                                ? h('p', { className: 'text-gray-600' }, 'Nenhum e-mail registado.')
-                                : h('div', { className: 'space-y-3' },
-                                    allEmails.map((item, idx) => h('div', { key: idx, className: 'bg-gray-50 p-3 rounded-lg' },
-                                        h('div', { className: 'font-semibold text-gray-800' }, `Mesa ${item.table}${item.team ? ` - ${item.team}` : ''}`),
-                                        h('div', { className: 'text-gray-600' }, item.email)
-                                    )),
-                                    h('button', {
-                                        onClick: () => {
-                                            const text = allEmails.map(e => `Mesa ${e.table} - ${e.team}: ${e.email}`).join('\n');
-                                            navigator.clipboard.writeText(text);
-                                            alert('E-mails copiados para a área de transferência!');
-                                        },
-                                        className: 'w-full mt-4 bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700'
-                                    }, '📋 Copiar Todos os E-mails')
-                                )
-                        )
-                    );
-                }
+                // JOGO EM CURSO
+                const buzzerOrder = getBuzzerOrder();
 
                 return h('div', { className: 'h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-2 flex flex-col overflow-auto' },
                     h('div', { className: 'max-w-7xl mx-auto w-full flex flex-col flex-1' },
@@ -415,25 +501,25 @@
                             h('div', { className: 'text-sm opacity-90 mb-2' }, 'CÓDIGO DA SESSÃO'),
                             h('div', { className: 'text-7xl sm:text-8xl font-black tracking-widest mb-4' }, sessionId),
                             h('div', { className: 'flex gap-3' },
-                                h('button', { onClick: () => { navigator.clipboard.writeText(sessionId); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000); }, className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, codeCopied ? '✓ Copiado' : '📋 Copiar'),
-                                h('button', { onClick: () => setShowQRCode(true), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, '📱 QR Code'),
-                                h('button', { onClick: () => setShowSessionCode(false), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, '✕ Ocultar')
+                                h('button', { onClick: () => { navigator.clipboard.writeText(sessionId); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000); }, className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, codeCopied ? '✓ Copiado' : 'Copiar'),
+                                h('button', { onClick: () => setShowQRCode(true), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, 'QR Code'),
+                                h('button', { onClick: () => setShowSessionCode(false), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, 'Ocultar')
                             )
                         ),
-                        sessionId && !showSessionCode && h('button', { onClick: () => setShowSessionCode(true), className: 'bg-green-600 text-white rounded-lg px-4 py-2 mb-2 font-bold hover:bg-green-700' }, '📋 Mostrar Código da Sessão'),
+                        sessionId && !showSessionCode && h('button', { onClick: () => setShowSessionCode(true), className: 'bg-green-600 text-white rounded-lg px-4 py-2 mb-2 font-bold hover:bg-green-700' }, 'Mostrar Código da Sessão'),
                         buzzerOrder.length > 0 && h('div', { 
-                            className: 'text-white rounded-lg p-3 mb-2 animate-pulse',
-                            style: { background: 'linear-gradient(90deg, #2563eb 0%, #3b82f6 50%, #2563eb 100%)', backgroundSize: '200% 100%', animation: 'gradient 2s ease infinite' }
+                            className: `text-white rounded-lg p-3 mb-2 transition-colors ${buzzerFlash ? 'bg-blue-600' : 'bg-blue-500'}`,
+                            style: { animation: buzzerFlash ? 'buzzerFlash 0.5s ease-in-out' : 'none' }
                         },
                             h('div', { className: 'flex justify-between items-center mb-2' },
-                                h('h3', { className: 'font-bold text-lg' }, '🔔 Buzzers Ativos'),
+                                h('h3', { className: 'font-bold text-lg' }, 'Buzzers Ativos'),
                                 h('button', { onClick: resetAllBuzzers, className: 'bg-white bg-opacity-20 px-3 py-1 rounded hover:bg-opacity-30 text-sm' }, 'Resetar Todos')
                             ),
                             h('div', { className: 'flex flex-wrap gap-2' },
                                 buzzerOrder.map(b => h('div', { key: b.tableId, className: 'bg-white bg-opacity-20 px-3 py-2 rounded flex items-center gap-2' },
                                     h('span', { className: 'font-bold' }, `${b.order}º`),
                                     h('span', null, `Mesa ${b.tableId}`),
-                                    h('button', { onClick: () => resetBuzzer(b.tableId), className: 'bg-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-800' }, '↻')
+                                    h('button', { onClick: () => resetBuzzer(b.tableId), className: 'bg-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-800' }, 'Reset')
                                 ))
                             )
                         ),
@@ -470,26 +556,24 @@
                         ),
                         h('div', { className: 'flex justify-between bg-white rounded-lg p-2' },
                             h('div', { className: 'flex gap-2' },
-                                h('button', { onClick: () => setShowScores(!showScores), className: 'px-3 py-1.5 text-xs bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600' }, showScores ? '👁️ Ocultar' : '👁️ Mostrar'),
-                                allEmails.length > 0 && h('button', { onClick: () => setShowEmailsModal(true), className: 'px-3 py-1.5 text-xs bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600' }, '📧 E-mails')
+                                h('button', { onClick: () => setShowScores(!showScores), className: 'px-3 py-1.5 text-xs bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600' }, showScores ? 'Ocultar' : 'Mostrar')
                             ),
                             h('div', { className: 'flex gap-2' },
-                                h('button', { onClick: () => { const s = sorted(); setLeaderboardRevealPosition(s.length > 5 ? 6 : s.length); setShowLeaderboard(true); }, className: 'px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600' }, '🏆 Rank'),
-                                h('button', { onClick: resetAllScores, className: 'px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, '↻ Reset Pontos'),
-                                h('button', { onClick: resetGame, className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, '🔄 Nova Sessão')
+                                h('button', { onClick: saveSession, className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gravar Sessão'),
+                                h('button', { onClick: () => { const s = sorted(); setLeaderboardRevealPosition(s.length > 5 ? 6 : s.length); setShowLeaderboard(true); }, className: 'px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600' }, 'Rank'),
+                                h('button', { onClick: resetAllScores, className: 'px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, 'Reset Pontos'),
+                                h('button', { onClick: resetGame, className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, 'Nova Sessão')
                             )
                         )
                     )
                 );
             }
 
-            // Animação de gradiente para buzzer
             const style = document.createElement('style');
             style.textContent = `
-                @keyframes gradient {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
+                @keyframes buzzerFlash {
+                    0%, 100% { background-color: rgb(59, 130, 246); }
+                    50% { background-color: rgb(30, 58, 138); }
                 }
             `;
             document.head.appendChild(style);

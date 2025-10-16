@@ -33,7 +33,6 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
-        // Som de sirene de polícia
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -42,20 +41,21 @@
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
-            // Sirene: alterna entre duas frequências
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.15);
-            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.3);
-            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.45);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.3);
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.6);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.9);
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 1.2);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 1.5);
             
             oscillator.type = 'sine';
             
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
-            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 0.6);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.7);
+            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 1.8);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 2);
             
             oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.7);
+            oscillator.stop(audioContext.currentTime + 2);
         };
 
         window.addEventListener('firebaseReady', () => {
@@ -75,7 +75,6 @@
                 const [connecting, setConnecting] = useState(false);
                 const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
 
-                // Ler código da sessão da URL
                 useEffect(() => {
                     const urlParams = new URLSearchParams(window.location.search);
                     const session = urlParams.get('session');
@@ -104,7 +103,6 @@
                         if (data) {
                             setBuzzerState(data);
                         } else {
-                            // Inicializar buzzer se não existir
                             set(buzzerRef, { pressed: false, enabled: true, timestamp: null });
                         }
                     });
@@ -137,7 +135,6 @@
                             setError('Código de sessão inválido ou jogo não iniciado');
                             setConnecting(false);
                         } else {
-                            // Registar cliente
                             await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`), {
                                 tableNumber: parseInt(tableNumber),
                                 teamName: teamName || `Mesa ${tableNumber}`,
@@ -145,7 +142,6 @@
                                 connectedAt: Date.now()
                             });
 
-                            // Inicializar buzzer
                             await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`), {
                                 pressed: false,
                                 enabled: true,
@@ -165,7 +161,6 @@
                 const pressBuzzer = async () => {
                     if (!buzzerState.enabled || buzzerState.pressed) return;
                     
-                    // Verificar se mesa tem 0 pontos e bloqueio está ativo
                     if (gameData?.blockBuzzerAtZero && myTable?.score === 0) {
                         alert('Buzzer bloqueado! A vossa mesa tem 0 pontos.');
                         return;
@@ -188,7 +183,7 @@
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
                         h('div', { className: 'max-w-md w-full bg-white rounded-2xl shadow-2xl p-6' },
                             h('div', { className: 'text-center mb-6' },
-                                h('h1', { className: 'text-3xl font-bold text-gray-800' }, '👥 Registo de Mesa')
+                                h('h1', { className: 'text-3xl font-bold text-gray-800' }, 'Registo de Mesa')
                             ),
                             error && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4' }, error),
                             h('div', { className: 'space-y-4' },
@@ -236,7 +231,7 @@
                                     h('div', { className: 'space-y-2 max-h-48 overflow-y-auto' },
                                         emails.map((email, index) =>
                                             h('div', { key: index, className: 'flex gap-2' },
-                                                h('span', { className: 'text-gray-400 mt-3' }, '✉️'),
+                                                h('span', { className: 'text-gray-400 mt-3' }, '✉'),
                                                 h('input', {
                                                     type: 'email',
                                                     value: email,
@@ -292,11 +287,9 @@
                                 onClick: pressBuzzer,
                                 disabled: !buzzerState.enabled || buzzerState.pressed,
                                 className: `w-56 h-56 sm:w-64 sm:h-64 rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
-                                    buzzerState.pressed 
+                                    !buzzerState.enabled || buzzerState.pressed
                                         ? 'bg-gray-400 cursor-not-allowed opacity-50' 
-                                        : buzzerState.enabled
-                                            ? 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
-                                            : 'bg-gray-400 cursor-not-allowed'
+                                        : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
                                 }`
                             }, h('div', { className: 'flex flex-col items-center gap-2' },
                                 h('div', { className: 'text-5xl' }, buzzerState.pressed ? '🔒' : '🔔'),
