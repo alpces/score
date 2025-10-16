@@ -11,7 +11,7 @@
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getFirestore, collection, getDocs, setDoc, doc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
         const firebaseConfig = {
@@ -27,7 +27,7 @@
         const app = initializeApp(firebaseConfig);
         window.db = getFirestore(app);
         window.rtdb = getDatabase(app);
-        window.fbModules = { collection, getDocs, setDoc, doc, ref, set, remove, onValue, update };
+        window.fbModules = { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -65,7 +65,7 @@
         window.addEventListener('firebaseReady', () => {
             const { useState, useEffect, createElement: h } = React;
             const { db, rtdb, fbModules } = window;
-            const { collection, getDocs, setDoc, doc, ref, set, remove, onValue, update } = fbModules;
+            const { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update } = fbModules;
 
             function App() {
                 const [setupComplete, setSetupComplete] = useState(false);
@@ -179,14 +179,17 @@
 
                 const saveCats = async (cats) => {
                     try {
+                        // Apagar todas as categorias existentes
                         const snap = await getDocs(collection(db, 'categories'));
-                        await Promise.all([...snap.docs.map(d => {
-                            const docRef = doc(db, 'categories', d.id);
-                            return update(docRef, {}).then(() => set(docRef, {})).catch(() => {});
-                        })]);
+                        await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'categories', d.id))));
+                        
+                        // Adicionar as novas categorias
                         await Promise.all(cats.map((cat, i) => setDoc(doc(db, 'categories', `cat_${i}`), { name: cat })));
+                        
                         setPredefinedCategories(cats);
-                    } catch (e) { console.error(e); }
+                    } catch (e) { 
+                        console.error('Erro ao guardar categorias:', e); 
+                    }
                 };
 
                 const syncGame = async () => {
