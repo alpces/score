@@ -1,21 +1,20 @@
                 useEffect(() => {
-                    if (showHistory) {
-                        const historyRef = ref(rtdb, 'sessionHistory');
-                        const unsubHistory = onValue(historyRef, (snapshot) => {
-                            const data = snapshot.val();
-                            if (data) {
-                                const history = Object.keys(data).map(key => ({
-                                    id: key,
-                                    ...data[key]
-                                }));
-                                history.sort((a, b) => b.timestamp - a.timestamp);
-                                setSessionHistory(history);
-                            } else {
-                                setSessionHistory([]);
-                            }
-                        });
-                        return () => unsubHistory();
-                    }
+                    if (!showHistory) return;
+                    const historyRef = ref(rtdb, 'sessionHistory');
+                    const unsubHistory = onValue(historyRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            const history = Object.keys(data).map(key => ({
+                                id: key,
+                                ...data[key]
+                            }));
+                            history.sort((a, b) => b.timestamp - a.timestamp);
+                            setSessionHistory(history);
+                        } else {
+                            setSessionHistory([]);
+                        }
+                    });
+                    return () => unsubHistory();
                 }, [showHistory]);<!DOCTYPE html>
 <html lang="pt">
 <head>
@@ -113,7 +112,6 @@
                 const [showHistory, setShowHistory] = useState(false);
                 const [sessionHistory, setSessionHistory] = useState([]);
                 const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);
-                const [buzzerFlash, setBuzzerFlash] = useState(false);
 
                 useEffect(() => {
                     (async () => {
@@ -184,8 +182,6 @@
                         Object.keys(data).forEach(key => {
                             if (data[key].pressed && !prevBuzzers[key]?.pressed) {
                                 playBuzzer();
-                                setBuzzerFlash(true);
-                                setTimeout(() => setBuzzerFlash(false), 500);
                             }
                         });
                     });
@@ -527,8 +523,8 @@
                         ),
                         sessionId && !showSessionCode && h('button', { onClick: () => setShowSessionCode(true), className: 'bg-green-600 text-white rounded-lg px-4 py-2 mb-2 font-bold hover:bg-green-700' }, 'Mostrar Código da Sessão'),
                         buzzerOrder.length > 0 && h('div', { 
-                            className: `text-white rounded-lg p-3 mb-2 transition-colors ${buzzerFlash ? 'bg-blue-600' : 'bg-blue-500'}`,
-                            style: { animation: buzzerFlash ? 'buzzerFlash 0.5s ease-in-out' : 'none' }
+                            className: `text-white rounded-lg p-3 mb-2`,
+                            style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
                         },
                             h('div', { className: 'flex justify-between items-center mb-2' },
                                 h('h3', { className: 'font-bold text-lg' }, 'Buzzers Ativos'),

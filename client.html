@@ -94,7 +94,13 @@
                         if (data) {
                             setGameData(data);
                             const table = data.tables?.find(t => t.id === parseInt(tableNumber));
-                            if (table) setMyTable(table);
+                            if (table) {
+                                setMyTable(table);
+                                // Se pontuação volta a ser > 0, desbloqueia o buzzer
+                                if (table.score > 0 && data.blockBuzzerAtZero && buzzerState.pressed) {
+                                    setBuzzerState({ pressed: false, enabled: true, timestamp: null });
+                                }
+                            }
                         }
                     });
 
