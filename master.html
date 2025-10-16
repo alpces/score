@@ -1,4 +1,22 @@
-<!DOCTYPE html>
+                useEffect(() => {
+                    if (showHistory) {
+                        const historyRef = ref(rtdb, 'sessionHistory');
+                        const unsubHistory = onValue(historyRef, (snapshot) => {
+                            const data = snapshot.val();
+                            if (data) {
+                                const history = Object.keys(data).map(key => ({
+                                    id: key,
+                                    ...data[key]
+                                }));
+                                history.sort((a, b) => b.timestamp - a.timestamp);
+                                setSessionHistory(history);
+                            } else {
+                                setSessionHistory([]);
+                            }
+                        });
+                        return () => unsubHistory();
+                    }
+                }, [showHistory]);<!DOCTYPE html>
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
@@ -270,7 +288,8 @@
                             historyData.emails[client.tableNumber] = client.emails || [];
                         });
 
-                        await setDoc(doc(collection(db, 'sessionHistory')), historyData);
+                        const historyId = Math.random().toString(36).substring(2, 12);
+                        await set(ref(rtdb, `sessionHistory/${historyId}`), historyData);
                         alert('Sessão gravada com sucesso!');
                     } catch (e) { 
                         console.error(e);
@@ -302,7 +321,7 @@
                 const deleteHistoryEntry = async (entryId) => {
                     if (!confirm('Tem a certeza que deseja eliminar este registo?')) return;
                     try {
-                        await deleteDoc(doc(db, 'sessionHistory', entryId));
+                        await remove(ref(rtdb, `sessionHistory/${entryId}`));
                         setSessionHistory(sessionHistory.filter(h => h.id !== entryId));
                     } catch (e) { console.error(e); }
                 };
