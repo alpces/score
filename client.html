@@ -56,23 +56,6 @@
             
             oscillator.start(audioContext.currentTime);
             oscillator.stop(audioContext.currentTime + 0.7);
-        };rado - tipo "plim" agradável
-        const playBuzzer = () => {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            // Tom mais agradável tipo "plim"
-            oscillator.frequency.value = 1000;
-            oscillator.type = 'sine';
-            
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.15);
         };
 
         window.addEventListener('firebaseReady', () => {
@@ -140,8 +123,8 @@
                         return;
                     }
                     
-                    if (!tableNumber || tableNumber < 1 || tableNumber > 12) {
-                        setError('Número da mesa inválido (1-12)');
+                    if (!tableNumber || tableNumber < 1 || tableNumber > 20) {
+                        setError('Número da mesa inválido (1-20)');
                         return;
                     }
 
@@ -181,6 +164,12 @@
 
                 const pressBuzzer = async () => {
                     if (!buzzerState.enabled || buzzerState.pressed) return;
+                    
+                    // Verificar se mesa tem 0 pontos e bloqueio está ativo
+                    if (gameData?.blockBuzzerAtZero && myTable?.score === 0) {
+                        alert('Buzzer bloqueado! A vossa mesa tem 0 pontos.');
+                        return;
+                    }
 
                     playBuzzer();
 
@@ -219,10 +208,10 @@
                                     h('input', {
                                         type: 'number',
                                         min: 1,
-                                        max: 12,
+                                        max: 20,
                                         value: tableNumber,
                                         onChange: (e) => setTableNumber(e.target.value),
-                                        placeholder: '1-12',
+                                        placeholder: '1-20',
                                         className: 'w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
                                     })
                                 ),
