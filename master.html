@@ -1,21 +1,4 @@
-                useEffect(() => {
-                    if (!showHistory) return;
-                    const historyRef = ref(rtdb, 'sessionHistory');
-                    const unsubHistory = onValue(historyRef, (snapshot) => {
-                        const data = snapshot.val();
-                        if (data) {
-                            const history = Object.keys(data).map(key => ({
-                                id: key,
-                                ...data[key]
-                            }));
-                            history.sort((a, b) => b.timestamp - a.timestamp);
-                            setSessionHistory(history);
-                        } else {
-                            setSessionHistory([]);
-                        }
-                    });
-                    return () => unsubHistory();
-                }, [showHistory]);<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
@@ -28,7 +11,7 @@
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getFirestore, collection, getDocs, setDoc, doc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
         const firebaseConfig = {
@@ -44,7 +27,7 @@
         const app = initializeApp(firebaseConfig);
         window.db = getFirestore(app);
         window.rtdb = getDatabase(app);
-        window.fbModules = { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update };
+        window.fbModules = { collection, getDocs, setDoc, doc, ref, set, remove, onValue, update };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -82,7 +65,7 @@
         window.addEventListener('firebaseReady', () => {
             const { useState, useEffect, createElement: h } = React;
             const { db, rtdb, fbModules } = window;
-            const { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update } = fbModules;
+            const { collection, getDocs, setDoc, doc, ref, set, remove, onValue, update } = fbModules;
 
             function App() {
                 const [setupComplete, setSetupComplete] = useState(false);
@@ -125,20 +108,22 @@
                 }, []);
 
                 useEffect(() => {
-                    if (showHistory) {
-                        (async () => {
-                            try {
-                                const snap = await getDocs(collection(db, 'sessionHistory'));
-                                const history = [];
-                                snap.forEach(d => {
-                                    const data = d.data();
-                                    history.push({ id: d.id, ...data });
-                                });
-                                history.sort((a, b) => b.timestamp - a.timestamp);
-                                setSessionHistory(history);
-                            } catch (e) { console.error(e); }
-                        })();
-                    }
+                    if (!showHistory) return;
+                    const historyRef = ref(rtdb, 'sessionHistory');
+                    const unsubHistory = onValue(historyRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            const history = Object.keys(data).map(key => ({
+                                id: key,
+                                ...data[key]
+                            }));
+                            history.sort((a, b) => b.timestamp - a.timestamp);
+                            setSessionHistory(history);
+                        } else {
+                            setSessionHistory([]);
+                        }
+                    });
+                    return () => unsubHistory();
                 }, [showHistory]);
 
                 useEffect(() => {
@@ -195,7 +180,10 @@
                 const saveCats = async (cats) => {
                     try {
                         const snap = await getDocs(collection(db, 'categories'));
-                        await Promise.all([...snap.docs.map(d => deleteDoc(doc(db, 'categories', d.id)))]);
+                        await Promise.all([...snap.docs.map(d => {
+                            const docRef = doc(db, 'categories', d.id);
+                            return update(docRef, {}).then(() => set(docRef, {})).catch(() => {});
+                        })]);
                         await Promise.all(cats.map((cat, i) => setDoc(doc(db, 'categories', `cat_${i}`), { name: cat })));
                         setPredefinedCategories(cats);
                     } catch (e) { console.error(e); }
@@ -341,7 +329,6 @@
                     return date.toLocaleDateString('pt-PT') + ' ' + date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
                 };
 
-                // HISTÓRIA
                 if (showHistory) {
                     if (selectedHistoryEntry) {
                         const entry = selectedHistoryEntry;
@@ -401,7 +388,6 @@
                     );
                 }
 
-                // CONFIGURAÇÃO
                 if (!setupComplete) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3 overflow-y-auto' },
                         h('div', { className: 'max-w-2xl mx-auto py-4' },
@@ -469,7 +455,6 @@
                     );
                 }
 
-                // LEADERBOARD
                 if (showLeaderboard) {
                     const s = sorted();
                     const visible = s.slice(leaderboardRevealPosition - 1);
@@ -495,7 +480,6 @@
                     );
                 }
 
-                // QR CODE
                 if (showQRCode && sessionId) {
                     return h('div', { className: 'h-screen bg-white flex flex-col items-center justify-center p-8', onClick: () => setShowQRCode(false) },
                         h('div', { className: 'text-center mb-8' },
@@ -507,7 +491,6 @@
                     );
                 }
 
-                // JOGO EM CURSO
                 const buzzerOrder = getBuzzerOrder();
 
                 return h('div', { className: 'h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-2 flex flex-col overflow-auto' },
@@ -523,7 +506,7 @@
                         ),
                         sessionId && !showSessionCode && h('button', { onClick: () => setShowSessionCode(true), className: 'bg-green-600 text-white rounded-lg px-4 py-2 mb-2 font-bold hover:bg-green-700' }, 'Mostrar Código da Sessão'),
                         buzzerOrder.length > 0 && h('div', { 
-                            className: `text-white rounded-lg p-3 mb-2`,
+                            className: 'text-white rounded-lg p-3 mb-2',
                             style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
                         },
                             h('div', { className: 'flex justify-between items-center mb-2' },
@@ -550,22 +533,23 @@
                             tables.map(t => {
                                 const hasBuzzer = buzzers[t.id]?.pressed;
                                 const buzzerInfo = buzzerOrder.find(b => b.tableId === t.id);
-                                return h('div', { key: t.id, className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` },
+                                const isDisabled = blockBuzzerAtZero && t.score === 0;
+                                return h('div', { key: t.id, className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${isDisabled ? 'bg-gray-400' : hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` },
                                     flashEffects[t.id] && h('div', { className: 'absolute inset-0 flex items-center justify-center z-10 bg-black bg-opacity-50 rounded-lg' },
                                         h('span', { className: 'text-5xl font-bold text-white' }, flashEffects[t.id])
                                     ),
                                     hasBuzzer && h('div', { className: 'absolute top-0 right-0 bg-yellow-400 text-black rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold' }, buzzerInfo?.order),
-                                    h('div', { className: `text-center mb-1 ${hasBuzzer ? 'text-white' : ''}` },
-                                        h('div', { className: `text-2xl font-extrabold ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, `M${t.id}`),
-                                        t.name && h('div', { className: `text-[10px] truncate ${hasBuzzer ? 'text-white' : 'text-gray-600'}` }, t.name)
+                                    h('div', { className: `text-center mb-1 ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : ''}` },
+                                        h('div', { className: `text-2xl font-extrabold ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : 'text-indigo-600'}` }, `M${t.id}`),
+                                        t.name && h('div', { className: `text-[10px] truncate ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : 'text-gray-600'}` }, t.name)
                                     ),
                                     h('div', { className: 'flex items-center justify-center gap-1 mb-1 flex-1' },
-                                        h('button', { onClick: () => updateScore(t.id, -1), className: 'w-8 h-8 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600' }, '-'),
-                                        showScores && h('div', { className: `text-2xl font-bold w-10 text-center ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.score),
+                                        h('button', { onClick: () => updateScore(t.id, -1), disabled: isDisabled, className: `w-8 h-8 rounded-lg font-bold ${isDisabled ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-gray-500 text-white hover:bg-gray-600'}` }, '-'),
+                                        showScores && h('div', { className: `text-2xl font-bold w-10 text-center ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : 'text-indigo-600'}` }, t.score),
                                         !showScores && h('div', { className: 'w-10' }),
-                                        h('button', { onClick: () => updateScore(t.id, 1), className: 'w-8 h-8 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600' }, '+')
+                                        h('button', { onClick: () => updateScore(t.id, 1), disabled: isDisabled, className: `w-8 h-8 rounded-lg font-bold ${isDisabled ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-green-500 text-white hover:bg-green-600'}` }, '+')
                                     ),
-                                    h('button', { onClick: () => updateScore(t.id, 5), className: 'w-full bg-purple-500 text-white py-1 rounded-lg font-bold hover:bg-purple-600 text-[10px]' }, '+5')
+                                    h('button', { onClick: () => updateScore(t.id, 5), disabled: isDisabled, className: `w-full py-1 rounded-lg font-bold text-[10px] ${isDisabled ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-purple-500 text-white hover:bg-purple-600'}` }, '+5')
                                 );
                             })
                         ),
