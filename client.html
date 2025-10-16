@@ -33,7 +33,30 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
-        // Som de buzzer melhorado - tipo "plim" agradável
+        // Som de sirene de polícia
+        const playBuzzer = () => {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            // Sirene: alterna entre duas frequências
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.15);
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.3);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.45);
+            
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 0.6);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.7);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.7);
+        };rado - tipo "plim" agradável
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -68,6 +91,15 @@
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
                 const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
+
+                // Ler código da sessão da URL
+                useEffect(() => {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const session = urlParams.get('session');
+                    if (session) {
+                        setSessionCode(session.toUpperCase());
+                    }
+                }, []);
 
                 useEffect(() => {
                     if (!registered || !sessionCode) return;
