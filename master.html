@@ -95,6 +95,8 @@
                 const [showHistory, setShowHistory] = useState(false);
                 const [sessionHistory, setSessionHistory] = useState([]);
                 const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);
+                const [showSaveModal, setShowSaveModal] = useState(false);
+                const [saveDescription, setSaveDescription] = useState('');
 
                 useEffect(() => {
                     (async () => {
@@ -179,13 +181,9 @@
 
                 const saveCats = async (cats) => {
                     try {
-                        // Apagar todas as categorias existentes
                         const snap = await getDocs(collection(db, 'categories'));
                         await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'categories', d.id))));
-                        
-                        // Adicionar as novas categorias
                         await Promise.all(cats.map((cat, i) => setDoc(doc(db, 'categories', `cat_${i}`), { name: cat })));
-                        
                         setPredefinedCategories(cats);
                     } catch (e) { 
                         console.error('Erro ao guardar categorias:', e); 
@@ -257,17 +255,22 @@
                     } catch (e) { console.error(e); }
                 };
 
-                const saveSession = async () => {
+                const saveSession = async (description = '') => {
                     if (!sessionId) return;
                     try {
                         const historyData = {
                             sessionId: sessionId,
                             timestamp: Date.now(),
+                            description: description,
                             tables: tables.map(t => ({
                                 id: t.id,
                                 name: t.name,
                                 score: t.score
                             })),
+                            categories: categories,
+                            yellowCategory: yellowCategory,
+                            redCategory: redCategory,
+                            usedCategories: usedCategories,
                             emails: {}
                         };
 
@@ -277,6 +280,8 @@
 
                         const historyId = Math.random().toString(36).substring(2, 12);
                         await set(ref(rtdb, `sessionHistory/${historyId}`), historyData);
+                        setShowSaveModal(false);
+                        setSaveDescription('');
                         alert('Sessão gravada com sucesso!');
                     } catch (e) { 
                         console.error(e);
@@ -284,12 +289,31 @@
                     }
                 };
 
+                const loadSession = async (entry) => {
+                    setTables(entry.tables);
+                    setCategories(entry.categories || []);
+                    setYellowCategory(entry.yellowCategory || null);
+                    setRedCategory(entry.redCategory || null);
+                    setUsedCategories(entry.usedCategories || []);
+                    setSessionId(entry.sessionId);
+                    setSetupComplete(true);
+                    setShowHistory(false);
+                    setSelectedHistoryEntry(null);
+                    
+                    // Reset all buzzers
+                    try {
+                        const buzzersRef = ref(rtdb, `sessions/${entry.sessionId}/buzzers`);
+                        await set(buzzersRef, {});
+                    } catch (e) { console.error(e); }
+                };
+
                 const resetGame = async () => {
                     if (!confirm('Tem a certeza que deseja iniciar uma nova sessão?')) return;
                     
                     const saveChoice = confirm('Deseja gravar a sessão atual antes de iniciar uma nova?');
                     if (saveChoice) {
-                        await saveSession();
+                        setShowSaveModal(true);
+                        return;
                     }
 
                     if (sessionId) try { await remove(ref(rtdb, `sessions/${sessionId}`)); } catch (e) {}
@@ -300,8 +324,30 @@
                     setShowSessionCode(true); setBuzzerText('BUZZER'); setBlockBuzzerAtZero(true); setShowQRCode(false);
                 };
 
+                const proceedWithReset = async () => {
+                    await saveSession(saveDescription);
+                    if (sessionId) try { await remove(ref(rtdb, `sessions/${sessionId}`)); } catch (e) {}
+                    setSetupComplete(false); setTables([]); setCategories([]); setYellowCategory(null); setRedCategory(null);
+                    setUsedCategories([]); setTempNames({}); setTempCategories(['']); setInitialScore(1); setNumTables(0);
+                    setShowLeaderboard(false); setLeaderboardRevealPosition(null); setShowScores(false);
+                    setFlashEffects({}); setSessionId(null); setCodeCopied(false); setConnectedClients({}); setBuzzers({});
+                    setShowSessionCode(true); setBuzzerText('BUZZER'); setBlockBuzzerAtZero(true); setShowQRCode(false);
+                };
+
                 const resetAllScores = () => {
                     if (!confirm('Tem a certeza que deseja resetar todas as pontuações?')) return;
+                    
+                    const saveChoice = confirm('Deseja gravar a sessão atual antes de resetar?');
+                    if (saveChoice) {
+                        setShowSaveModal(true);
+                        return;
+                    }
+
+                    setTables(prev => prev.map(t => ({ ...t, score: initialScore })));
+                };
+
+                const proceedWithScoreReset = async () => {
+                    await saveSession(saveDescription);
                     setTables(prev => prev.map(t => ({ ...t, score: initialScore })));
                 };
 
@@ -332,6 +378,34 @@
                     return date.toLocaleDateString('pt-PT') + ' ' + date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
                 };
 
+                if (showSaveModal) {
+                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4' },
+                        h('div', { className: 'bg-white rounded-2xl p-6 max-w-md w-full' },
+                            h('h2', { className: 'text-xl font-bold mb-4' }, 'Gravar Sessão'),
+                            h('div', { className: 'mb-4' },
+                                h('label', { className: 'block text-sm font-semibold mb-2' }, 'Descrição (Opcional)'),
+                                h('textarea', {
+                                    value: saveDescription,
+                                    onChange: (e) => setSaveDescription(e.target.value),
+                                    placeholder: 'Adicione uma descrição para esta sessão...',
+                                    className: 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500',
+                                    rows: 4
+                                })
+                            ),
+                            h('div', { className: 'flex gap-2' },
+                                h('button', {
+                                    onClick: () => { setShowSaveModal(false); setSaveDescription(''); },
+                                    className: 'flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400'
+                                }, 'Cancelar'),
+                                h('button', {
+                                    onClick: () => saveSession(saveDescription),
+                                    className: 'flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700'
+                                }, 'Gravar Sessão')
+                            )
+                        )
+                    );
+                }
+
                 if (showHistory) {
                     if (selectedHistoryEntry) {
                         const entry = selectedHistoryEntry;
@@ -340,9 +414,16 @@
                             h('div', { className: 'max-w-4xl mx-auto pt-4' },
                                 h('div', { className: 'bg-white rounded-2xl p-4' },
                                     h('div', { className: 'flex justify-between mb-4' },
-                                        h('h2', { className: 'text-xl font-bold' }, `Sessão ${entry.sessionId} - ${formatDate(entry.timestamp)}`),
+                                        h('div', null,
+                                            h('h2', { className: 'text-xl font-bold' }, `Sessão ${entry.sessionId} - ${formatDate(entry.timestamp)}`),
+                                            entry.description && h('p', { className: 'text-gray-600 mt-1' }, entry.description)
+                                        ),
                                         h('button', { onClick: () => setSelectedHistoryEntry(null), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                     ),
+                                    h('button', {
+                                        onClick: () => loadSession(entry),
+                                        className: 'w-full bg-indigo-600 text-white py-2 rounded-lg font-bold hover:bg-indigo-700 mb-4'
+                                    }, 'Carregar esta Sessão'),
                                     h('div', { className: 'space-y-3' },
                                         sortedTables.map(t => h('div', { key: t.id, className: 'bg-gray-50 p-4 rounded-lg' },
                                             h('div', { className: 'flex justify-between items-start mb-2' },
@@ -375,15 +456,20 @@
                                 sessionHistory.length === 0
                                     ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma sessão gravada')
                                     : h('div', { className: 'space-y-2' },
-                                        sessionHistory.map(entry => h('div', { key: entry.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
-                                            h('button', { 
-                                                onClick: () => setSelectedHistoryEntry(entry),
-                                                className: 'flex-1 text-left hover:bg-gray-100 p-2 rounded transition'
-                                            }, h('span', { className: 'font-semibold' }, `${entry.sessionId} - ${formatDate(entry.timestamp)}`)),
-                                            h('button', { 
-                                                onClick: () => deleteHistoryEntry(entry.id),
-                                                className: 'px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 ml-2'
-                                            }, 'Apagar')
+                                        sessionHistory.map(entry => h('div', { key: entry.id, className: 'bg-gray-50 p-3 rounded-lg' },
+                                            h('div', { className: 'flex justify-between items-start mb-2' },
+                                                h('button', { 
+                                                    onClick: () => setSelectedHistoryEntry(entry),
+                                                    className: 'flex-1 text-left hover:bg-gray-100 p-2 rounded transition'
+                                                }, h('div', null,
+                                                    h('span', { className: 'font-semibold' }, `${entry.sessionId} - ${formatDate(entry.timestamp)}`),
+                                                    entry.description && h('div', { className: 'text-xs text-gray-600 mt-1' }, entry.description)
+                                                )),
+                                                h('button', { 
+                                                    onClick: () => deleteHistoryEntry(entry.id),
+                                                    className: 'px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 ml-2'
+                                                }, 'Apagar')
+                                            )
                                         ))
                                     )
                             )
@@ -422,167 +508,4 @@
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Nomes das Mesas'),
                                         h('div', { className: 'grid gap-2 max-h-48 overflow-y-auto' },
                                             Array.from({ length: numTables }, (_, i) => h('div', { key: i, className: 'flex gap-2' },
-                                                h('span', { className: 'text-sm w-16 pt-2' }, `Mesa ${i + 1}:`),
-                                                h('input', { value: tempNames[i + 1] || '', onChange: e => setTempNames({ ...tempNames, [i + 1]: e.target.value }), className: 'flex-1 px-3 py-1.5 text-sm border rounded-lg outline-none' })
-                                            ))
-                                        )
-                                    ),
-                                    h('div', null,
-                                        h('div', { className: 'flex justify-between mb-2' },
-                                            h('label', { className: 'text-sm font-semibold' }, 'Categorias'),
-                                            h('div', { className: 'space-x-2' },
-                                                predefinedCategories.length > 0 && h('button', { onClick: () => setTempCategories([...predefinedCategories]), className: 'px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600' }, 'Carregar'),
-                                                h('button', { onClick: () => setShowPredefined(!showPredefined), className: 'px-3 py-1 bg-purple-500 text-white text-sm rounded hover:bg-purple-600' }, 'Gerir'),
-                                                h('button', { onClick: () => setTempCategories([...tempCategories, '']), className: 'px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600' }, '+')
-                                            )
-                                        ),
-                                        showPredefined && h('div', { className: 'mb-3 p-3 bg-purple-50 rounded-lg' },
-                                            h('h4', { className: 'text-sm font-bold mb-2' }, 'Categorias Guardadas'),
-                                            predefinedCategories.map((cat, i) => h('div', { key: i, className: 'flex justify-between bg-white p-2 rounded mb-1' },
-                                                h('span', { className: 'text-sm' }, cat),
-                                                h('button', { onClick: () => saveCats(predefinedCategories.filter((_, x) => x !== i)), className: 'px-2 bg-red-500 text-white text-xs rounded' }, '✕')
-                                            )),
-                                            h('input', { placeholder: 'Nova categoria...', onKeyPress: e => { if (e.key === 'Enter' && e.target.value.trim()) { saveCats([...predefinedCategories, e.target.value.trim()].sort()); e.target.value = ''; } }, className: 'w-full mt-2 px-3 py-1.5 text-sm border rounded' })
-                                        ),
-                                        h('div', { className: 'space-y-2' },
-                                            tempCategories.map((cat, i) => h('div', { key: i, className: 'flex gap-2' },
-                                                h('input', { value: cat, onChange: e => { const n = [...tempCategories]; n[i] = e.target.value; setTempCategories(n); }, className: 'flex-1 px-3 py-1.5 text-sm border rounded outline-none' }),
-                                                tempCategories.length > 1 && h('button', { onClick: () => setTempCategories(tempCategories.filter((_, x) => x !== i)), className: 'px-2 bg-red-500 text-white text-sm rounded' }, '✕')
-                                            ))
-                                        )
-                                    ),
-                                    h('button', { onClick: initGame, className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700' }, 'Iniciar Jogo')
-                                )
-                            )
-                        )
-                    );
-                }
-
-                if (showLeaderboard) {
-                    const s = sorted();
-                    const visible = s.slice(leaderboardRevealPosition - 1);
-                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
-                        h('div', { className: 'max-w-4xl mx-auto pt-4' },
-                            h('div', { className: 'bg-white rounded-2xl p-4' },
-                                h('div', { className: 'flex justify-between mb-4' },
-                                    h('h2', { className: 'text-xl font-bold' }, 'Classificação'),
-                                    h('button', { onClick: () => { setShowLeaderboard(false); setLeaderboardRevealPosition(null); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
-                                ),
-                                leaderboardRevealPosition > 1 && h('button', { onClick: () => setLeaderboardRevealPosition(leaderboardRevealPosition - 1), className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold mb-4 animate-pulse' }, `Revelar ${leaderboardRevealPosition - 1}º Lugar`),
-                                h('div', { className: 'space-y-2' },
-                                    visible.map(t => {
-                                        const pos = s.indexOf(t) + 1;
-                                        return h('div', { key: t.id, className: `flex justify-between p-3 rounded ${pos === 1 ? 'bg-yellow-400 text-white scale-105' : pos === 2 ? 'bg-gray-300' : pos === 3 ? 'bg-orange-400 text-white' : 'bg-gray-100'}` },
-                                            h('div', null, h('span', { className: 'text-2xl font-bold mr-3' }, `${pos}º`), h('span', { className: 'font-bold' }, `Mesa ${t.id}`), t.name && h('span', { className: 'text-xs ml-2' }, t.name)),
-                                            h('span', { className: 'text-2xl font-bold' }, `${t.score} pts`)
-                                        );
-                                    })
-                                )
-                            )
-                        )
-                    );
-                }
-
-                if (showQRCode && sessionId) {
-                    return h('div', { className: 'h-screen bg-white flex flex-col items-center justify-center p-8', onClick: () => setShowQRCode(false) },
-                        h('div', { className: 'text-center mb-8' },
-                            h('h2', { className: 'text-6xl font-black text-gray-800 mb-4' }, sessionId),
-                            h('p', { className: 'text-2xl text-gray-600' }, 'Scannear para conectar')
-                        ),
-                        h('img', { src: generateQRCodeUrl(), alt: 'QR Code', className: 'max-w-2xl w-full' }),
-                        h('p', { className: 'text-gray-500 mt-8' }, 'Clica para fechar')
-                    );
-                }
-
-                const buzzerOrder = getBuzzerOrder();
-
-                return h('div', { className: 'h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-2 flex flex-col overflow-auto' },
-                    h('div', { className: 'max-w-7xl mx-auto w-full flex flex-col flex-1' },
-                        sessionId && showSessionCode && h('div', { className: 'bg-gradient-to-r from-green-600 to-green-700 text-white rounded-2xl p-6 mb-2 flex flex-col items-center shadow-2xl' },
-                            h('div', { className: 'text-sm opacity-90 mb-2' }, 'CÓDIGO DA SESSÃO'),
-                            h('div', { className: 'text-7xl sm:text-8xl font-black tracking-widest mb-4' }, sessionId),
-                            h('div', { className: 'flex gap-3' },
-                                h('button', { onClick: () => { navigator.clipboard.writeText(sessionId); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000); }, className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, codeCopied ? '✓ Copiado' : 'Copiar'),
-                                h('button', { onClick: () => setShowQRCode(true), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, 'QR Code'),
-                                h('button', { onClick: () => setShowSessionCode(false), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, 'Ocultar')
-                            )
-                        ),
-                        sessionId && !showSessionCode && h('button', { onClick: () => setShowSessionCode(true), className: 'bg-green-600 text-white rounded-lg px-4 py-2 mb-2 font-bold hover:bg-green-700' }, 'Mostrar Código da Sessão'),
-                        buzzerOrder.length > 0 && h('div', { 
-                            className: 'text-white rounded-lg p-3 mb-2',
-                            style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
-                        },
-                            h('div', { className: 'flex justify-between items-center mb-2' },
-                                h('h3', { className: 'font-bold text-lg' }, 'Buzzers Ativos'),
-                                h('button', { onClick: resetAllBuzzers, className: 'bg-white bg-opacity-20 px-3 py-1 rounded hover:bg-opacity-30 text-sm' }, 'Resetar Todos')
-                            ),
-                            h('div', { className: 'flex flex-wrap gap-2' },
-                                buzzerOrder.map(b => h('div', { key: b.tableId, className: 'bg-white bg-opacity-20 px-3 py-2 rounded flex items-center gap-2' },
-                                    h('span', { className: 'font-bold' }, `${b.order}º`),
-                                    h('span', null, `Mesa ${b.tableId}`),
-                                    h('button', { onClick: () => resetBuzzer(b.tableId), className: 'bg-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-800' }, 'Reset')
-                                ))
-                            )
-                        ),
-                        categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-3 mb-2', style: { height: sessionId ? 'calc(33.333% - 4rem)' : '33.333%' } },
-                            h('button', { onDoubleClick: () => changeCategory(setYellowCategory, yellowCategory), className: 'bg-yellow-400 text-gray-900 rounded-xl p-4 font-black hover:bg-yellow-500 h-full flex items-center justify-center' },
-                                h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, yellowCategory || 'Duplo clique')
-                            ),
-                            h('button', { onDoubleClick: () => changeCategory(setRedCategory, redCategory), className: 'bg-red-500 text-white rounded-xl p-4 font-black hover:bg-red-600 h-full flex items-center justify-center' },
-                                h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, redCategory || 'Duplo clique')
-                            )
-                        ),
-                        h('div', { className: 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5 mb-2', style: { height: 'calc(66.666% - 3.5rem)' } },
-                            tables.map(t => {
-                                const hasBuzzer = buzzers[t.id]?.pressed;
-                                const buzzerInfo = buzzerOrder.find(b => b.tableId === t.id);
-                                const isDisabled = 0
-                                //const isDisabled = blockBuzzerAtZero && t.score === 0;
-                                return h('div', { key: t.id, className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${isDisabled ? 'bg-gray-400' : hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` },
-                                    flashEffects[t.id] && h('div', { className: 'absolute inset-0 flex items-center justify-center z-10 bg-black bg-opacity-50 rounded-lg' },
-                                        h('span', { className: 'text-5xl font-bold text-white' }, flashEffects[t.id])
-                                    ),
-                                    hasBuzzer && h('div', { className: 'absolute top-0 right-0 bg-yellow-400 text-black rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold' }, buzzerInfo?.order),
-                                    h('div', { className: `text-center mb-1 ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : ''}` },
-                                        h('div', { className: `text-2xl font-extrabold ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : 'text-indigo-600'}` }, `M${t.id}`),
-                                        t.name && h('div', { className: `text-[10px] truncate ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : 'text-gray-600'}` }, t.name)
-                                    ),
-                                    h('div', { className: 'flex items-center justify-center gap-1 mb-1 flex-1' },
-                                        h('button', { onClick: () => updateScore(t.id, -1), disabled: isDisabled, className: `w-8 h-8 rounded-lg font-bold ${isDisabled ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-gray-500 text-white hover:bg-gray-600'}` }, '-'),
-                                        showScores && h('div', { className: `text-2xl font-bold w-10 text-center ${hasBuzzer ? 'text-white' : isDisabled ? 'text-gray-600' : 'text-indigo-600'}` }, t.score),
-                                        !showScores && h('div', { className: 'w-10' }),
-                                        h('button', { onClick: () => updateScore(t.id, 1), disabled: isDisabled, className: `w-8 h-8 rounded-lg font-bold ${isDisabled ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-green-500 text-white hover:bg-green-600'}` }, '+')
-                                    ),
-                                    h('button', { onClick: () => updateScore(t.id, 5), disabled: isDisabled, className: `w-full py-1 rounded-lg font-bold text-[10px] ${isDisabled ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-purple-500 text-white hover:bg-purple-600'}` }, '+5')
-                                );
-                            })
-                        ),
-                        h('div', { className: 'flex justify-between bg-white rounded-lg p-2' },
-                            h('div', { className: 'flex gap-2' },
-                                h('button', { onClick: () => setShowScores(!showScores), className: 'px-3 py-1.5 text-xs bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600' }, showScores ? 'Ocultar' : 'Mostrar')
-                            ),
-                            h('div', { className: 'flex gap-2' },
-                                h('button', { onClick: saveSession, className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gravar Sessão'),
-                                h('button', { onClick: () => { const s = sorted(); setLeaderboardRevealPosition(s.length > 5 ? 6 : s.length); setShowLeaderboard(true); }, className: 'px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600' }, 'Rank'),
-                                h('button', { onClick: resetAllScores, className: 'px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, 'Reset Pontos'),
-                                h('button', { onClick: resetGame, className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, 'Nova Sessão')
-                            )
-                        )
-                    )
-                );
-            }
-
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes buzzerFlash {
-                    0%, 100% { background-color: rgb(59, 130, 246); }
-                    50% { background-color: rgb(30, 58, 138); }
-                }
-            `;
-            document.head.appendChild(style);
-
-            ReactDOM.createRoot(document.getElementById('root')).render(h(App));
-        });
-    </script>
-</body>
-</html>
+                                                h('span
