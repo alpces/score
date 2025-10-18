@@ -835,16 +835,29 @@
                     );
                 }
 
-                if (showInitialCountdownQR && initialCountdownStarted) {
+                if (showInitialCountdownQR) {
+                    const handleClick = () => {
+                        if (!initialCountdownStarted) {
+                            setInitialCountdownStarted(true);
+                        }
+                    };
+
+                    const handleDoubleClick = () => {
+                        setShowInitialCountdownQR(false);
+                        setInitialCountdownStarted(false);
+                        setCountdownTime(initialCountdown);
+                    };
+
                     return h('div', { 
-                        className: 'h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4 overflow-hidden',
-                        onClick: handleClickInitialCountdown,
-                        onDoubleClick: handleDoubleClickQR
+                        className: 'h-screen bg-gradient-to-b from-slate-950 via-purple-900 to-slate-950 flex items-center justify-center p-4 overflow-hidden',
+                        onClick: handleClick,
+                        onDoubleClick: handleDoubleClick,
+                        style: { animation: 'gradientShift 15s ease-in-out infinite' }
                     },
-                        h('div', { className: 'flex gap-8 items-center justify-center w-full max-w-6xl' },
+                        h('div', { className: 'flex flex-col lg:flex-row gap-12 items-center justify-center w-full max-w-7xl' },
                             h('div', { className: 'flex-1 flex flex-col items-center justify-center text-white' },
                                 initialCountdownText && h('div', { className: 'text-center mb-12' },
-                                    h('p', { className: 'text-2xl md:text-3xl font-bold mb-8 leading-relaxed' }, initialCountdownText)
+                                    h('p', { className: 'text-2xl md:text-4xl font-bold mb-8 leading-relaxed max-w-2xl' }, initialCountdownText)
                                 ),
                                 h('div', { className: 'text-center' },
                                     h('div', { className: 'text-6xl md:text-8xl font-black mb-8 text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500' }, 
@@ -852,17 +865,20 @@
                                             ? `${Math.floor(countdownTime / 60)}:${String(countdownTime % 60).padStart(2, '0')}`
                                             : countdownTime
                                     ),
-                                    h('div', { className: 'text-xl md:text-2xl font-semibold text-gray-400' }, 'Conectem-se ao jogo')
+                                    !initialCountdownStarted && h('div', { className: 'text-xl md:text-2xl font-semibold text-gray-300' }, 'Clica para começar'),
+                                    initialCountdownStarted && h('div', { className: 'text-xl md:text-2xl font-semibold text-gray-300' }, 'Conectem-se ao jogo')
                                 )
                             ),
-                            h('div', { className: 'w-1/6 flex flex-col items-center justify-center' },
-                                h('img', { src: generateQRCodeUrl(), alt: 'QR Code', className: 'w-full h-auto mb-6' }),
-                                logos.length > 0 && h('div', { className: 'w-full' },
+                            h('div', { className: 'lg:w-1/4 flex flex-col items-center justify-center' },
+                                h('div', { className: 'mb-8 p-4 bg-white rounded-2xl shadow-2xl' },
+                                    h('img', { src: generateQRCodeUrl(), alt: 'QR Code', className: 'w-full h-auto' })
+                                ),
+                                logos.length > 0 && h('div', { className: 'w-full space-y-4' },
                                     logos.map((logo, idx) => h('img', { 
                                         key: idx, 
                                         src: logo, 
                                         alt: `Logo ${idx + 1}`,
-                                        className: 'w-full h-auto mb-4 object-contain'
+                                        className: 'w-full h-auto object-contain'
                                     }))
                                 )
                             )
@@ -937,6 +953,15 @@
                         gameTimer > 0 && h('div', { className: 'bg-red-600 text-white rounded-lg p-4 mb-2 text-center flex-shrink-0' },
                             h('div', { className: 'text-4xl font-black' }, `${String(Math.floor(gameTimer / 60)).padStart(2, '0')}:${String(gameTimer % 60).padStart(2, '0')}`)
                         ),
+                        gameTimer === 0 && Object.keys(buzzers).some(key => buzzers[key]?.pressed) && h('div', { className: 'bg-blue-600 text-white rounded-lg p-4 mb-2 text-center flex-shrink-0' },
+                            h('button', {
+                                onClick: async () => {
+                                    await resetAllBuzzers();
+                                    setGameTimer(0);
+                                },
+                                className: 'w-full px-4 py-2 bg-blue-700 text-white rounded-lg font-bold hover:bg-blue-800'
+                            }, 'Resetar Buzzers')
+                        ),
                         buzzerOrder.length > 0 && h('div', { 
                             className: 'text-white rounded-lg p-3 mb-2 flex-shrink-0',
                             style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
@@ -1010,6 +1035,13 @@
                 @keyframes buzzerFlash {
                     0%, 100% { background-color: rgb(59, 130, 246); }
                     50% { background-color: rgb(30, 58, 138); }
+                }
+                @keyframes gradientShift {
+                    0% { background: linear-gradient(to bottom, rgb(3, 7, 18), rgb(75, 0, 130), rgb(3, 7, 18)); }
+                    25% { background: linear-gradient(to bottom, rgb(3, 7, 18), rgb(55, 48, 163), rgb(3, 7, 18)); }
+                    50% { background: linear-gradient(to bottom, rgb(3, 7, 18), rgb(75, 0, 130), rgb(3, 7, 18)); }
+                    75% { background: linear-gradient(to bottom, rgb(3, 7, 18), rgb(55, 48, 163), rgb(3, 7, 18)); }
+                    100% { background: linear-gradient(to bottom, rgb(3, 7, 18), rgb(75, 0, 130), rgb(3, 7, 18)); }
                 }
             `;
             document.head.appendChild(style);

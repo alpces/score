@@ -219,7 +219,6 @@
                 };
 
                 const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
-                const isBuzzerBlockedByTimer = gameTimer === 0 && Object.keys(buzzers).some(key => buzzers[key]?.pressed);
 
                 if (!registered) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
@@ -330,18 +329,18 @@
                         h('div', { className: 'flex-1 flex items-center justify-center' },
                             h('button', {
                                 onClick: pressBuzzer,
-                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer,
+                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore,
                                 className: `w-56 h-56 sm:w-64 sm:h-64 rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
-                                    !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer
+                                    !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore
                                         ? 'bg-gray-400 cursor-not-allowed opacity-50' 
                                         : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
                                 }`
                             }, h('div', { className: 'flex flex-col items-center gap-2' },
                                 h('div', { className: 'text-5xl' }, 
-                                    buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer ? '🔔' : '🔕'
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔔' : '🔕'
                                 ),
                                 h('div', null, 
-                                    buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
                                 )
                             ))
                         ),
