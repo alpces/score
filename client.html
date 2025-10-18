@@ -74,6 +74,10 @@
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
                 const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
+                const [gameTimer, setGameTimer] = useState(0);
+                const [messagesEnabled, setMessagesEnabled] = useState(false);
+                const [messageText, setMessageText] = useState('');
+                const [messageSent, setMessageSent] = useState(false);
 
                 useEffect(() => {
                     const urlParams = new URLSearchParams(window.location.search);
@@ -93,10 +97,11 @@
                         const data = snapshot.val();
                         if (data) {
                             setGameData(data);
+                            setGameTimer(data.gameTimer || 0);
+                            setMessagesEnabled(data.messagesEnabled || false);
                             const table = data.tables?.find(t => t.id === parseInt(tableNumber));
                             if (table) {
                                 setMyTable(table);
-                                // Se pontuação volta a ser > 0, desbloqueia o buzzer
                                 if (table.score > 0 && data.blockBuzzerAtZero && buzzerState.pressed) {
                                     setBuzzerState({ pressed: false, enabled: true, timestamp: null });
                                 }
@@ -118,6 +123,16 @@
                         unsubBuzzer();
                     };
                 }, [registered, sessionCode, tableNumber]);
+
+                useEffect(() => {
+                    if (gameTimer <= 0) return;
+                    
+                    const interval = setInterval(() => {
+                        setGameTimer(t => Math.max(0, t - 1));
+                    }, 1000);
+                    
+                    return () => clearInterval(interval);
+                }, [gameTimer]);
 
                 const handleRegister = async () => {
                     setError('');
@@ -184,8 +199,27 @@
                     }
                 };
 
-                // Determinar se o buzzer está bloqueado por ter 0 pontos
+                const sendMessage = async () => {
+                    if (!messageText.trim() || !sessionCode) return;
+                    
+                    try {
+                        const msgKey = `${tableNumber}_${Date.now()}`;
+                        await set(ref(rtdb, `sessions/${sessionCode}/messages/${msgKey}`), {
+                            tableNumber: parseInt(tableNumber),
+                            text: messageText.trim(),
+                            timestamp: Date.now()
+                        });
+                        
+                        setMessageText('');
+                        setMessageSent(true);
+                        setTimeout(() => setMessageSent(false), 3000);
+                    } catch (e) {
+                        console.error('Erro ao enviar mensagem:', e);
+                    }
+                };
+
                 const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
+                const isBuzzerBlockedByTimer = gameTimer === 0 && Object.keys(buzzers).some(key => buzzers[key]?.pressed);
 
                 if (!registered) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
@@ -290,24 +324,46 @@
                                 h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.redCategory)
                             )
                         ),
+                        gameTimer > 0 && h('div', { className: 'bg-red-600 text-white rounded-lg p-4 mb-3 text-center flex-shrink-0' },
+                            h('div', { className: 'text-3xl font-black' }, `${String(Math.floor(gameTimer / 60)).padStart(2, '0')}:${String(gameTimer % 60).padStart(2, '0')}`)
+                        ),
                         h('div', { className: 'flex-1 flex items-center justify-center' },
                             h('button', {
                                 onClick: pressBuzzer,
-                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore,
+                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer,
                                 className: `w-56 h-56 sm:w-64 sm:h-64 rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
-                                    !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore
+                                    !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer
                                         ? 'bg-gray-400 cursor-not-allowed opacity-50' 
                                         : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
                                 }`
                             }, h('div', { className: 'flex flex-col items-center gap-2' },
                                 h('div', { className: 'text-5xl' }, 
-                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔒' : '🔔'
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer ? '🔔' : '🔕'
                                 ),
                                 h('div', null, 
-                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
                                 )
                             ))
                         ),
+                        messagesEnabled && !messageSent && h('div', { className: 'bg-indigo-100 rounded-lg p-4 mb-3 flex-shrink-0' },
+                            h('div', { className: 'flex gap-2' },
+                                h('input', {
+                                    type: 'text',
+                                    value: messageText,
+                                    onChange: (e) => setMessageText(e.target.value.slice(0, 500)),
+                                    placeholder: 'Escreva a mensagem (máx 500 caracteres)...',
+                                    maxLength: 500,
+                                    className: 'flex-1 px-4 py-2 border border-indigo-300 rounded-lg focus:outline-none focus:border-indigo-500'
+                                }),
+                                h('button', {
+                                    onClick: sendMessage,
+                                    disabled: !messageText.trim(),
+                                    className: 'px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:bg-gray-400'
+                                }, 'Enviar')
+                            ),
+                            h('div', { className: 'text-xs text-gray-600 mt-2' }, `${messageText.length}/500`)
+                        ),
+                        messageSent && h('div', { className: 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-3 flex-shrink-0' }, '✓ Mensagem enviada'),
                         h('div', { className: 'flex-shrink-0 mb-3' },
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 text-center' },
                                 h('div', { className: 'text-5xl sm:text-6xl font-black text-purple-600 mb-2' }, myTable?.score ?? '---'),
