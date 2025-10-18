@@ -11,7 +11,7 @@
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getDatabase, ref, onValue, set, update, push } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+        import { getDatabase, ref, onValue, set, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
@@ -25,7 +25,7 @@
 
         const app = initializeApp(firebaseConfig);
         window.rtdb = getDatabase(app);
-        window.fbModules = { ref, onValue, set, update, push };
+        window.fbModules = { ref, onValue, set, update };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -67,14 +67,15 @@
             gainNode.connect(audioContext.destination);
             
             oscillator.type = 'sine';
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
             
+            // Sirene alternando entre duas frequências
             for (let i = 0; i < 10; i++) {
-                const time = audioContext.currentTime + (i * 0.5);
-                oscillator.frequency.setValueAtTime(400, time);
-                oscillator.frequency.setValueAtTime(800, time + 0.25);
+                oscillator.frequency.setValueAtTime(400, audioContext.currentTime + i * 0.5);
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime + i * 0.5 + 0.25);
             }
             
+            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime + 4.8);
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 5);
             
             oscillator.start(audioContext.currentTime);
@@ -82,9 +83,9 @@
         };
 
         window.addEventListener('firebaseReady', () => {
-            const { useState, useEffect, createElement: h } = React;
+            const { useState, useEffect, useRef, createElement: h } = React;
             const { rtdb, fbModules } = window;
-            const { ref, onValue, set, update, push } = fbModules;
+            const { ref, onValue, set, update } = fbModules;
 
             function App() {
                 const [registered, setRegistered] = useState(false);
@@ -97,10 +98,7 @@
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
                 const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
-                const [timer, setTimer] = useState(null);
-                const [messageEnabled, setMessageEnabled] = useState(false);
-                const [message, setMessage] = useState('');
-                const [messageSent, setMessageSent] = useState(false);
+                const sirenPlayedRef = useRef(false);
 
                 useEffect(() => {
                     const urlParams = new URLSearchParams(window.location.search);
@@ -115,8 +113,6 @@
 
                     const gameStateRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
                     const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
-                    const timerRef = ref(rtdb, `sessions/${sessionCode}/timer`);
-                    const messageEnabledRef = ref(rtdb, `sessions/${sessionCode}/messageEnabled`);
 
                     const unsubGame = onValue(gameStateRef, (snapshot) => {
                         const data = snapshot.val();
@@ -128,6 +124,17 @@
                                 if (table.score > 0 && data.blockBuzzerAtZero && buzzerState.pressed) {
                                     setBuzzerState({ pressed: false, enabled: true, timestamp: null });
                                 }
+                            }
+                            
+                            // Verificar se countdown terminou
+                            if (data.countdownFinished && !sirenPlayedRef.current) {
+                                sirenPlayedRef.current = true;
+                                playSiren();
+                            }
+                            
+                            // Reset do flag se countdown for reiniciado
+                            if (data.countdownTime > 0) {
+                                sirenPlayedRef.current = false;
                             }
                         }
                     });
@@ -141,28 +148,9 @@
                         }
                     });
 
-                    const unsubTimer = onValue(timerRef, (snapshot) => {
-                        const data = snapshot.val();
-                        setTimer(data);
-                        if (data && data.timeLeft === 0 && data.running) {
-                            playSiren();
-                        }
-                    });
-
-                    const unsubMessageEnabled = onValue(messageEnabledRef, (snapshot) => {
-                        const enabled = snapshot.val();
-                        setMessageEnabled(enabled || false);
-                        if (!enabled) {
-                            setMessageSent(false);
-                            setMessage('');
-                        }
-                    });
-
                     return () => {
                         unsubGame();
                         unsubBuzzer();
-                        unsubTimer();
-                        unsubMessageEnabled();
                     };
                 }, [registered, sessionCode, tableNumber]);
 
@@ -218,10 +206,6 @@
                         return;
                     }
 
-                    if (timer && timer.timeLeft === 0 && timer.running) {
-                        return;
-                    }
-
                     playBuzzer();
 
                     try {
@@ -235,26 +219,7 @@
                     }
                 };
 
-                const sendMessage = async () => {
-                    if (!message.trim()) return;
-                    
-                    try {
-                        await push(ref(rtdb, `sessions/${sessionCode}/messages`), {
-                            tableNumber: parseInt(tableNumber),
-                            teamName: teamName || `Mesa ${tableNumber}`,
-                            message: message.trim(),
-                            timestamp: Date.now()
-                        });
-                        setMessageSent(true);
-                        setMessage('');
-                    } catch (e) {
-                        console.error('Erro ao enviar mensagem:', e);
-                    }
-                };
-
                 const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
-                const isBuzzerBlockedByTimer = timer && timer.timeLeft === 0 && timer.running;
-                const isBuzzerBlocked = !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzerBlockedByTimer;
 
                 if (!registered) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
@@ -359,49 +324,23 @@
                                 h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.redCategory)
                             )
                         ),
-                        timer && timer.running && timer.timeLeft > 0 && h('div', { className: 'bg-orange-500 text-white rounded-xl p-3 mb-3 text-center font-bold text-2xl' },
-                            `⏱️ ${timer.timeLeft}s`
-                        ),
                         h('div', { className: 'flex-1 flex items-center justify-center' },
                             h('button', {
                                 onClick: pressBuzzer,
-                                disabled: isBuzzerBlocked,
+                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore,
                                 className: `w-56 h-56 sm:w-64 sm:h-64 rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
-                                    isBuzzerBlocked
+                                    !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore
                                         ? 'bg-gray-400 cursor-not-allowed opacity-50' 
                                         : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
                                 }`
                             }, h('div', { className: 'flex flex-col items-center gap-2' },
                                 h('div', { className: 'text-5xl' }, 
-                                    isBuzzerBlocked ? '🔒' : '🔔'
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔒' : '🔔'
                                 ),
                                 h('div', null, 
-                                    isBuzzerBlocked ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
                                 )
                             ))
-                        ),
-                        messageEnabled && !messageSent && h('div', { className: 'flex-shrink-0 mb-3' },
-                            h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4' },
-                                h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Enviar Mensagem'),
-                                h('textarea', {
-                                    value: message,
-                                    onChange: (e) => setMessage(e.target.value),
-                                    maxLength: 500,
-                                    placeholder: 'Escreve a tua mensagem...',
-                                    className: 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 mb-2',
-                                    rows: 3
-                                }),
-                                h('button', {
-                                    onClick: sendMessage,
-                                    disabled: !message.trim(),
-                                    className: `w-full py-2 rounded-lg font-bold ${message.trim() ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`
-                                }, 'Enviar')
-                            )
-                        ),
-                        messageSent && h('div', { className: 'flex-shrink-0 mb-3' },
-                            h('div', { className: 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg text-center' },
-                                '✓ Mensagem enviada com sucesso!'
-                            )
                         ),
                         h('div', { className: 'flex-shrink-0 mb-3' },
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 text-center' },

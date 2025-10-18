@@ -36,7 +36,6 @@
     
     <script>
         const CLIENT_URL = 'https://alpces.github.io/score/client.html';
-        const LOGO_BASE_URL = 'https://alpces.github.io/score/';
 
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -72,14 +71,15 @@
             gainNode.connect(audioContext.destination);
             
             oscillator.type = 'sine';
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
             
+            // Sirene alternando entre duas frequências
             for (let i = 0; i < 10; i++) {
-                const time = audioContext.currentTime + (i * 0.5);
-                oscillator.frequency.setValueAtTime(400, time);
-                oscillator.frequency.setValueAtTime(800, time + 0.25);
+                oscillator.frequency.setValueAtTime(400, audioContext.currentTime + i * 0.5);
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime + i * 0.5 + 0.25);
             }
             
+            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime + 4.8);
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 5);
             
             oscillator.start(audioContext.currentTime);
@@ -97,9 +97,8 @@
                 const [initialScore, setInitialScore] = useState(1);
                 const [buzzerText, setBuzzerText] = useState('BUZZER');
                 const [blockBuzzerAtZero, setBlockBuzzerAtZero] = useState(true);
-                const [startCountdown, setStartCountdown] = useState(0);
-                const [startText, setStartText] = useState('');
-                const [finalMessage, setFinalMessage] = useState('');
+                const [countdownTime, setCountdownTime] = useState('00:00');
+                const [introText, setIntroText] = useState('');
                 const [tables, setTables] = useState([]);
                 const [categories, setCategories] = useState([]);
                 const [yellowCategory, setYellowCategory] = useState(null);
@@ -107,7 +106,6 @@
                 const [usedCategories, setUsedCategories] = useState([]);
                 const [showLeaderboard, setShowLeaderboard] = useState(false);
                 const [leaderboardRevealPosition, setLeaderboardRevealPosition] = useState(null);
-                const [showFinalMessage, setShowFinalMessage] = useState(false);
                 const [tempNames, setTempNames] = useState({});
                 const [tempCategories, setTempCategories] = useState(['']);
                 const [predefinedCategories, setPredefinedCategories] = useState([]);
@@ -124,30 +122,24 @@
                 const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);
                 const [showSaveModal, setShowSaveModal] = useState(false);
                 const [saveDescription, setSaveDescription] = useState('');
-                const [countdown, setCountdown] = useState(null);
                 const [countdownStarted, setCountdownStarted] = useState(false);
-                const [showTimerModal, setShowTimerModal] = useState(false);
-                const [timerSeconds, setTimerSeconds] = useState(30);
-                const [gameTimer, setGameTimer] = useState(null);
-                const [messageEnabled, setMessageEnabled] = useState(false);
-                const [messages, setMessages] = useState({});
-                const [showMessagesModal, setShowMessagesModal] = useState(false);
+                const [remainingTime, setRemainingTime] = useState(0);
                 const [availableLogos, setAvailableLogos] = useState([]);
                 
-                const timerIntervalRef = useRef(null);
                 const countdownIntervalRef = useRef(null);
 
                 useEffect(() => {
+                    // Verificar quais logos existem
                     const checkLogos = async () => {
                         const logos = [];
                         for (let i = 1; i <= 5; i++) {
                             try {
-                                const response = await fetch(`${LOGO_BASE_URL}logo${i}.png`, { method: 'HEAD' });
+                                const response = await fetch(`logo${i}.png`, { method: 'HEAD' });
                                 if (response.ok) {
-                                    logos.push(`${LOGO_BASE_URL}logo${i}.png`);
+                                    logos.push(`logo${i}.png`);
                                 }
                             } catch (e) {
-                                // Logo não existe, continua
+                                // Logo não existe, ignorar
                             }
                         }
                         setAvailableLogos(logos);
@@ -190,7 +182,6 @@
 
                     const clientsRef = ref(rtdb, `sessions/${sessionId}/clients`);
                     const buzzersRef = ref(rtdb, `sessions/${sessionId}/buzzers`);
-                    const messagesRef = ref(rtdb, `sessions/${sessionId}/messages`);
 
                     const unsubClients = onValue(clientsRef, (snapshot) => {
                         const data = snapshot.val() || {};
@@ -231,33 +222,28 @@
                         });
                     });
 
-                    const unsubMessages = onValue(messagesRef, (snapshot) => {
-                        const data = snapshot.val() || {};
-                        setMessages(data);
-                    });
-
                     return () => {
                         unsubClients();
                         unsubBuzzers();
-                        unsubMessages();
                     };
                 }, [setupComplete, sessionId]);
 
+                // Gestão do countdown
                 useEffect(() => {
-                    if (countdown !== null && countdown > 0 && countdownStarted) {
+                    if (countdownStarted && remainingTime > 0) {
                         countdownIntervalRef.current = setInterval(() => {
-                            setCountdown(prev => {
+                            setRemainingTime(prev => {
                                 if (prev <= 1) {
                                     clearInterval(countdownIntervalRef.current);
                                     playSiren();
+                                    syncCountdownToClients(0, true);
                                     setTimeout(() => {
                                         setShowQRCode(false);
-                                        setCountdown(null);
                                         setCountdownStarted(false);
-                                        unlockAllBuzzers();
                                     }, 5000);
                                     return 0;
                                 }
+                                syncCountdownToClients(prev - 1, false);
                                 return prev - 1;
                             });
                         }, 1000);
@@ -267,34 +253,17 @@
                             clearInterval(countdownIntervalRef.current);
                         }
                     };
-                }, [countdownStarted]);
+                }, [countdownStarted, remainingTime]);
 
-                useEffect(() => {
-                    if (gameTimer && gameTimer.running && gameTimer.timeLeft > 0) {
-                        timerIntervalRef.current = setInterval(async () => {
-                            const newTime = gameTimer.timeLeft - 1;
-                            if (newTime <= 0) {
-                                clearInterval(timerIntervalRef.current);
-                                await update(ref(rtdb, `sessions/${sessionId}/timer`), {
-                                    timeLeft: 0,
-                                    running: true
-                                });
-                                setGameTimer({ timeLeft: 0, running: true });
-                            } else {
-                                await update(ref(rtdb, `sessions/${sessionId}/timer`), {
-                                    timeLeft: newTime,
-                                    running: true
-                                });
-                                setGameTimer({ timeLeft: newTime, running: true });
-                            }
-                        }, 1000);
-                    }
-                    return () => {
-                        if (timerIntervalRef.current) {
-                            clearInterval(timerIntervalRef.current);
-                        }
-                    };
-                }, [gameTimer?.running, gameTimer?.timeLeft]);
+                const syncCountdownToClients = async (time, finished) => {
+                    if (!sessionId) return;
+                    try {
+                        await update(ref(rtdb, `sessions/${sessionId}/gameState`), {
+                            countdownTime: time,
+                            countdownFinished: finished
+                        });
+                    } catch (e) { console.error(e); }
+                };
 
                 const saveCats = async (cats) => {
                     try {
@@ -313,22 +282,24 @@
                         await set(ref(rtdb, `sessions/${sessionId}/gameState`), {
                             tables: tables.map(t => ({ id: t.id, name: t.name, score: t.score })),
                             yellowCategory, redCategory, categories, active: true, 
-                            buzzerText, blockBuzzerAtZero, timestamp: Date.now()
+                            buzzerText, blockBuzzerAtZero, timestamp: Date.now(),
+                            countdownTime: remainingTime,
+                            countdownFinished: false
                         });
                     } catch (e) { console.error(e); }
                 };
 
                 useEffect(() => { if (setupComplete && sessionId) syncGame(); }, [tables, yellowCategory, redCategory]);
 
-                const unlockAllBuzzers = async () => {
-                    if (!sessionId) return;
-                    try {
-                        const updates = {};
-                        Object.keys(buzzers).forEach(key => {
-                            updates[`${key}/enabled`] = true;
-                        });
-                        await update(ref(rtdb, `sessions/${sessionId}/buzzers`), updates);
-                    } catch (e) { console.error(e); }
+                const parseTime = (timeStr) => {
+                    const [min, sec] = timeStr.split(':').map(v => parseInt(v) || 0);
+                    return min * 60 + sec;
+                };
+
+                const formatTime = (seconds) => {
+                    const min = Math.floor(seconds / 60);
+                    const sec = seconds % 60;
+                    return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
                 };
 
                 const initGame = () => {
@@ -340,14 +311,10 @@
                         })));
                     }
                     setCategories(tempCategories.filter(c => c.trim()));
-                    const newSessionId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                    setSessionId(newSessionId);
+                    setSessionId(Math.random().toString(36).substring(2, 8).toUpperCase());
+                    const timeInSeconds = parseTime(countdownTime);
+                    setRemainingTime(timeInSeconds);
                     setSetupComplete(true);
-                    
-                    if (startCountdown > 0) {
-                        setCountdown(startCountdown);
-                        setShowQRCode(true);
-                    }
                 };
 
                 const updateScore = (id, change) => {
@@ -386,36 +353,6 @@
                             updates[`${key}/enabled`] = true;
                         });
                         await update(ref(rtdb, `sessions/${sessionId}/buzzers`), updates);
-                        
-                        if (gameTimer && gameTimer.timeLeft === 0) {
-                            await set(ref(rtdb, `sessions/${sessionId}/timer`), null);
-                            setGameTimer(null);
-                        }
-                    } catch (e) { console.error(e); }
-                };
-
-                const startGameTimer = async (seconds) => {
-                    if (!sessionId) return;
-                    try {
-                        await set(ref(rtdb, `sessions/${sessionId}/timer`), {
-                            timeLeft: seconds,
-                            running: true
-                        });
-                        setGameTimer({ timeLeft: seconds, running: true });
-                        setShowTimerModal(false);
-                    } catch (e) { console.error(e); }
-                };
-
-                const toggleMessages = async () => {
-                    if (!sessionId) return;
-                    const newState = !messageEnabled;
-                    try {
-                        await set(ref(rtdb, `sessions/${sessionId}/messageEnabled`), newState);
-                        setMessageEnabled(newState);
-                        if (newState) {
-                            await set(ref(rtdb, `sessions/${sessionId}/messages`), null);
-                            setMessages({});
-                        }
                     } catch (e) { console.error(e); }
                 };
 
@@ -435,8 +372,7 @@
                             yellowCategory: yellowCategory,
                             redCategory: redCategory,
                             usedCategories: usedCategories,
-                            emails: {},
-                            messages: messages
+                            emails: {}
                         };
 
                         Object.values(connectedClients).forEach(client => {
@@ -485,9 +421,9 @@
                     setUsedCategories([]); setTempNames({}); setTempCategories(['']); setInitialScore(1); setNumTables(0);
                     setShowLeaderboard(false); setLeaderboardRevealPosition(null); setShowScores(false);
                     setFlashEffects({}); setSessionId(null); setCodeCopied(false); setConnectedClients({}); setBuzzers({});
-                    setBuzzerText('BUZZER'); setBlockBuzzerAtZero(true); setShowQRCode(false); setStartCountdown(0);
-                    setStartText(''); setCountdown(null); setCountdownStarted(false); setGameTimer(null);
-                    setMessageEnabled(false); setMessages({}); setFinalMessage(''); setShowFinalMessage(false);
+                    setBuzzerText('BUZZER'); setBlockBuzzerAtZero(true); setShowQRCode(false);
+                    setCountdownTime('00:00'); setIntroText(''); setCountdownStarted(false); setRemainingTime(0);
+                    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
                 };
 
                 const proceedWithReset = async () => {
@@ -497,9 +433,9 @@
                     setUsedCategories([]); setTempNames({}); setTempCategories(['']); setInitialScore(1); setNumTables(0);
                     setShowLeaderboard(false); setLeaderboardRevealPosition(null); setShowScores(false);
                     setFlashEffects({}); setSessionId(null); setCodeCopied(false); setConnectedClients({}); setBuzzers({});
-                    setBuzzerText('BUZZER'); setBlockBuzzerAtZero(true); setShowQRCode(false); setStartCountdown(0);
-                    setStartText(''); setCountdown(null); setCountdownStarted(false); setGameTimer(null);
-                    setMessageEnabled(false); setMessages({}); setFinalMessage(''); setShowFinalMessage(false);
+                    setBuzzerText('BUZZER'); setBlockBuzzerAtZero(true); setShowQRCode(false);
+                    setCountdownTime('00:00'); setIntroText(''); setCountdownStarted(false); setRemainingTime(0);
+                    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
                 };
 
                 const resetAllScores = () => {
@@ -529,7 +465,15 @@
 
                 const generateQRCodeUrl = () => {
                     const url = `${CLIENT_URL}?session=${sessionId}`;
-                    return `https://api.qrserver.com/v1/create-qr-code/?size=800x800&data=${encodeURIComponent(url)}`;
+                    return `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(url)}`;
+                };
+
+                const handleQRCodeClick = () => {
+                    if (!countdownStarted && remainingTime > 0) {
+                        setCountdownStarted(true);
+                    } else if (countdownStarted) {
+                        setShowQRCode(false);
+                    }
                 };
 
                 const sorted = () => [...tables].sort((a, b) => b.score - a.score);
@@ -544,14 +488,6 @@
                 const formatDate = (timestamp) => {
                     const date = new Date(timestamp);
                     return date.toLocaleDateString('pt-PT') + ' ' + date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
-                };
-
-                const getUnreadMessagesCount = () => {
-                    return Object.keys(messages).length;
-                };
-
-                const getTableHasMessage = (tableId) => {
-                    return Object.values(messages).some(msg => msg.tableNumber === tableId);
                 };
 
                 if (showSaveModal) {
@@ -582,75 +518,10 @@
                     );
                 }
 
-                if (showMessagesModal) {
-                    const messagesList = Object.values(messages);
-                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4' },
-                        h('div', { className: 'bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto' },
-                            h('div', { className: 'flex justify-between mb-4' },
-                                h('h2', { className: 'text-xl font-bold' }, 'Mensagens Recebidas'),
-                                h('button', { 
-                                    onClick: () => setShowMessagesModal(false), 
-                                    className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' 
-                                }, 'Fechar')
-                            ),
-                            messagesList.length === 0
-                                ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma mensagem recebida')
-                                : h('div', { className: 'space-y-3' },
-                                    messagesList.map((msg, idx) => h('div', { key: idx, className: 'bg-gray-50 p-4 rounded-lg' },
-                                        h('div', { className: 'flex justify-between items-start mb-2' },
-                                            h('div', null,
-                                                h('span', { className: 'font-bold' }, `Mesa ${msg.tableNumber}`),
-                                                msg.teamName && h('span', { className: 'text-sm text-gray-600 ml-2' }, `(${msg.teamName})`)
-                                            ),
-                                            h('span', { className: 'text-xs text-gray-500' }, formatDate(msg.timestamp))
-                                        ),
-                                        h('div', { className: 'text-gray-800 whitespace-pre-wrap' }, msg.message)
-                                    ))
-                                )
-                        )
-                    );
-                }
-
-                if (showTimerModal) {
-                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4' },
-                        h('div', { className: 'bg-white rounded-2xl p-6 max-w-md w-full' },
-                            h('h2', { className: 'text-xl font-bold mb-4' }, 'Configurar Cronómetro'),
-                            h('div', { className: 'mb-4' },
-                                h('label', { className: 'block text-sm font-semibold mb-2' }, 'Tempo (segundos)'),
-                                h('input', {
-                                    type: 'number',
-                                    min: 1,
-                                    value: timerSeconds,
-                                    onChange: (e) => setTimerSeconds(Math.max(1, parseInt(e.target.value) || 1)),
-                                    className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500'
-                                })
-                            ),
-                            h('div', { className: 'grid grid-cols-4 gap-2 mb-4' },
-                                [5, 10, 30, 60].map(sec => h('button', {
-                                    key: sec,
-                                    onClick: () => setTimerSeconds(sec),
-                                    className: 'px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold'
-                                }, `${sec}s`))
-                            ),
-                            h('div', { className: 'flex gap-2' },
-                                h('button', {
-                                    onClick: () => setShowTimerModal(false),
-                                    className: 'flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400'
-                                }, 'Cancelar'),
-                                h('button', {
-                                    onClick: () => startGameTimer(timerSeconds),
-                                    className: 'flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700'
-                                }, 'Iniciar')
-                            )
-                        )
-                    );
-                }
-
                 if (showHistory) {
                     if (selectedHistoryEntry) {
                         const entry = selectedHistoryEntry;
                         const sortedTables = [...entry.tables].sort((a, b) => a.id - b.id);
-                        const entryMessages = entry.messages ? Object.values(entry.messages) : [];
                         return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
                             h('div', { className: 'max-w-4xl mx-auto pt-4' },
                                 h('div', { className: 'bg-white rounded-2xl p-4' },
@@ -681,18 +552,6 @@
                                                 )
                                             )
                                         ))
-                                    ),
-                                    entryMessages.length > 0 && h('div', { className: 'mt-6' },
-                                        h('h3', { className: 'text-lg font-bold mb-3' }, 'Mensagens'),
-                                        h('div', { className: 'space-y-2' },
-                                            entryMessages.map((msg, idx) => h('div', { key: idx, className: 'bg-blue-50 p-3 rounded-lg' },
-                                                h('div', { className: 'flex justify-between items-start mb-1' },
-                                                    h('span', { className: 'font-semibold text-sm' }, `Mesa ${msg.tableNumber} ${msg.teamName ? `(${msg.teamName})` : ''}`),
-                                                    h('span', { className: 'text-xs text-gray-500' }, formatDate(msg.timestamp))
-                                                ),
-                                                h('div', { className: 'text-sm text-gray-800 whitespace-pre-wrap' }, msg.message)
-                                            ))
-                                        )
                                     )
                                 )
                             )
@@ -704,302 +563,4 @@
                             h('div', { className: 'bg-white rounded-2xl p-4' },
                                 h('div', { className: 'flex justify-between mb-4' },
                                     h('h2', { className: 'text-xl font-bold' }, 'Histórico de Sessões'),
-                                    h('button', { onClick: () => setShowHistory(false), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
-                                ),
-                                sessionHistory.length === 0
-                                    ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma sessão gravada')
-                                    : h('div', { className: 'space-y-2' },
-                                        sessionHistory.map(entry => h('div', { key: entry.id, className: 'bg-gray-50 p-3 rounded-lg' },
-                                            h('div', { className: 'flex justify-between items-start mb-2' },
-                                                h('button', { 
-                                                    onClick: () => setSelectedHistoryEntry(entry),
-                                                    className: 'flex-1 text-left hover:bg-gray-100 p-2 rounded transition'
-                                                }, h('div', null,
-                                                    h('span', { className: 'font-semibold' }, `${entry.sessionId} - ${formatDate(entry.timestamp)}`),
-                                                    entry.description && h('div', { className: 'text-xs text-gray-600 mt-1' }, entry.description)
-                                                )),
-                                                h('button', { 
-                                                    onClick: () => deleteHistoryEntry(entry.id),
-                                                    className: 'px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 ml-2'
-                                                }, 'Apagar')
-                                            )
-                                        ))
-                                    )
-                            )
-                        )
-                    );
-                }
-
-                if (!setupComplete) {
-                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3 overflow-y-auto' },
-                        h('div', { className: 'max-w-2xl mx-auto py-4' },
-                            h('button', { 
-                                onClick: () => setShowHistory(true),
-                                className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4'
-                            }, 'Histórico de Sessões'),
-                            h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4' },
-                                h('h1', { className: 'text-2xl font-bold text-gray-800 text-center mb-4' }, 'Configuração do Jogo'),
-                                h('div', { className: 'space-y-4' },
-                                    h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Número de Mesas (0 = Dinâmico, máx: 20)'),
-                                        h('input', { type: 'number', min: 0, max: 20, value: numTables, onChange: e => setNumTables(Math.min(20, Math.max(0, +e.target.value || 0))), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' }),
-                                        h('p', { className: 'text-xs text-gray-500 mt-1' }, 'Se 0, as mesas aparecem à medida que os clientes se conectam')
-                                    ),
-                                    h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Pontuação Inicial'),
-                                        h('input', { type: 'number', min: 0, value: initialScore, onChange: e => setInitialScore(Math.max(0, +e.target.value || 0)), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' })
-                                    ),
-                                    h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Texto do Botão Buzzer'),
-                                        h('input', { type: 'text', value: buzzerText, onChange: e => setBuzzerText(e.target.value), placeholder: 'BUZZER', className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' })
-                                    ),
-                                    h('div', { className: 'flex items-center gap-2' },
-                                        h('input', { type: 'checkbox', id: 'blockBuzzer', checked: blockBuzzerAtZero, onChange: e => setBlockBuzzerAtZero(e.target.checked), className: 'w-4 h-4' }),
-                                        h('label', { htmlFor: 'blockBuzzer', className: 'text-sm font-semibold text-gray-700' }, 'Bloquear buzzer quando mesa tem 0 pontos')
-                                    ),
-                                    h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Tempo de Contagem Regressiva Inicial (segundos)'),
-                                        h('input', { type: 'number', min: 0, value: startCountdown, onChange: e => setStartCountdown(Math.max(0, +e.target.value || 0)), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' }),
-                                        h('p', { className: 'text-xs text-gray-500 mt-1' }, 'Se maior que 0, mostra QR code com contagem regressiva no início')
-                                    ),
-                                    startCountdown > 0 && h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Texto Inicial (máx: 500 caracteres)'),
-                                        h('textarea', {
-                                            value: startText,
-                                            onChange: e => setStartText(e.target.value.substring(0, 500)),
-                                            placeholder: 'Texto que aparecerá acima do QR code...',
-                                            className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none',
-                                            rows: 3
-                                        }),
-                                        h('p', { className: 'text-xs text-gray-500 mt-1' }, `${startText.length}/500 caracteres`)
-                                    ),
-                                    h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Mensagem Final do Ranking'),
-                                        h('textarea', {
-                                            value: finalMessage,
-                                            onChange: e => setFinalMessage(e.target.value),
-                                            placeholder: 'Mensagem que aparecerá após revelar o 1º lugar...',
-                                            className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none',
-                                            rows: 4
-                                        })
-                                    ),
-                                    numTables > 0 && h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Nomes das Mesas'),
-                                        h('div', { className: 'grid gap-2 max-h-48 overflow-y-auto' },
-                                            Array.from({ length: numTables }, (_, i) => h('div', { key: i, className: 'flex gap-2' },
-                                                h('span', { className: 'text-sm w-16 pt-2' }, `Mesa ${i + 1}:`),
-                                                h('input', { value: tempNames[i + 1] || '', onChange: e => setTempNames({ ...tempNames, [i + 1]: e.target.value }), className: 'flex-1 px-3 py-1.5 text-sm border rounded-lg outline-none' })
-                                            ))
-                                        )
-                                    ),
-                                    h('div', null,
-                                        h('div', { className: 'flex justify-between mb-2' },
-                                            h('label', { className: 'text-sm font-semibold' }, 'Categorias'),
-                                            h('div', { className: 'space-x-2' },
-                                                predefinedCategories.length > 0 && h('button', { onClick: () => setTempCategories([...predefinedCategories]), className: 'px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600' }, 'Carregar'),
-                                                h('button', { onClick: () => setShowPredefined(!showPredefined), className: 'px-3 py-1 bg-purple-500 text-white text-sm rounded hover:bg-purple-600' }, 'Gerir'),
-                                                h('button', { onClick: () => setTempCategories([...tempCategories, '']), className: 'px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600' }, '+')
-                                            )
-                                        ),
-                                        showPredefined && h('div', { className: 'mb-3 p-3 bg-purple-50 rounded-lg' },
-                                            h('h4', { className: 'text-sm font-bold mb-2' }, 'Categorias Guardadas'),
-                                            predefinedCategories.map((cat, i) => h('div', { key: i, className: 'flex justify-between bg-white p-2 rounded mb-1' },
-                                                h('span', { className: 'text-sm' }, cat),
-                                                h('button', { onClick: () => saveCats(predefinedCategories.filter((_, x) => x !== i)), className: 'px-2 bg-red-500 text-white text-xs rounded' }, '✕')
-                                            )),
-                                            h('input', { placeholder: 'Nova categoria...', onKeyPress: e => { if (e.key === 'Enter' && e.target.value.trim()) { saveCats([...predefinedCategories, e.target.value.trim()].sort()); e.target.value = ''; } }, className: 'w-full mt-2 px-3 py-1.5 text-sm border rounded' })
-                                        ),
-                                        h('div', { className: 'space-y-2' },
-                                            tempCategories.map((cat, i) => h('div', { key: i, className: 'flex gap-2' },
-                                                h('input', { value: cat, onChange: e => { const n = [...tempCategories]; n[i] = e.target.value; setTempCategories(n); }, className: 'flex-1 px-3 py-1.5 text-sm border rounded outline-none' }),
-                                                tempCategories.length > 1 && h('button', { onClick: () => setTempCategories(tempCategories.filter((_, x) => x !== i)), className: 'px-2 bg-red-500 text-white text-sm rounded' }, '✕')
-                                            ))
-                                        )
-                                    ),
-                                    h('button', { onClick: initGame, className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700' }, 'Iniciar Jogo')
-                                )
-                            )
-                        )
-                    );
-                }
-
-                if (showQRCode && sessionId) {
-                    return h('div', { 
-                        className: 'h-screen flex items-center justify-center p-8 relative overflow-hidden',
-                        style: { background: 'linear-gradient(135deg, #1e3a8a 0%, #312e81 25%, #4c1d95 50%, #5b21b6 75%, #1e3a8a 100%)', backgroundSize: '400% 400%', animation: 'gradientShift 15s ease infinite' },
-                        onClick: () => {
-                            if (countdown !== null && !countdownStarted) {
-                                setCountdownStarted(true);
-                            } else if (countdown === null || countdownStarted) {
-                                setShowQRCode(false);
-                            }
-                        }
-                    },
-                        h('div', { className: 'flex-1 flex flex-col items-center justify-center' },
-                            h('div', { className: 'text-center mb-8' },
-                                startText && countdown !== null && h('div', { className: 'text-white text-3xl font-bold mb-8 max-w-4xl px-4 whitespace-pre-wrap' }, startText),
-                                h('h2', { className: 'text-8xl font-black text-white mb-4' }, sessionId),
-                                h('p', { className: 'text-3xl text-white opacity-90' }, 'Scannear para conectar')
-                            ),
-                            h('img', { src: generateQRCodeUrl(), alt: 'QR Code', className: 'max-w-3xl w-full shadow-2xl rounded-2xl bg-white p-4' }),
-                            countdown !== null && h('div', { className: 'mt-8 text-center' },
-                                h('div', { className: 'text-6xl font-black text-white' }, countdown > 0 ? `${countdown}s` : 'COMEÇAR!'),
-                                !countdownStarted && h('p', { className: 'text-xl text-white opacity-75 mt-4' }, 'Clica para iniciar contagem')
-                            ),
-                            countdown === null && h('p', { className: 'text-white opacity-75 mt-8 text-xl' }, 'Clica para fechar')
-                        ),
-                        availableLogos.length > 0 && h('div', { className: 'absolute right-8 top-1/2 transform -translate-y-1/2 flex flex-col gap-6', style: { width: 'calc(100% / 6)' } },
-                            availableLogos.map((logo, idx) => h('img', { key: idx, src: logo, alt: `Logo ${idx + 1}`, className: 'w-full h-auto object-contain' }))
-                        )
-                    );
-                }
-
-                if (showLeaderboard) {
-                    const s = sorted();
-                    const visible = s.slice(leaderboardRevealPosition - 1);
-                    const showFinalBtn = leaderboardRevealPosition === 1 && finalMessage;
-                    
-                    if (showFinalMessage && finalMessage) {
-                        return h('div', { className: 'fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-8', onClick: () => setShowFinalMessage(false) },
-                            h('div', { className: 'bg-white rounded-2xl p-12 max-w-4xl w-full max-h-[80vh] overflow-y-auto' },
-                                h('div', { className: 'text-3xl text-gray-800 whitespace-pre-wrap leading-relaxed' }, finalMessage)
-                            )
-                        );
-                    }
-                    
-                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
-                        h('div', { className: 'max-w-4xl mx-auto pt-4' },
-                            h('div', { className: 'bg-white rounded-2xl p-4' },
-                                h('div', { className: 'flex justify-between mb-4' },
-                                    h('h2', { className: 'text-xl font-bold' }, 'Classificação'),
-                                    h('button', { onClick: () => { setShowLeaderboard(false); setLeaderboardRevealPosition(null); setShowFinalMessage(false); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
-                                ),
-                                leaderboardRevealPosition > 1 && h('button', { onClick: () => setLeaderboardRevealPosition(leaderboardRevealPosition - 1), className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold mb-4 animate-pulse' }, `Revelar ${leaderboardRevealPosition - 1}º Lugar`),
-                                showFinalBtn && h('button', { onClick: () => setShowFinalMessage(true), className: 'w-full bg-purple-600 text-white py-3 rounded-lg font-bold mb-4 animate-pulse' }, 'Mensagem Final'),
-                                h('div', { className: 'space-y-2' },
-                                    visible.map(t => {
-                                        const pos = s.indexOf(t) + 1;
-                                        return h('div', { key: t.id, className: `flex justify-between items-center p-4 rounded ${pos === 1 ? 'bg-yellow-400 text-white scale-105' : pos === 2 ? 'bg-gray-300' : pos === 3 ? 'bg-orange-400 text-white' : 'bg-gray-100'}` },
-                                            h('div', { className: 'flex items-center gap-4' }, 
-                                                h('span', { className: 'text-3xl font-bold' }, `${pos}º`), 
-                                                h('div', null,
-                                                    t.name && h('div', { className: 'text-2xl font-black' }, t.name),
-                                                    h('div', { className: 'text-sm opacity-75' }, `Mesa ${t.id}`)
-                                                )
-                                            ),
-                                            h('span', { className: 'text-3xl font-bold' }, `${t.score} pts`)
-                                        );
-                                    })
-                                )
-                            )
-                        )
-                    );
-                }
-
-                const buzzerOrder = getBuzzerOrder();
-                const unreadMessages = getUnreadMessagesCount();
-
-                return h('div', { className: 'h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-2 flex flex-col overflow-auto' },
-                    h('div', { className: 'max-w-7xl mx-auto w-full flex flex-col flex-1' },
-                        gameTimer && gameTimer.running && gameTimer.timeLeft >= 0 && h('div', { className: 'bg-orange-500 text-white rounded-lg p-3 mb-2 flex justify-between items-center' },
-                            h('div', { className: 'text-2xl font-bold' }, gameTimer.timeLeft > 0 ? `⏱️ ${gameTimer.timeLeft}s` : '⏱️ Tempo Esgotado!'),
-                            gameTimer.timeLeft === 0 && h('button', { onClick: resetAllBuzzers, className: 'bg-white text-orange-500 px-4 py-2 rounded-lg font-bold hover:bg-gray-100' }, 'Resetar Buzzers')
-                        ),
-                        buzzerOrder.length > 0 && h('div', { 
-                            className: 'text-white rounded-lg p-3 mb-2',
-                            style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
-                        },
-                            h('div', { className: 'flex justify-between items-center mb-2' },
-                                h('h3', { className: 'font-bold text-lg' }, 'Buzzers Ativos'),
-                                h('button', { onClick: resetAllBuzzers, className: 'bg-white bg-opacity-20 px-3 py-1 rounded hover:bg-opacity-30 text-sm' }, 'Resetar Todos')
-                            ),
-                            h('div', { className: 'flex flex-wrap gap-2' },
-                                buzzerOrder.map(b => h('div', { key: b.tableId, className: 'bg-white bg-opacity-20 px-3 py-2 rounded flex items-center gap-2' },
-                                    h('span', { className: 'font-bold' }, `${b.order}º`),
-                                    h('span', null, `Mesa ${b.tableId}`),
-                                    h('button', { onClick: () => resetBuzzer(b.tableId), className: 'bg-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-800' }, 'Reset')
-                                ))
-                            )
-                        ),
-                        categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-3 mb-2', style: { height: 'calc(33.333% - 4rem)' } },
-                            h('button', { onDoubleClick: () => changeCategory(setYellowCategory, yellowCategory), className: 'bg-yellow-400 text-gray-900 rounded-xl p-4 font-black hover:bg-yellow-500 h-full flex items-center justify-center' },
-                                h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, yellowCategory || 'Duplo clique')
-                            ),
-                            h('button', { onDoubleClick: () => changeCategory(setRedCategory, redCategory), className: 'bg-red-500 text-white rounded-xl p-4 font-black hover:bg-red-600 h-full flex items-center justify-center' },
-                                h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, redCategory || 'Duplo clique')
-                            )
-                        ),
-                        h('div', { className: 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5 mb-2', style: { height: 'calc(66.666% - 3.5rem)' } },
-                            tables.map(t => {
-                                const hasBuzzer = buzzers[t.id]?.pressed;
-                                const buzzerInfo = buzzerOrder.find(b => b.tableId === t.id);
-                                const hasMessage = getTableHasMessage(t.id);
-                                return h('div', { key: t.id, className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` },
-                                    flashEffects[t.id] && h('div', { className: 'absolute inset-0 flex items-center justify-center z-10 bg-black bg-opacity-50 rounded-lg' },
-                                        h('span', { className: 'text-5xl font-bold text-white' }, flashEffects[t.id])
-                                    ),
-                                    hasBuzzer && h('div', { className: 'absolute top-0 right-0 bg-yellow-400 text-black rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold' }, buzzerInfo?.order),
-                                    hasMessage && h('div', { className: 'absolute top-0 left-0 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs' }, '✉'),
-                                    h('div', { className: `text-center mb-1 ${hasBuzzer ? 'text-white' : ''}` },
-                                        h('div', { className: `text-xs ${hasBuzzer ? 'text-white' : 'text-gray-600'}` }, `Mesa ${t.id}`),
-                                        t.name && h('div', { className: `text-lg font-extrabold truncate ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.name)
-                                    ),
-                                    h('div', { className: 'flex items-center justify-center gap-1 mb-1 flex-1' },
-                                        h('button', { onClick: () => updateScore(t.id, -1), className: 'w-8 h-8 rounded-lg font-bold bg-gray-500 text-white hover:bg-gray-600' }, '-'),
-                                        showScores && h('div', { className: `text-2xl font-bold w-10 text-center ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.score),
-                                        !showScores && h('div', { className: 'w-10' }),
-                                        h('button', { onClick: () => updateScore(t.id, 1), className: 'w-8 h-8 rounded-lg font-bold bg-green-500 text-white hover:bg-green-600' }, '+')
-                                    ),
-                                    h('button', { onClick: () => updateScore(t.id, 5), className: 'w-full py-1 rounded-lg font-bold text-[10px] bg-purple-500 text-white hover:bg-purple-600' }, '+5')
-                                );
-                            })
-                        ),
-                        h('div', { className: 'flex justify-between bg-white rounded-lg p-2' },
-                            h('div', { className: 'flex gap-2' },
-                                h('button', { onClick: () => setShowScores(!showScores), className: 'px-3 py-1.5 text-xs bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600' }, showScores ? 'Ocultar' : 'Mostrar'),
-                                sessionId && h('button', { onClick: () => setShowQRCode(true), className: 'px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700' }, 'QR Code')
-                            ),
-                            h('div', { className: 'flex gap-2' },
-                                h('button', { onClick: () => setShowTimerModal(true), className: 'px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600' }, '⏱️'),
-                                h('button', { 
-                                    onClick: () => {
-                                        if (messageEnabled && unreadMessages > 0) {
-                                            setShowMessagesModal(true);
-                                        } else {
-                                            toggleMessages();
-                                        }
-                                    }, 
-                                    className: `px-3 py-1.5 text-xs rounded-lg font-semibold relative ${messageEnabled ? 'bg-orange-500 hover:bg-orange-600' : 'bg-teal-500 hover:bg-teal-600'} text-white` 
-                                }, 
-                                    messageEnabled && unreadMessages > 0 ? 'Consultar' : 'Mensagens',
-                                    unreadMessages > 0 && h('span', { className: 'absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center' }, unreadMessages)
-                                ),
-                                h('button', { onClick: () => setShowSaveModal(true), className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gravar'),
-                                h('button', { onClick: () => { const s = sorted(); setLeaderboardRevealPosition(s.length > 5 ? 6 : s.length); setShowLeaderboard(true); }, className: 'px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600' }, 'Rank'),
-                                h('button', { onClick: resetAllScores, className: 'px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, 'Reset Pontos'),
-                                h('button', { onClick: resetGame, className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, 'Nova Sessão')
-                            )
-                        )
-                    )
-                );
-            }
-
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes buzzerFlash {
-                    0%, 100% { background-color: rgb(59, 130, 246); }
-                    50% { background-color: rgb(30, 58, 138); }
-                }
-                @keyframes gradientShift {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                }
-            `;
-            document.head.appendChild(style);
-
-            ReactDOM.createRoot(document.getElementById('root')).render(h(App));
-        });
-    </script>
-</body>
-</html>
+                                    h('button', { onClick: () => setShowHistory(false), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' },
