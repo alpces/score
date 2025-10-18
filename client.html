@@ -58,32 +58,8 @@
             oscillator.stop(audioContext.currentTime + 2);
         };
 
-        const playSiren = () => {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.type = 'sine';
-            
-            // Sirene alternando entre duas frequências
-            for (let i = 0; i < 10; i++) {
-                oscillator.frequency.setValueAtTime(400, audioContext.currentTime + i * 0.5);
-                oscillator.frequency.setValueAtTime(800, audioContext.currentTime + i * 0.5 + 0.25);
-            }
-            
-            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
-            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime + 4.8);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 5);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 5);
-        };
-
         window.addEventListener('firebaseReady', () => {
-            const { useState, useEffect, useRef, createElement: h } = React;
+            const { useState, useEffect, createElement: h } = React;
             const { rtdb, fbModules } = window;
             const { ref, onValue, set, update } = fbModules;
 
@@ -98,7 +74,6 @@
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
                 const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
-                const sirenPlayedRef = useRef(false);
 
                 useEffect(() => {
                     const urlParams = new URLSearchParams(window.location.search);
@@ -121,20 +96,10 @@
                             const table = data.tables?.find(t => t.id === parseInt(tableNumber));
                             if (table) {
                                 setMyTable(table);
+                                // Se pontuação volta a ser > 0, desbloqueia o buzzer
                                 if (table.score > 0 && data.blockBuzzerAtZero && buzzerState.pressed) {
                                     setBuzzerState({ pressed: false, enabled: true, timestamp: null });
                                 }
-                            }
-                            
-                            // Verificar se countdown terminou
-                            if (data.countdownFinished && !sirenPlayedRef.current) {
-                                sirenPlayedRef.current = true;
-                                playSiren();
-                            }
-                            
-                            // Reset do flag se countdown for reiniciado
-                            if (data.countdownTime > 0) {
-                                sirenPlayedRef.current = false;
                             }
                         }
                     });
@@ -219,6 +184,7 @@
                     }
                 };
 
+                // Determinar se o buzzer está bloqueado por ter 0 pontos
                 const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
 
                 if (!registered) {
