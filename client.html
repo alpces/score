@@ -58,31 +58,6 @@
             oscillator.stop(audioContext.currentTime + 2);
         };
 
-        const playSiren = () => {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.type = 'sine';
-            
-            // Sirene com modulação de frequência
-            const now = audioContext.currentTime;
-            for (let i = 0; i < 10; i++) {
-                oscillator.frequency.setValueAtTime(400, now + i * 0.5);
-                oscillator.frequency.linearRampToValueAtTime(800, now + i * 0.5 + 0.25);
-                oscillator.frequency.linearRampToValueAtTime(400, now + i * 0.5 + 0.5);
-            }
-            
-            gainNode.gain.setValueAtTime(0.5, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 5);
-            
-            oscillator.start(now);
-            oscillator.stop(now + 5);
-        };
-
         window.addEventListener('firebaseReady', () => {
             const { useState, useEffect, createElement: h } = React;
             const { rtdb, fbModules } = window;
@@ -99,7 +74,6 @@
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
                 const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
-                const [lastSirenSignal, setLastSirenSignal] = useState(null);
 
                 useEffect(() => {
                     const urlParams = new URLSearchParams(window.location.search);
@@ -114,7 +88,7 @@
 
                     const gameStateRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
                     const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
-                    const sirenRef = ref(rtdb, `sessions/${sessionCode}/sirenSignal`);
+                    const clientRef = ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`);
 
                     const unsubGame = onValue(gameStateRef, (snapshot) => {
                         const data = snapshot.val();
@@ -123,10 +97,6 @@
                             const table = data.tables?.find(t => t.id === parseInt(tableNumber));
                             if (table) {
                                 setMyTable(table);
-                                // Se pontuação volta a ser > 0, desbloqueia o buzzer
-                                if (table.score > 0 && data.blockBuzzerAtZero && buzzerState.pressed) {
-                                    setBuzzerState({ pressed: false, enabled: true, timestamp: null });
-                                }
                             }
                         }
                     });
@@ -135,25 +105,29 @@
                         const data = snapshot.val();
                         if (data) {
                             setBuzzerState(data);
-                        } else {
+                        } else if (registered) {
                             set(buzzerRef, { pressed: false, enabled: true, timestamp: null });
                         }
                     });
 
-                    const unsubSiren = onValue(sirenRef, (snapshot) => {
-                        const signal = snapshot.val();
-                        if (signal && signal !== lastSirenSignal) {
-                            setLastSirenSignal(signal);
-                            playSiren();
+                    // Monitorizar se o cliente foi removido pelo master
+                    const unsubClient = onValue(clientRef, (snapshot) => {
+                        if (!snapshot.exists() && registered) {
+                            // Cliente foi removido, desconectar
+                            setRegistered(false);
+                            setError('Foste desconectado pelo master. Por favor, conecta-te novamente.');
+                            setGameData(null);
+                            setMyTable(null);
+                            setBuzzerState({ pressed: false, enabled: true });
                         }
                     });
 
                     return () => {
                         unsubGame();
                         unsubBuzzer();
-                        unsubSiren();
+                        unsubClient();
                     };
-                }, [registered, sessionCode, tableNumber, lastSirenSignal]);
+                }, [registered, sessionCode, tableNumber]);
 
                 const handleRegister = async () => {
                     setError('');
@@ -170,65 +144,66 @@
 
                     setConnecting(true);
 
-                    try {
-                        const gameStateRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
-                        const snapshot = await new Promise((resolve) => {
-                            onValue(gameStateRef, resolve, { onlyOnce: true });
-                        });
-
-                        const gameState = snapshot.val();
-                        if (!gameState) {
-                            setError('Sessão não encontrada. Verifica o código.');
+                    const sessionRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/gameState`);
+                    onValue(sessionRef, async (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data || !data.active) {
+                            setError('Código de sessão inválido ou jogo não iniciado');
                             setConnecting(false);
-                            return;
-                        }
+                        } else {
+                            await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`), {
+                                tableNumber: parseInt(tableNumber),
+                                teamName: teamName || `Mesa ${tableNumber}`,
+                                emails: emails.filter(e => e.trim()),
+                                connectedAt: Date.now()
+                            });
 
-                        const tableExists = gameState.tables?.find(t => t.id === parseInt(tableNumber));
-                        if (!tableExists) {
-                            setError(`Mesa ${tableNumber} não existe nesta sessão (1-${gameState.tables?.length || 0})`);
+                            await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`), {
+                                pressed: false,
+                                enabled: true,
+                                timestamp: null
+                            });
+
+                            setSessionCode(sessionCode.toUpperCase());
+                            setRegistered(true);
                             setConnecting(false);
-                            return;
                         }
-
-                        const clientRef = ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`);
-                        await set(clientRef, {
-                            tableNumber: parseInt(tableNumber),
-                            teamName: teamName || `Mesa ${tableNumber}`,
-                            emails: emails.filter(e => e.trim()),
-                            connectedAt: Date.now()
-                        });
-
-                        const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
-                        await set(buzzerRef, { pressed: false, enabled: true, timestamp: null });
-
-                        setRegistered(true);
-                        setConnecting(false);
-                    } catch (err) {
-                        console.error(err);
+                    }, (err) => {
                         setError('Erro ao conectar. Tenta novamente.');
                         setConnecting(false);
-                    }
+                    }, { onlyOnce: true });
                 };
 
                 const pressBuzzer = async () => {
                     if (!buzzerState.enabled || buzzerState.pressed) return;
                     
-                    const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && (myTable?.score === 0);
-                    if (isBuzzerBlockedByZeroScore) return;
-
-                    const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
-                    await update(buzzerRef, {
-                        pressed: true,
-                        timestamp: Date.now()
-                    });
+                    // Buzzer só é bloqueado se a opção estiver ativa E se a pontuação for 0
+                    if (gameData?.blockBuzzerAtZero && myTable?.score === 0) {
+                        return;
+                    }
 
                     playBuzzer();
+
+                    try {
+                        await update(ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`), {
+                            pressed: true,
+                            timestamp: Date.now(),
+                            enabled: false
+                        });
+                    } catch (e) {
+                        console.error('Erro ao pressionar buzzer:', e);
+                    }
                 };
 
+                // Determinar se o buzzer está bloqueado por ter 0 pontos
+                const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
+
                 if (!registered) {
-                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex items-center justify-center p-4' },
-                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md' },
-                            h('h1', { className: 'text-3xl font-black text-gray-800 mb-6 text-center' }, 'Conectar ao Jogo'),
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
+                        h('div', { className: 'max-w-md w-full bg-white rounded-2xl shadow-2xl p-6' },
+                            h('div', { className: 'text-center mb-6' },
+                                h('h1', { className: 'text-3xl font-bold text-gray-800' }, 'Registo de Mesa')
+                            ),
                             error && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4' }, error),
                             h('div', { className: 'space-y-4' },
                                 h('div', null,
@@ -238,7 +213,7 @@
                                         value: sessionCode,
                                         onChange: (e) => setSessionCode(e.target.value.toUpperCase()),
                                         placeholder: 'Ex: ABC123',
-                                        maxLength: 6,
+                                        maxLength: 10,
                                         className: 'w-full px-4 py-3 text-lg font-mono border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 uppercase'
                                     })
                                 ),
@@ -306,8 +281,6 @@
                         )
                     );
                 }
-
-                const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && (myTable?.score === 0);
 
                 return h('div', { className: 'h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col overflow-hidden' },
                     h('div', { className: 'max-w-4xl mx-auto w-full h-full flex flex-col' },
