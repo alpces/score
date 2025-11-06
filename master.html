@@ -9,11 +9,19 @@
 <body>
     <div id="root"></div>
     
+    <!-- ==========================================
+         CONFIGURAÇÃO DO FIREBASE
+         ==========================================
+         Inicializa a conexão com Firebase:
+         - Firestore: Para armazenar categorias pré-definidas
+         - Realtime Database: Para sincronização em tempo real do jogo
+         ========================================== -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
+        // Configuração da conta Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
             authDomain: "contador-de-pontos-321ee.firebaseapp.com",
@@ -24,6 +32,7 @@
             databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
         };
 
+        // Inicializa Firebase e disponibiliza globalmente
         const app = initializeApp(firebaseConfig);
         window.db = getFirestore(app);
         window.rtdb = getDatabase(app);
@@ -31,12 +40,21 @@
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
+    <!-- Bibliotecas React para construção da interface -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
+        // URL da aplicação cliente para gerar QR codes
         const CLIENT_URL = 'https://alpces.github.io/score/client.html';
 
+        /* ==========================================
+           FUNÇÃO: playBuzzer()
+           ==========================================
+           Reproduz um som de buzzer usando Web Audio API
+           - Alterna entre duas frequências (800Hz e 650Hz)
+           - Duração total: 2 segundos
+           ========================================== */
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -45,6 +63,7 @@
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
+            // Padrão de frequências alternadas para criar som de buzzer
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
             oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.3);
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.6);
@@ -54,6 +73,7 @@
             
             oscillator.type = 'sine';
             
+            // Controle de volume (fade out no final)
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 1.8);
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 2);
@@ -67,38 +87,58 @@
             const { db, rtdb, fbModules } = window;
             const { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update } = fbModules;
 
+            /* ==========================================
+               COMPONENTE PRINCIPAL: App()
+               ==========================================
+               Componente React que gere todo o sistema de pontuação master
+               ========================================== */
             function App() {
-                const [setupComplete, setSetupComplete] = useState(false);
-                const [numTables, setNumTables] = useState(0);
-                const [initialScore, setInitialScore] = useState(0);
-                const [buzzerText, setBuzzerText] = useState('BUZZER');
-                const [blockBuzzerAtZero, setBlockBuzzerAtZero] = useState(false);
-                const [tables, setTables] = useState([]);
-                const [categories, setCategories] = useState([]);
-                const [yellowCategory, setYellowCategory] = useState(null);
-                const [redCategory, setRedCategory] = useState(null);
-                const [usedCategories, setUsedCategories] = useState([]);
-                const [showLeaderboard, setShowLeaderboard] = useState(false);
-                const [leaderboardRevealPosition, setLeaderboardRevealPosition] = useState(null);
-                const [tempNames, setTempNames] = useState({});
-                const [tempCategories, setTempCategories] = useState(['']);
-                const [predefinedCategories, setPredefinedCategories] = useState([]);
-                const [showPredefined, setShowPredefined] = useState(false);
-                const [showScores, setShowScores] = useState(false);
-                const [flashEffects, setFlashEffects] = useState({});
-                const [sessionId, setSessionId] = useState(null);
-                const [customSessionCode, setCustomSessionCode] = useState('');
-                const [codeCopied, setCodeCopied] = useState(false);
-                const [connectedClients, setConnectedClients] = useState({});
-                const [buzzers, setBuzzers] = useState({});
-                const [showSessionCode, setShowSessionCode] = useState(true);
-                const [showQRCode, setShowQRCode] = useState(false);
-                const [showHistory, setShowHistory] = useState(false);
-                const [sessionHistory, setSessionHistory] = useState([]);
-                const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);
-                const [showManageTables, setShowManageTables] = useState(false);
-                const [codeError, setCodeError] = useState('');
+                // ========== ESTADOS DE CONFIGURAÇÃO ==========
+                const [setupComplete, setSetupComplete] = useState(false);  // Se a configuração inicial foi concluída
+                const [numTables, setNumTables] = useState(0);              // Número de mesas (0 = dinâmico)
+                const [initialScore, setInitialScore] = useState(0);        // Pontuação inicial para novas mesas
+                const [buzzerText, setBuzzerText] = useState('BUZZER');     // Texto personalizado do botão buzzer
+                const [blockBuzzerAtZero, setBlockBuzzerAtZero] = useState(false);  // Bloquear buzzer quando mesa tem 0 pontos
 
+                // ========== ESTADOS DO JOGO ==========
+                const [tables, setTables] = useState([]);                   // Array de mesas: [{id, name, score}]
+                const [categories, setCategories] = useState([]);           // Lista de categorias disponíveis
+                const [yellowCategory, setYellowCategory] = useState(null); // Categoria amarela ativa
+                const [redCategory, setRedCategory] = useState(null);       // Categoria vermelha ativa
+                const [usedCategories, setUsedCategories] = useState([]);   // Categorias já usadas (não repetir)
+
+                // ========== ESTADOS DE UI ==========
+                const [showLeaderboard, setShowLeaderboard] = useState(false);           // Mostrar classificação
+                const [leaderboardRevealPosition, setLeaderboardRevealPosition] = useState(null);  // Posição de revelação progressiva
+                const [showScores, setShowScores] = useState(false);                     // Mostrar pontuações nas mesas
+                const [flashEffects, setFlashEffects] = useState({});                    // Efeitos visuais de pontuação (+1, -1, +5)
+                const [showPredefined, setShowPredefined] = useState(false);             // Mostrar painel de categorias guardadas
+                const [showHistory, setShowHistory] = useState(false);                   // Mostrar histórico de sessões
+                const [showManageTables, setShowManageTables] = useState(false);         // Mostrar painel de gestão de mesas
+                const [showSessionCode, setShowSessionCode] = useState(false);           // Mostrar popup com código/QR
+                const [showQRCode, setShowQRCode] = useState(false);                     // (estado legacy)
+
+                // ========== ESTADOS DE SESSÃO ==========
+                const [sessionId, setSessionId] = useState(null);                        // Código único da sessão
+                const [customSessionCode, setCustomSessionCode] = useState('');          // Código personalizado pelo utilizador
+                const [codeError, setCodeError] = useState('');                          // Erro de validação de código
+                const [codeCopied, setCodeCopied] = useState(false);                     // Feedback de código copiado
+                const [connectedClients, setConnectedClients] = useState({});            // Clientes conectados: {tableNumber: {teamName, emails}}
+                const [buzzers, setBuzzers] = useState({});                              // Estado dos buzzers: {tableId: {pressed, timestamp}}
+
+                // ========== ESTADOS TEMPORÁRIOS (SETUP) ==========
+                const [tempNames, setTempNames] = useState({});                          // Nomes temporários das mesas durante setup
+                const [tempCategories, setTempCategories] = useState(['']);              // Categorias temporárias durante setup
+                const [predefinedCategories, setPredefinedCategories] = useState([]);    // Categorias guardadas no Firestore
+                const [sessionHistory, setSessionHistory] = useState([]);                // Histórico de sessões guardadas
+                const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);  // Entrada do histórico selecionada
+
+                /* ==========================================
+                   EFFECT: Carregar categorias pré-definidas
+                   ==========================================
+                   Executa uma vez ao montar o componente
+                   Carrega todas as categorias guardadas no Firestore
+                   ========================================== */
                 useEffect(() => {
                     (async () => {
                         try {
@@ -110,6 +150,12 @@
                     })();
                 }, []);
 
+                /* ==========================================
+                   EFFECT: Monitorizar histórico de sessões
+                   ==========================================
+                   Escuta mudanças no histórico quando o painel está aberto
+                   Ordena por timestamp (mais recentes primeiro)
+                   ========================================== */
                 useEffect(() => {
                     if (!showHistory) return;
                     const historyRef = ref(rtdb, 'sessionHistory');
@@ -129,16 +175,28 @@
                     return () => unsubHistory();
                 }, [showHistory]);
 
+                /* ==========================================
+                   EFFECT: Sincronizar com clientes e buzzers
+                   ==========================================
+                   Monitoriza em tempo real:
+                   1. Clientes conectados (atualiza nomes das mesas)
+                   2. Estado dos buzzers (reproduz som quando pressionados)
+                   
+                   Se numTables=0 (modo dinâmico), cria mesas automaticamente
+                   quando clientes se conectam
+                   ========================================== */
                 useEffect(() => {
                     if (!setupComplete || !sessionId) return;
 
                     const clientsRef = ref(rtdb, `sessions/${sessionId}/clients`);
                     const buzzersRef = ref(rtdb, `sessions/${sessionId}/buzzers`);
 
+                    // Monitorizar clientes conectados
                     const unsubClients = onValue(clientsRef, (snapshot) => {
                         const data = snapshot.val() || {};
                         setConnectedClients(data);
                         
+                        // Modo dinâmico: criar mesas automaticamente
                         if (numTables === 0) {
                             const newTables = Object.values(data).map(client => ({
                                 id: client.tableNumber,
@@ -155,6 +213,7 @@
                                 return merged.sort((a, b) => a.id - b.id);
                             });
                         } else {
+                            // Modo fixo: apenas atualizar nomes
                             setTables(prev => prev.map(t => {
                                 const client = Object.values(data).find(c => c.tableNumber === t.id);
                                 return client ? { ...t, name: client.teamName || t.name } : t;
@@ -162,11 +221,13 @@
                         }
                     });
 
+                    // Monitorizar buzzers (reproduz som quando pressionados)
                     const unsubBuzzers = onValue(buzzersRef, (snapshot) => {
                         const data = snapshot.val() || {};
                         const prevBuzzers = { ...buzzers };
                         setBuzzers(data);
                         
+                        // Detectar novos buzzers e reproduzir som
                         Object.keys(data).forEach(key => {
                             if (data[key].pressed && !prevBuzzers[key]?.pressed) {
                                 playBuzzer();
@@ -180,6 +241,13 @@
                     };
                 }, [setupComplete, sessionId]);
 
+                /* ==========================================
+                   FUNÇÃO: saveCats()
+                   ==========================================
+                   Guarda lista de categorias no Firestore
+                   - Apaga todas as categorias existentes
+                   - Adiciona as novas categorias
+                   ========================================== */
                 const saveCats = async (cats) => {
                     try {
                         const snap = await getDocs(collection(db, 'categories'));
@@ -191,6 +259,13 @@
                     }
                 };
 
+                /* ==========================================
+                   FUNÇÃO: syncGame()
+                   ==========================================
+                   Sincroniza estado do jogo com Firebase Realtime Database
+                   - Executado automaticamente quando tables, yellowCategory ou redCategory mudam
+                   - Permite que clientes vejam estado atualizado
+                   ========================================== */
                 const syncGame = async () => {
                     if (!sessionId) return;
                     try {
@@ -202,25 +277,25 @@
                     } catch (e) { console.error(e); }
                 };
 
+                // Auto-sincronizar quando mesas ou categorias mudam
                 useEffect(() => { if (setupComplete && sessionId) syncGame(); }, [tables, yellowCategory, redCategory]);
 
-                const checkSessionCodeExists = async (code) => {
-                    try {
-                        const sessionRef = ref(rtdb, `sessions/${code}/gameState`);
-                        const snapshot = await new Promise((resolve) => {
-                            onValue(sessionRef, resolve, { onlyOnce: true });
-                        });
-                        return snapshot.val() !== null;
-                    } catch (e) {
-                        return false;
-                    }
-                };
-
+                /* ==========================================
+                   FUNÇÃO: initGame()
+                   ==========================================
+                   Inicializa o jogo após configuração:
+                   1. Valida código de sessão personalizado (se fornecido)
+                   2. Verifica se código já existe no histórico
+                   3. Se existir, oferece carregar sessão anterior
+                   4. Cria mesas (se modo fixo) e categorias
+                   5. Ativa a sessão
+                   ========================================== */
                 const initGame = async () => {
                     setCodeError('');
                     
                     let finalCode = customSessionCode.trim().toUpperCase();
                     
+                    // Validação do código personalizado
                     if (finalCode) {
                         if (finalCode.length > 10) {
                             setCodeError('Código não pode ter mais de 10 caracteres');
@@ -230,15 +305,38 @@
                             setCodeError('Código só pode conter letras e números');
                             return;
                         }
-                        const exists = await checkSessionCodeExists(finalCode);
-                        if (exists) {
-                            setCodeError('Este código já está em uso. Escolha outro.');
-                            return;
+                        
+                        // Verificar se existe no histórico
+                        const historyRef = ref(rtdb, 'sessionHistory');
+                        const historySnapshot = await new Promise((resolve) => {
+                            onValue(historyRef, resolve, { onlyOnce: true });
+                        });
+                        
+                        const historyData = historySnapshot.val();
+                        if (historyData) {
+                            const matchingSessions = Object.keys(historyData)
+                                .map(key => ({ id: key, ...historyData[key] }))
+                                .filter(entry => entry.sessionId === finalCode)
+                                .sort((a, b) => b.timestamp - a.timestamp);
+                            
+                            if (matchingSessions.length > 0) {
+                                // Código já usado - oferecer carregar sessão
+                                const mostRecent = matchingSessions[0];
+                                if (confirm(`Código "${finalCode}" já foi usado. Deseja carregar a última sessão com este código?`)) {
+                                    loadSession(mostRecent, true);
+                                    return;
+                                } else {
+                                    setCodeError('Escolha outro código ou carregue a sessão existente');
+                                    return;
+                                }
+                            }
                         }
                     } else {
+                        // Gerar código aleatório se não fornecido
                         finalCode = Math.random().toString(36).substring(2, 8).toUpperCase();
                     }
 
+                    // Criar mesas em modo fixo
                     if (numTables > 0) {
                         setTables(Array.from({ length: numTables }, (_, i) => ({ 
                             id: i + 1, 
@@ -246,19 +344,35 @@
                             score: initialScore 
                         })));
                     }
+                    
                     setCategories(tempCategories.filter(c => c.trim()));
                     setSessionId(finalCode);
                     setSetupComplete(true);
                 };
 
+                /* ==========================================
+                   FUNÇÃO: updateScore()
+                   ==========================================
+                   Atualiza pontuação de uma mesa
+                   - Incrementa/decrementa pontuação (mínimo 0)
+                   - Cria efeito visual flash com o valor alterado
+                   - Permite cliques rápidos consecutivos (cada clique tem ID único)
+                   ========================================== */
                 const updateScore = (id, change) => {
                     setTables(prev => prev.map(t => t.id === id ? { ...t, score: Math.max(0, t.score + change) } : t));
                     const txt = change > 0 ? `+${change}` : `${change}`;
-                    const flashId = `${id}_${Date.now()}`;
+                    const flashId = `${id}_${Date.now()}`;  // ID único para permitir múltiplos flashes
                     setFlashEffects(p => ({ ...p, [flashId]: { tableId: id, text: txt } }));
                     setTimeout(() => setFlashEffects(p => { const u = { ...p }; delete u[flashId]; return u; }), 400);
                 };
 
+                /* ==========================================
+                   FUNÇÃO: changeCategory()
+                   ==========================================
+                   Seleciona categoria aleatória para amarela/vermelha
+                   - Evita categorias já usadas
+                   - Marca categoria como usada
+                   ========================================== */
                 const changeCategory = (setter, current) => {
                     const avail = categories.filter(c => !usedCategories.includes(c) && c !== current);
                     if (!avail.length) return;
@@ -267,6 +381,13 @@
                     setter(cat);
                 };
 
+                /* ==========================================
+                   FUNÇÃO: resetBuzzer()
+                   ==========================================
+                   Reset buzzer de uma mesa específica
+                   - Define pressed=false, enabled=true
+                   - Permite que mesa pressione buzzer novamente
+                   ========================================== */
                 const resetBuzzer = async (tableId) => {
                     if (!sessionId) return;
                     try {
@@ -278,6 +399,11 @@
                     } catch (e) { console.error(e); }
                 };
 
+                /* ==========================================
+                   FUNÇÃO: resetAllBuzzers()
+                   ==========================================
+                   Reset de todos os buzzers da sessão
+                   ========================================== */
                 const resetAllBuzzers = async () => {
                     if (!sessionId) return;
                     try {
@@ -291,6 +417,13 @@
                     } catch (e) { console.error(e); }
                 };
 
+                /* ==========================================
+                   FUNÇÃO: saveSession()
+                   ==========================================
+                   Guarda sessão atual no histórico
+                   - Inclui: mesas, pontuações, emails, categorias, configurações
+                   - Gera ID aleatório para a entrada do histórico
+                   ========================================== */
                 const saveSession = async () => {
                     if (!sessionId) return;
                     try {
@@ -311,6 +444,7 @@
                             initialScore: initialScore
                         };
 
+                        // Copiar emails dos clientes conectados
                         Object.values(connectedClients).forEach(client => {
                             historyData.emails[client.tableNumber] = client.emails || [];
                         });
@@ -324,29 +458,73 @@
                     }
                 };
 
-                const loadSession = async (entry) => {
-                    if (!confirm('Deseja carregar esta sessão?')) return;
+                /* ==========================================
+                   FUNÇÃO: loadSession()
+                   ==========================================
+                   Carrega sessão do histórico
+                   - skipConfirm: se true, não pede confirmação (usado quando código já existe)
+                   - Restaura todas as mesas, pontuações, categorias e configurações
+                   - Usa timeout para garantir que states são resetados antes de carregar
+                   ========================================== */
+                const loadSession = (entry, skipConfirm = false) => {
+                    if (!skipConfirm && !confirm('Deseja carregar esta sessão?')) return;
+                    
+                    console.log('Loading session:', entry);
                     
                     const code = entry.sessionId;
-                    const exists = await checkSessionCodeExists(code);
-                    if (exists) {
-                        alert('Este código de sessão já está ativo. Não é possível carregar.');
-                        return;
-                    }
+                    const loadedTables = entry.tables || [];
+                    const loadedCategories = entry.categories || [];
+                    
+                    console.log('Tables to load:', loadedTables);
+                    console.log('Categories to load:', loadedCategories);
 
-                    setTables(entry.tables || []);
-                    setCategories(entry.categories || []);
-                    setYellowCategory(entry.yellowCategory || null);
-                    setRedCategory(entry.redCategory || null);
-                    setBuzzerText(entry.buzzerText || 'BUZZER');
-                    setBlockBuzzerAtZero(entry.blockBuzzerAtZero || false);
-                    setInitialScore(entry.initialScore || 0);
-                    setSessionId(code);
-                    setSetupComplete(true);
+                    // Reset completo antes de carregar
                     setShowHistory(false);
                     setSelectedHistoryEntry(null);
+                    setSetupComplete(false);
+                    
+                    // Delay para garantir reset
+                    setTimeout(() => {
+                        // Carregar dados da sessão
+                        setTables(loadedTables);
+                        setNumTables(0);  // Sempre modo dinâmico após carregar para permitir novas mesas
+                        setCategories(loadedCategories);
+                        setYellowCategory(entry.yellowCategory || null);
+                        setRedCategory(entry.redCategory || null);
+                        setUsedCategories([entry.yellowCategory, entry.redCategory].filter(Boolean));
+                        setBuzzerText(entry.buzzerText || 'BUZZER');
+                        setBlockBuzzerAtZero(entry.blockBuzzerAtZero !== undefined ? entry.blockBuzzerAtZero : false);
+                        setInitialScore(entry.initialScore !== undefined ? entry.initialScore : 0);
+                        
+                        // Reset UI
+                        setShowScores(false);
+                        setFlashEffects({});
+                        setCodeCopied(false);
+                        setConnectedClients({});
+                        setBuzzers({});
+                        setShowSessionCode(false);
+                        setShowQRCode(false);
+                        setShowManageTables(false);
+                        setShowLeaderboard(false);
+                        setLeaderboardRevealPosition(null);
+                        
+                        // Ativar sessão
+                        setSessionId(code);
+                        setSetupComplete(true);
+                        
+                        console.log('Session loaded successfully');
+                    }, 100);
                 };
 
+                /* ==========================================
+                   FUNÇÃO: removeTable()
+                   ==========================================
+                   Remove mesa da sessão
+                   - Pede confirmação
+                   - Remove do Firebase (clientes e buzzers)
+                   - Remove do array local de mesas
+                   - Cliente é automaticamente desconectado
+                   ========================================== */
                 const removeTable = async (tableId) => {
                     if (!confirm(`Tem a certeza que deseja remover a Mesa ${tableId}?`)) return;
                     
@@ -360,28 +538,67 @@
                     }
                 };
 
+                /* ==========================================
+                   FUNÇÃO: resetGame()
+                   ==========================================
+                   Inicia nova sessão
+                   - Remove sessão atual do Firebase
+                   - Reset completo de todos os estados
+                   ========================================== */
                 const resetGame = async () => {
                     if (!confirm('Tem a certeza que deseja iniciar uma nova sessão?')) return;
-                    
-                    const saveChoice = confirm('Deseja gravar a sessão atual antes de iniciar uma nova?');
-                    if (saveChoice) {
-                        await saveSession();
-                    }
 
                     if (sessionId) try { await remove(ref(rtdb, `sessions/${sessionId}`)); } catch (e) {}
-                    setSetupComplete(false); setTables([]); setCategories([]); setYellowCategory(null); setRedCategory(null);
-                    setUsedCategories([]); setTempNames({}); setTempCategories(['']); setInitialScore(0); setNumTables(0);
-                    setShowLeaderboard(false); setLeaderboardRevealPosition(null); setShowScores(false);
-                    setFlashEffects({}); setSessionId(null); setCodeCopied(false); setConnectedClients({}); setBuzzers({});
-                    setShowSessionCode(true); setBuzzerText('BUZZER'); setBlockBuzzerAtZero(false); setShowQRCode(false);
-                    setCustomSessionCode(''); setCodeError('');
+                    
+                    // Reset completo de estados
+                    setSetupComplete(false); 
+                    setTables([]); 
+                    setCategories([]); 
+                    setYellowCategory(null); 
+                    setRedCategory(null);
+                    setUsedCategories([]); 
+                    setTempNames({}); 
+                    setTempCategories(['']); 
+                    setInitialScore(0); 
+                    setNumTables(0);
+                    setShowLeaderboard(false); 
+                    setLeaderboardRevealPosition(null); 
+                    setShowScores(false);
+                    setFlashEffects({}); 
+                    setSessionId(null); 
+                    setCodeCopied(false); 
+                    setConnectedClients({}); 
+                    setBuzzers({});
+                    setShowSessionCode(false); 
+                    setBuzzerText('BUZZER'); 
+                    setBlockBuzzerAtZero(false); 
+                    setShowQRCode(false);
+                    setCustomSessionCode(''); 
+                    setCodeError('');
                 };
 
+                /* ==========================================
+                   FUNÇÃO: resetAllScores()
+                   ==========================================
+                   Reset de todas as pontuações
+                   - Pede confirmação
+                   - Pergunta pontuação inicial (padrão: 0)
+                   - Aplica a todas as mesas
+                   ========================================== */
                 const resetAllScores = () => {
                     if (!confirm('Tem a certeza que deseja resetar todas as pontuações?')) return;
-                    setTables(prev => prev.map(t => ({ ...t, score: initialScore })));
+                    const newScore = prompt('Pontuação inicial para todas as mesas:', '0');
+                    if (newScore === null) return;
+                    const score = Math.max(0, parseInt(newScore) || 0);
+                    setTables(prev => prev.map(t => ({ ...t, score: score })));
+                    setInitialScore(score);
                 };
 
+                /* ==========================================
+                   FUNÇÃO: deleteHistoryEntry()
+                   ==========================================
+                   Apaga entrada do histórico
+                   ========================================== */
                 const deleteHistoryEntry = async (entryId) => {
                     if (!confirm('Tem a certeza que deseja eliminar este registo?')) return;
                     try {
@@ -390,11 +607,22 @@
                     } catch (e) { console.error(e); }
                 };
 
+                /* ==========================================
+                   FUNÇÃO: generateQRCodeUrl()
+                   ==========================================
+                   Gera URL para API de QR codes
+                   - Inclui URL do cliente com parâmetro de sessão
+                   ========================================== */
                 const generateQRCodeUrl = () => {
                     const url = `${CLIENT_URL}?session=${sessionId}`;
                     return `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(url)}`;
                 };
 
+                /* ==========================================
+                   FUNÇÃO: downloadQRCode()
+                   ==========================================
+                   Faz download do QR code como PNG
+                   ========================================== */
                 const downloadQRCode = async () => {
                     try {
                         const qrUrl = generateQRCodeUrl();
@@ -414,8 +642,19 @@
                     }
                 };
 
+                /* ==========================================
+                   FUNÇÃO: sorted()
+                   ==========================================
+                   Retorna mesas ordenadas por pontuação (maior para menor)
+                   ========================================== */
                 const sorted = () => [...tables].sort((a, b) => b.score - a.score);
 
+                /* ==========================================
+                   FUNÇÃO: getBuzzerOrder()
+                   ==========================================
+                   Retorna buzzers pressionados ordenados por timestamp
+                   - Mostra ordem de quem pressionou primeiro
+                   ========================================== */
                 const getBuzzerOrder = () => {
                     return Object.entries(buzzers)
                         .filter(([_, b]) => b.pressed)
@@ -423,32 +662,51 @@
                         .map(([id, b], idx) => ({ tableId: parseInt(id), order: idx + 1, timestamp: b.timestamp }));
                 };
 
+                /* ==========================================
+                   FUNÇÃO: formatDate()
+                   ==========================================
+                   Formata timestamp para formato português
+                   ========================================== */
                 const formatDate = (timestamp) => {
                     const date = new Date(timestamp);
                     return date.toLocaleDateString('pt-PT') + ' ' + date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
                 };
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Painel de Gestão de Mesas
+                   ==========================================
+                   Mostra todas as mesas da sessão
+                   - Indica quais estão conectadas
+                   - Permite remover qualquer mesa
+                   ========================================== */
                 if (showManageTables) {
-                    const connectedTablesList = Object.values(connectedClients)
-                        .sort((a, b) => a.tableNumber - b.tableNumber);
+                    const allTables = tables.map(t => ({
+                        id: t.id,
+                        name: t.name,
+                        score: t.score,
+                        isConnected: Object.values(connectedClients).some(c => c.tableNumber === t.id)
+                    })).sort((a, b) => a.id - b.id);
 
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
                         h('div', { className: 'max-w-4xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
                                 h('div', { className: 'flex justify-between mb-4' },
-                                    h('h2', { className: 'text-xl font-bold' }, 'Gerir Mesas Conectadas'),
+                                    h('h2', { className: 'text-xl font-bold' }, 'Gerir Mesas'),
                                     h('button', { onClick: () => setShowManageTables(false), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                 ),
-                                connectedTablesList.length === 0
-                                    ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma mesa conectada')
+                                allTables.length === 0
+                                    ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma mesa na sessão')
                                     : h('div', { className: 'space-y-2' },
-                                        connectedTablesList.map(client => h('div', { key: client.tableNumber, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
+                                        allTables.map(table => h('div', { key: table.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
                                             h('div', null,
-                                                h('div', { className: 'font-bold text-lg' }, client.teamName || `Mesa ${client.tableNumber}`),
-                                                h('div', { className: 'text-sm text-gray-600' }, `Mesa ${client.tableNumber}`)
+                                                h('div', { className: 'font-bold text-lg' }, table.name || `Mesa ${table.id}`),
+                                                h('div', { className: 'text-sm text-gray-600 flex items-center gap-2' }, 
+                                                    `Mesa ${table.id} - ${table.score} pts`,
+                                                    table.isConnected && h('span', { className: 'text-xs bg-green-500 text-white px-2 py-0.5 rounded' }, 'Conectada')
+                                                )
                                             ),
                                             h('button', { 
-                                                onClick: () => removeTable(client.tableNumber),
+                                                onClick: () => removeTable(table.id),
                                                 className: 'px-4 py-2 bg-red-500 text-white text-sm rounded hover:bg-red-600 font-bold'
                                             }, '✕ Remover')
                                         ))
@@ -458,7 +716,15 @@
                     );
                 }
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Histórico de Sessões
+                   ==========================================
+                   Dois modos:
+                   1. Lista de sessões guardadas
+                   2. Detalhes de uma sessão específica
+                   ========================================== */
                 if (showHistory) {
+                    // Modo: Detalhes de uma sessão
                     if (selectedHistoryEntry) {
                         const entry = selectedHistoryEntry;
                         const sortedTables = [...entry.tables].sort((a, b) => a.id - b.id);
@@ -481,7 +747,7 @@
                                                 ),
                                                 h('div', { className: 'text-2xl font-bold text-indigo-600' }, `${t.score} pts`)
                                             ),
-                                            (entry.emails[t.id] && entry.emails[t.id].length > 0) && h('div', { className: 'mt-3 border-t pt-3' },
+                                            (entry.emails && entry.emails[t.id] && entry.emails[t.id].length > 0) && h('div', { className: 'mt-3 border-t pt-3' },
                                                 h('div', { className: 'text-xs font-semibold text-gray-600 mb-2' }, 'E-mails:'),
                                                 h('div', { className: 'space-y-1' },
                                                     entry.emails[t.id].map((email, idx) => h('div', { key: idx, className: 'text-sm text-gray-700' }, email))
@@ -494,6 +760,7 @@
                         );
                     }
 
+                    // Modo: Lista de sessões
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
                         h('div', { className: 'max-w-4xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
@@ -520,6 +787,18 @@
                     );
                 }
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Tela de Configuração Inicial
+                   ==========================================
+                   Formulário para configurar:
+                   - Código de sessão (personalizado ou automático)
+                   - Número de mesas (0 = dinâmico)
+                   - Pontuação inicial
+                   - Texto do buzzer
+                   - Bloqueio de buzzer aos 0 pontos
+                   - Nomes das mesas (se modo fixo)
+                   - Categorias
+                   ========================================== */
                 if (!setupComplete) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3 overflow-y-auto' },
                         h('div', { className: 'max-w-2xl mx-auto py-4' },
@@ -530,6 +809,7 @@
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4' },
                                 h('h1', { className: 'text-2xl font-bold text-gray-800 text-center mb-4' }, 'Configuração do Jogo'),
                                 h('div', { className: 'space-y-4' },
+                                    // Campo: Código de sessão personalizado
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Código da Sessão (opcional, máx: 10 caracteres)'),
                                         h('input', { 
@@ -546,23 +826,28 @@
                                         codeError && h('p', { className: 'text-xs text-red-600 mt-1' }, codeError),
                                         h('p', { className: 'text-xs text-gray-500 mt-1' }, 'Apenas letras e números. Se vazio, será gerado automaticamente.')
                                     ),
+                                    // Campo: Número de mesas
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Número de Mesas (0 = Dinâmico, máx: 20)'),
                                         h('input', { type: 'number', min: 0, max: 20, value: numTables, onChange: e => setNumTables(Math.min(20, Math.max(0, +e.target.value || 0))), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' }),
                                         h('p', { className: 'text-xs text-gray-500 mt-1' }, 'Se 0, as mesas aparecem à medida que os clientes se conectam')
                                     ),
+                                    // Campo: Pontuação inicial
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Pontuação Inicial'),
                                         h('input', { type: 'number', min: 0, value: initialScore, onChange: e => setInitialScore(Math.max(0, +e.target.value || 0)), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' })
                                     ),
+                                    // Campo: Texto do buzzer
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Texto do Botão Buzzer'),
                                         h('input', { type: 'text', value: buzzerText, onChange: e => setBuzzerText(e.target.value), placeholder: 'BUZZER', className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' })
                                     ),
+                                    // Checkbox: Bloquear buzzer aos 0 pontos
                                     h('div', { className: 'flex items-center gap-2' },
                                         h('input', { type: 'checkbox', id: 'blockBuzzer', checked: blockBuzzerAtZero, onChange: e => setBlockBuzzerAtZero(e.target.checked), className: 'w-4 h-4' }),
                                         h('label', { htmlFor: 'blockBuzzer', className: 'text-sm font-semibold text-gray-700' }, 'Bloquear buzzer quando mesa tem 0 pontos')
                                     ),
+                                    // Nomes das mesas (apenas em modo fixo)
                                     numTables > 0 && h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Nomes das Mesas'),
                                         h('div', { className: 'grid gap-2 max-h-48 overflow-y-auto' },
@@ -572,6 +857,7 @@
                                             ))
                                         )
                                     ),
+                                    // Categorias
                                     h('div', null,
                                         h('div', { className: 'flex justify-between mb-2' },
                                             h('label', { className: 'text-sm font-semibold' }, 'Categorias'),
@@ -581,6 +867,7 @@
                                                 h('button', { onClick: () => setTempCategories([...tempCategories, '']), className: 'px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600' }, '+')
                                             )
                                         ),
+                                        // Painel de categorias guardadas
                                         showPredefined && h('div', { className: 'mb-3 p-3 bg-purple-50 rounded-lg' },
                                             h('h4', { className: 'text-sm font-bold mb-2' }, 'Categorias Guardadas'),
                                             predefinedCategories.map((cat, i) => h('div', { key: i, className: 'flex justify-between bg-white p-2 rounded mb-1' },
@@ -589,6 +876,7 @@
                                             )),
                                             h('input', { placeholder: 'Nova categoria...', onKeyPress: e => { if (e.key === 'Enter' && e.target.value.trim()) { saveCats([...predefinedCategories, e.target.value.trim()].sort()); e.target.value = ''; } }, className: 'w-full mt-2 px-3 py-1.5 text-sm border rounded' })
                                         ),
+                                        // Lista de categorias para esta sessão
                                         h('div', { className: 'space-y-2' },
                                             tempCategories.map((cat, i) => h('div', { key: i, className: 'flex gap-2' },
                                                 h('input', { value: cat, onChange: e => { const n = [...tempCategories]; n[i] = e.target.value; setTempCategories(n); }, className: 'flex-1 px-3 py-1.5 text-sm border rounded outline-none' }),
@@ -596,6 +884,7 @@
                                             ))
                                         )
                                     ),
+                                    // Botão iniciar jogo
                                     h('button', { onClick: initGame, className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700' }, 'Iniciar Jogo')
                                 )
                             )
@@ -603,6 +892,14 @@
                     );
                 }
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Classificação (Leaderboard)
+                   ==========================================
+                   Mostra ranking com revelação progressiva
+                   - 1º lugar: fundo amarelo
+                   - 2º lugar: fundo cinza
+                   - 3º lugar: fundo laranja
+                   ========================================== */
                 if (showLeaderboard) {
                     const s = sorted();
                     const visible = s.slice(leaderboardRevealPosition - 1);
@@ -632,6 +929,41 @@
                     );
                 }
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Popup de Código/QR
+                   ==========================================
+                   Ecrã fullscreen verde com:
+                   - Código da sessão em grande (ideal para projetar)
+                   - QR code grande
+                   - Botões discretos: Copiar, Download, Fechar
+                   ========================================== */
+                if (showSessionCode && sessionId) {
+                    return h('div', { className: 'h-screen bg-gradient-to-br from-green-600 to-green-700 flex flex-col items-center justify-center p-8 relative overflow-hidden' },
+                        h('div', { className: 'text-center mb-12' },
+                            h('div', { className: 'text-xs text-white opacity-60 mb-3 uppercase tracking-widest' }, 'Código da Sessão'),
+                            h('h2', { className: 'text-9xl sm:text-[12rem] font-black text-white tracking-widest drop-shadow-2xl' }, sessionId)
+                        ),
+                        h('div', { className: 'bg-white p-8 rounded-3xl mb-12 shadow-2xl' },
+                            h('img', { src: generateQRCodeUrl(), alt: 'QR Code', className: 'w-96 h-96' })
+                        ),
+                        h('div', { className: 'absolute bottom-6 right-6 flex gap-3' },
+                            h('button', { 
+                                onClick: () => { navigator.clipboard.writeText(sessionId); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000); },
+                                className: 'px-4 py-2 bg-black bg-opacity-40 text-white rounded-lg font-medium text-sm hover:bg-opacity-60 backdrop-blur-sm'
+                            }, codeCopied ? '✓ Copiado' : '📋 Copiar'),
+                            h('button', { 
+                                onClick: downloadQRCode,
+                                className: 'px-4 py-2 bg-black bg-opacity-40 text-white rounded-lg font-medium text-sm hover:bg-opacity-60 backdrop-blur-sm'
+                            }, '⬇ Download'),
+                            h('button', { 
+                                onClick: () => setShowSessionCode(false),
+                                className: 'px-4 py-2 bg-black bg-opacity-40 text-white rounded-lg font-medium text-sm hover:bg-opacity-60 backdrop-blur-sm'
+                            }, '✕ Fechar')
+                        )
+                    );
+                }
+
+                // Estado legacy do QR Code (mantido por compatibilidade)
                 if (showQRCode && sessionId) {
                     return h('div', { className: 'h-screen bg-white flex flex-col items-center justify-center p-8' },
                         h('div', { className: 'text-center mb-8' },
@@ -652,23 +984,23 @@
                     );
                 }
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Ecrã Principal do Jogo
+                   ==========================================
+                   Layout:
+                   - Topo: Buzzers ativos (se existirem)
+                   - Meio superior: Categorias amarela e vermelha (33%)
+                   - Meio inferior: Grid de mesas (66%)
+                   - Fundo: Barra de botões de controlo
+                   ========================================== */
                 const buzzerOrder = getBuzzerOrder();
 
                 return h('div', { className: 'h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-2 flex flex-col overflow-auto' },
                     h('div', { className: 'max-w-7xl mx-auto w-full flex flex-col flex-1' },
-                        sessionId && showSessionCode && h('div', { className: 'bg-gradient-to-r from-green-600 to-green-700 text-white rounded-2xl p-6 mb-2 flex flex-col items-center shadow-2xl' },
-                            h('div', { className: 'text-sm opacity-90 mb-2' }, 'CÓDIGO DA SESSÃO'),
-                            h('div', { className: 'text-7xl sm:text-8xl font-black tracking-widest mb-4' }, sessionId),
-                            h('div', { className: 'flex gap-3' },
-                                h('button', { onClick: () => { navigator.clipboard.writeText(sessionId); setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000); }, className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, codeCopied ? '✓ Copiado' : 'Copiar'),
-                                h('button', { onClick: () => setShowQRCode(true), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, 'QR Code'),
-                                h('button', { onClick: () => setShowSessionCode(false), className: 'bg-white bg-opacity-20 px-6 py-3 rounded-lg hover:bg-opacity-30 font-bold' }, 'Ocultar')
-                            )
-                        ),
-                        sessionId && !showSessionCode && h('button', { onClick: () => setShowSessionCode(true), className: 'bg-green-600 text-white rounded-lg px-4 py-2 mb-2 font-bold hover:bg-green-700' }, 'Mostrar Código da Sessão'),
+                        // Área de buzzers ativos
                         buzzerOrder.length > 0 && h('div', { 
                             className: 'text-white rounded-lg p-3 mb-2',
-                            style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
+                            style: { animation: 'buzzerFlash 1s ease-in-out infinite' }  // Animação de flash
                         },
                             h('div', { className: 'flex justify-between items-center mb-2' },
                                 h('h3', { className: 'font-bold text-lg' }, 'Buzzers Ativos'),
@@ -685,7 +1017,8 @@
                                 })
                             )
                         ),
-                        categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-3 mb-2', style: { height: sessionId ? 'calc(33.333% - 4rem)' : '33.333%' } },
+                        // Categorias (amarela e vermelha) - duplo clique para mudar
+                        categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-3 mb-2', style: { height: '33.333%' } },
                             h('button', { onDoubleClick: () => changeCategory(setYellowCategory, yellowCategory), className: 'bg-yellow-400 text-gray-900 rounded-xl p-4 font-black hover:bg-yellow-500 h-full flex items-center justify-center' },
                                 h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, yellowCategory || 'Duplo clique')
                             ),
@@ -693,45 +1026,57 @@
                                 h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, redCategory || 'Duplo clique')
                             )
                         ),
+                        // Grid de mesas
                         h('div', { className: 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5 mb-2', style: { height: 'calc(66.666% - 3.5rem)' } },
                             tables.map(t => {
                                 const hasBuzzer = buzzers[t.id]?.pressed;
                                 const buzzerInfo = buzzerOrder.find(b => b.tableId === t.id);
                                 const isZeroScore = t.score === 0;
                                 const tableFlashes = Object.entries(flashEffects).filter(([_, effect]) => effect.tableId === t.id);
-                                return h('div', { key: t.id, className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` },
+                                
+                                return h('div', { 
+                                    key: t.id, 
+                                    className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` 
+                                },
+                                    // Flash effect de pontuação (mostra último valor)
                                     tableFlashes.length > 0 && h('div', { className: 'absolute inset-0 flex items-center justify-center z-10 bg-black bg-opacity-50 rounded-lg' },
                                         h('span', { className: 'text-5xl font-bold text-white' }, tableFlashes[tableFlashes.length - 1][1].text)
                                     ),
+                                    // Badge de ordem do buzzer
                                     hasBuzzer && h('div', { className: 'absolute top-0 right-0 bg-yellow-400 text-black rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold' }, buzzerInfo?.order),
+                                    // Nome e número da mesa
                                     h('div', { className: `text-center mb-1 ${hasBuzzer ? 'text-white' : ''}` },
                                         h('div', { className: `text-xl font-bold leading-tight ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.name || `Mesa ${t.id}`),
                                         h('div', { className: `text-[10px] ${hasBuzzer ? 'text-white opacity-75' : 'text-gray-500'}` }, `Mesa ${t.id}`)
                                     ),
+                                    // Botões de pontuação
                                     h('div', { className: 'flex items-center justify-center gap-1 mb-1 flex-1' },
                                         h('button', { 
                                             onClick: () => updateScore(t.id, -1), 
-                                            disabled: isZeroScore, 
+                                            disabled: isZeroScore,  // Apenas -1 fica desabilitado aos 0 pontos
                                             className: `w-8 h-8 rounded-lg font-bold ${isZeroScore ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-gray-500 text-white hover:bg-gray-600'}` 
                                         }, '-'),
                                         showScores && h('div', { className: `text-2xl font-bold w-10 text-center ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.score),
                                         !showScores && h('div', { className: 'w-10' }),
                                         h('button', { 
-                                            onClick: () => updateScore(t.id, 1), 
+                                            onClick: () => updateScore(t.id, 1),  // +1 sempre ativo
                                             className: 'w-8 h-8 rounded-lg font-bold bg-green-500 text-white hover:bg-green-600' 
                                         }, '+')
                                     ),
+                                    // Botão +5
                                     h('button', { 
-                                        onClick: () => updateScore(t.id, 5), 
+                                        onClick: () => updateScore(t.id, 5),  // +5 sempre ativo
                                         className: 'w-full py-1 rounded-lg font-bold text-[10px] bg-purple-500 text-white hover:bg-purple-600' 
                                     }, '+5')
                                 );
                             })
                         ),
+                        // Barra de botões de controlo
                         h('div', { className: 'flex justify-between bg-white rounded-lg p-2' },
                             h('div', { className: 'flex gap-2' },
                                 h('button', { onClick: () => setShowScores(!showScores), className: 'px-3 py-1.5 text-xs bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600' }, showScores ? 'Ocultar' : 'Mostrar'),
-                                Object.keys(connectedClients).length > 0 && h('button', { onClick: () => setShowManageTables(true), className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gerir Mesas')
+                                h('button', { onClick: () => setShowManageTables(true), className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gerir Mesas'),
+                                h('button', { onClick: () => setShowSessionCode(true), className: 'px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700' }, 'Código/QR')
                             ),
                             h('div', { className: 'flex gap-2' },
                                 h('button', { onClick: saveSession, className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gravar Sessão'),
@@ -744,6 +1089,11 @@
                 );
             }
 
+            /* ==========================================
+               CSS: Animação de buzzer flash
+               ==========================================
+               Alterna entre azul claro e azul escuro
+               ========================================== */
             const style = document.createElement('style');
             style.textContent = `
                 @keyframes buzzerFlash {
@@ -753,6 +1103,7 @@
             `;
             document.head.appendChild(style);
 
+            // Renderizar aplicação
             ReactDOM.createRoot(document.getElementById('root')).render(h(App));
         });
     </script>
