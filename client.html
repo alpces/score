@@ -9,10 +9,17 @@
 <body>
     <div id="root"></div>
     
+    <!-- ==========================================
+         CONFIGURAÇÃO DO FIREBASE
+         ==========================================
+         Inicializa conexão com Firebase Realtime Database
+         para sincronização em tempo real com o master
+         ========================================== -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getDatabase, ref, onValue, set, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
+        // Configuração da conta Firebase (mesma do master)
         const firebaseConfig = {
             apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
             authDomain: "contador-de-pontos-321ee.firebaseapp.com",
@@ -23,16 +30,25 @@
             databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
         };
 
+        // Inicializa Firebase e disponibiliza globalmente
         const app = initializeApp(firebaseConfig);
         window.rtdb = getDatabase(app);
         window.fbModules = { ref, onValue, set, update };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
+    <!-- Bibliotecas React para construção da interface -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
+        /* ==========================================
+           FUNÇÃO: playBuzzer()
+           ==========================================
+           Reproduz som de buzzer (idêntico ao master)
+           - Alterna entre 800Hz e 650Hz
+           - Duração: 2 segundos
+           ========================================== */
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -41,6 +57,7 @@
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
+            // Padrão de frequências
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
             oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.3);
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.6);
@@ -50,6 +67,7 @@
             
             oscillator.type = 'sine';
             
+            // Controle de volume
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 1.8);
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 2);
@@ -63,18 +81,36 @@
             const { rtdb, fbModules } = window;
             const { ref, onValue, set, update } = fbModules;
 
+            /* ==========================================
+               COMPONENTE PRINCIPAL: App()
+               ==========================================
+               Componente React que gere a interface do cliente
+               - Registo na sessão
+               - Visualização de pontuação própria
+               - Botão de buzzer
+               - Sincronização em tempo real com master
+               ========================================== */
             function App() {
-                const [registered, setRegistered] = useState(false);
-                const [sessionCode, setSessionCode] = useState('');
-                const [tableNumber, setTableNumber] = useState('');
-                const [teamName, setTeamName] = useState('');
-                const [emails, setEmails] = useState(['']);
-                const [gameData, setGameData] = useState(null);
-                const [myTable, setMyTable] = useState(null);
-                const [error, setError] = useState('');
-                const [connecting, setConnecting] = useState(false);
-                const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
+                // ========== ESTADOS DE REGISTO ==========
+                const [registered, setRegistered] = useState(false);        // Se o cliente está registado
+                const [sessionCode, setSessionCode] = useState('');         // Código da sessão
+                const [tableNumber, setTableNumber] = useState('');         // Número da mesa (1-20)
+                const [teamName, setTeamName] = useState('');               // Nome da equipa
+                const [emails, setEmails] = useState(['']);                 // E-mails dos participantes
+                const [error, setError] = useState('');                     // Mensagem de erro
+                const [connecting, setConnecting] = useState(false);        // Estado de conexão
 
+                // ========== ESTADOS DO JOGO ==========
+                const [gameData, setGameData] = useState(null);             // Estado do jogo do master
+                const [myTable, setMyTable] = useState(null);               // Dados da minha mesa
+                const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });  // Estado do buzzer
+
+                /* ==========================================
+                   EFFECT: Verificar parâmetro de sessão na URL
+                   ==========================================
+                   Se URL contém ?session=XXX, preenche automaticamente
+                   o código da sessão (útil ao escanear QR code)
+                   ========================================== */
                 useEffect(() => {
                     const urlParams = new URLSearchParams(window.location.search);
                     const session = urlParams.get('session');
@@ -83,6 +119,14 @@
                     }
                 }, []);
 
+                /* ==========================================
+                   EFFECT: Sincronização com master
+                   ==========================================
+                   Após registo, escuta mudanças em:
+                   1. gameState - Estado geral do jogo
+                   2. buzzer - Estado do buzzer desta mesa
+                   3. clients - Monitoriza se foi desconectado
+                   ========================================== */
                 useEffect(() => {
                     if (!registered || !sessionCode) return;
 
@@ -90,10 +134,12 @@
                     const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
                     const clientRef = ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`);
 
+                    // Monitorizar estado do jogo
                     const unsubGame = onValue(gameStateRef, (snapshot) => {
                         const data = snapshot.val();
                         if (data) {
                             setGameData(data);
+                            // Encontrar dados da minha mesa
                             const table = data.tables?.find(t => t.id === parseInt(tableNumber));
                             if (table) {
                                 setMyTable(table);
@@ -101,19 +147,21 @@
                         }
                     });
 
+                    // Monitorizar estado do buzzer
                     const unsubBuzzer = onValue(buzzerRef, (snapshot) => {
                         const data = snapshot.val();
                         if (data) {
                             setBuzzerState(data);
                         } else if (registered) {
+                            // Inicializar buzzer se não existir
                             set(buzzerRef, { pressed: false, enabled: true, timestamp: null });
                         }
                     });
 
-                    // Monitorizar se o cliente foi removido pelo master
+                    // Monitorizar se foi desconectado pelo master
                     const unsubClient = onValue(clientRef, (snapshot) => {
                         if (!snapshot.exists() && registered) {
-                            // Cliente foi removido, desconectar
+                            // Mesa foi removida - desconectar
                             setRegistered(false);
                             setError('Foste desconectado pelo master. Por favor, conecta-te novamente.');
                             setGameData(null);
@@ -129,9 +177,19 @@
                     };
                 }, [registered, sessionCode, tableNumber]);
 
+                /* ==========================================
+                   FUNÇÃO: handleRegister()
+                   ==========================================
+                   Regista o cliente na sessão:
+                   1. Valida código e número de mesa
+                   2. Verifica se sessão existe e está ativa
+                   3. Regista cliente no Firebase
+                   4. Inicializa buzzer
+                   ========================================== */
                 const handleRegister = async () => {
                     setError('');
                     
+                    // Validações
                     if (!sessionCode.trim()) {
                         setError('Código da sessão é obrigatório');
                         return;
@@ -144,6 +202,7 @@
 
                     setConnecting(true);
 
+                    // Verificar se sessão existe
                     const sessionRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/gameState`);
                     onValue(sessionRef, async (snapshot) => {
                         const data = snapshot.val();
@@ -151,6 +210,7 @@
                             setError('Código de sessão inválido ou jogo não iniciado');
                             setConnecting(false);
                         } else {
+                            // Registar cliente
                             await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`), {
                                 tableNumber: parseInt(tableNumber),
                                 teamName: teamName || `Mesa ${tableNumber}`,
@@ -158,6 +218,7 @@
                                 connectedAt: Date.now()
                             });
 
+                            // Inicializar buzzer
                             await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`), {
                                 pressed: false,
                                 enabled: true,
@@ -174,10 +235,19 @@
                     }, { onlyOnce: true });
                 };
 
+                /* ==========================================
+                   FUNÇÃO: pressBuzzer()
+                   ==========================================
+                   Pressiona o buzzer:
+                   1. Verifica se pode pressionar (enabled e não pressed)
+                   2. Verifica bloqueio por 0 pontos (se ativo)
+                   3. Reproduz som
+                   4. Atualiza estado no Firebase
+                   ========================================== */
                 const pressBuzzer = async () => {
                     if (!buzzerState.enabled || buzzerState.pressed) return;
                     
-                    // Buzzer só é bloqueado se a opção estiver ativa E se a pontuação for 0
+                    // Verificar bloqueio por 0 pontos
                     if (gameData?.blockBuzzerAtZero && myTable?.score === 0) {
                         return;
                     }
@@ -195,17 +265,28 @@
                     }
                 };
 
-                // Determinar se o buzzer está bloqueado por ter 0 pontos
+                // Determinar se buzzer está bloqueado por 0 pontos
                 const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Formulário de Registo
+                   ==========================================
+                   Campos:
+                   - Código da sessão (máx 10 caracteres)
+                   - Número da mesa (1-20)
+                   - Nome da equipa (opcional)
+                   - E-mails dos participantes (opcional, múltiplos)
+                   ========================================== */
                 if (!registered) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
                         h('div', { className: 'max-w-md w-full bg-white rounded-2xl shadow-2xl p-6' },
                             h('div', { className: 'text-center mb-6' },
                                 h('h1', { className: 'text-3xl font-bold text-gray-800' }, 'Registo de Mesa')
                             ),
+                            // Mensagem de erro
                             error && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4' }, error),
                             h('div', { className: 'space-y-4' },
+                                // Campo: Código da sessão
                                 h('div', null,
                                     h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Código da Sessão *'),
                                     h('input', {
@@ -217,6 +298,7 @@
                                         className: 'w-full px-4 py-3 text-lg font-mono border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 uppercase'
                                     })
                                 ),
+                                // Campo: Número da mesa
                                 h('div', null,
                                     h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Número da Mesa *'),
                                     h('input', {
@@ -229,6 +311,7 @@
                                         className: 'w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
                                     })
                                 ),
+                                // Campo: Nome da equipa
                                 h('div', null,
                                     h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Nome da Equipa'),
                                     h('input', {
@@ -239,9 +322,10 @@
                                         className: 'w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
                                     })
                                 ),
+                                // Campos: E-mails (múltiplos)
                                 h('div', null,
                                     h('div', { className: 'flex items-center justify-between mb-2' },
-                                        h('label', { className: 'block text-sm font-semibold text-gray-700' }, 'E-mails'),
+                                        h('label', { className: 'block text-sm font-semibold text-gray-700' }, 'E-mails (Opcional)'),
                                         h('button', {
                                             onClick: () => setEmails([...emails, '']),
                                             className: 'text-sm text-purple-600 hover:text-purple-700 font-semibold'
@@ -270,6 +354,7 @@
                                         )
                                     )
                                 ),
+                                // Botão de conexão
                                 h('button', {
                                     onClick: handleRegister,
                                     disabled: connecting,
@@ -282,8 +367,18 @@
                     );
                 }
 
+                /* ==========================================
+                   RENDERIZAÇÃO: Ecrã Principal do Cliente
+                   ==========================================
+                   Layout:
+                   - Topo: Info da mesa (nome + código sessão)
+                   - Meio superior: Categorias (se existirem)
+                   - Centro: Botão de buzzer (grande)
+                   - Fundo: Pontuação atual
+                   ========================================== */
                 return h('div', { className: 'h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col overflow-hidden' },
                     h('div', { className: 'max-w-4xl mx-auto w-full h-full flex flex-col' },
+                        // Cabeçalho com info da mesa
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-3 mb-3 flex-shrink-0' },
                             h('div', { className: 'flex items-center justify-between' },
                                 h('div', null,
@@ -293,6 +388,7 @@
                                 h('div', { className: 'text-xs text-gray-500' }, `Sessão: ${sessionCode}`)
                             )
                         ),
+                        // Categorias (amarela e vermelha)
                         gameData?.categories && gameData.categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-2 mb-3 flex-shrink-0' },
                             gameData.yellowCategory && h('div', { className: 'bg-yellow-400 text-gray-900 rounded-xl p-4 font-black shadow-xl flex items-center justify-center h-24' },
                                 h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.yellowCategory)
@@ -301,6 +397,7 @@
                                 h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.redCategory)
                             )
                         ),
+                        // Botão de buzzer (grande, circular)
                         h('div', { className: 'flex-1 flex items-center justify-center' },
                             h('button', {
                                 onClick: pressBuzzer,
@@ -319,12 +416,14 @@
                                 )
                             ))
                         ),
+                        // Painel de pontuação
                         h('div', { className: 'flex-shrink-0 mb-3' },
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 text-center' },
                                 h('div', { className: 'text-5xl sm:text-6xl font-black text-purple-600 mb-2' }, myTable?.score ?? '---'),
                                 h('div', { className: 'text-lg text-gray-600 font-semibold' }, 'pontos')
                             )
                         ),
+                        // Mensagem de aguardar (se jogo ainda não iniciado)
                         !gameData && h('div', { className: 'text-center text-white' },
                             h('div', { className: 'animate-pulse' }, 'A aguardar início do jogo...')
                         )
@@ -332,6 +431,7 @@
                 );
             }
 
+            // Renderizar aplicação
             ReactDOM.createRoot(document.getElementById('root')).render(h(App));
         });
     </script>

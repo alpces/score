@@ -132,6 +132,7 @@
                 const [predefinedCategories, setPredefinedCategories] = useState([]);    // Categorias guardadas no Firestore
                 const [sessionHistory, setSessionHistory] = useState([]);                // Histórico de sessões guardadas
                 const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);  // Entrada do histórico selecionada
+                const [availableLogos, setAvailableLogos] = useState([]);                // Logotipos encontrados (logo1.png até logo5.png)
 
                 /* ==========================================
                    EFFECT: Carregar categorias pré-definidas
@@ -148,6 +149,44 @@
                             setPredefinedCategories(cats.sort());
                         } catch (e) { console.error(e); }
                     })();
+                }, []);
+
+                /* ==========================================
+                   EFFECT: Verificar existência de logotipos
+                   ==========================================
+                   Verifica se existem ficheiros logo1.png até logo5.png
+                   na mesma pasta tentando carregar as imagens
+                   (evita problemas de CORS com file://)
+                   ========================================== */
+                useEffect(() => {
+                    const checkLogos = () => {
+                        const logos = [];
+                        let loadedCount = 0;
+                        const totalToCheck = 5;
+                        
+                        for (let i = 1; i <= totalToCheck; i++) {
+                            const img = new Image();
+                            const logoPath = `logo${i}.png`;
+                            
+                            img.onload = () => {
+                                logos.push(logoPath);
+                                loadedCount++;
+                                if (loadedCount === totalToCheck) {
+                                    setAvailableLogos(logos.sort());
+                                }
+                            };
+                            
+                            img.onerror = () => {
+                                loadedCount++;
+                                if (loadedCount === totalToCheck) {
+                                    setAvailableLogos(logos.sort());
+                                }
+                            };
+                            
+                            img.src = logoPath;
+                        }
+                    };
+                    checkLogos();
                 }, []);
 
                 /* ==========================================
@@ -1084,6 +1123,16 @@
                                 h('button', { onClick: resetAllScores, className: 'px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, 'Reset Pontos'),
                                 h('button', { onClick: resetGame, className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, 'Nova Sessão')
                             )
+                        ),
+                        // Logotipos (se existirem)
+                        availableLogos.length > 0 && h('div', { className: 'flex justify-center items-center gap-4 mt-2 py-2 bg-white bg-opacity-10 rounded-lg' },
+                            availableLogos.map(logo => h('img', { 
+                                key: logo, 
+                                src: logo, 
+                                alt: 'Logo', 
+                                className: 'h-8 object-contain opacity-70 hover:opacity-100 transition-opacity',
+                                onError: (e) => e.target.style.display = 'none'  // Ocultar se falhar carregamento
+                            }))
                         )
                     )
                 );
