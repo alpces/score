@@ -9,19 +9,11 @@
 <body>
     <div id="root"></div>
     
-    <!-- ==========================================
-         CONFIGURAÇÃO DO FIREBASE
-         ==========================================
-         Inicializa a conexão com Firebase:
-         - Firestore: Para armazenar categorias pré-definidas
-         - Realtime Database: Para sincronização em tempo real do jogo
-         ========================================== -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
-        // Configuração da conta Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
             authDomain: "contador-de-pontos-321ee.firebaseapp.com",
@@ -32,7 +24,6 @@
             databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
         };
 
-        // Inicializa Firebase e disponibiliza globalmente
         const app = initializeApp(firebaseConfig);
         window.db = getFirestore(app);
         window.rtdb = getDatabase(app);
@@ -40,21 +31,12 @@
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
-    <!-- Bibliotecas React para construção da interface -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
-        // URL da aplicação cliente para gerar QR codes
         const CLIENT_URL = 'https://alpces.github.io/score/client.html';
 
-        /* ==========================================
-           FUNÇÃO: playBuzzer()
-           ==========================================
-           Reproduz um som de buzzer usando Web Audio API
-           - Alterna entre duas frequências (800Hz e 650Hz)
-           - Duração total: 2 segundos
-           ========================================== */
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -63,7 +45,6 @@
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
-            // Padrão de frequências alternadas para criar som de buzzer
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
             oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.3);
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.6);
@@ -73,7 +54,6 @@
             
             oscillator.type = 'sine';
             
-            // Controle de volume (fade out no final)
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
             gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 1.8);
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 2);
@@ -87,59 +67,51 @@
             const { db, rtdb, fbModules } = window;
             const { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update } = fbModules;
 
-            /* ==========================================
-               COMPONENTE PRINCIPAL: App()
-               ==========================================
-               Componente React que gere todo o sistema de pontuação master
-               ========================================== */
             function App() {
-                // ========== ESTADOS DE CONFIGURAÇÃO ==========
-                const [setupComplete, setSetupComplete] = useState(false);  // Se a configuração inicial foi concluída
-                const [numTables, setNumTables] = useState(0);              // Número de mesas (0 = dinâmico)
-                const [initialScore, setInitialScore] = useState(0);        // Pontuação inicial para novas mesas
-                const [buzzerText, setBuzzerText] = useState('BUZZER');     // Texto personalizado do botão buzzer
-                const [blockBuzzerAtZero, setBlockBuzzerAtZero] = useState(false);  // Bloquear buzzer quando mesa tem 0 pontos
+                const [setupComplete, setSetupComplete] = useState(false);
+                const [numTables, setNumTables] = useState(0);
+                const [initialScore, setInitialScore] = useState(0);
+                const [buzzerText, setBuzzerText] = useState('BUZZER');
+                const [blockBuzzerAtZero, setBlockBuzzerAtZero] = useState(false);
+                const [enableBuzzer, setEnableBuzzer] = useState(true);
+                const [enableTextInput, setEnableTextInput] = useState(false);
 
-                // ========== ESTADOS DO JOGO ==========
-                const [tables, setTables] = useState([]);                   // Array de mesas: [{id, name, score}]
-                const [categories, setCategories] = useState([]);           // Lista de categorias disponíveis
-                const [yellowCategory, setYellowCategory] = useState(null); // Categoria amarela ativa
-                const [redCategory, setRedCategory] = useState(null);       // Categoria vermelha ativa
-                const [usedCategories, setUsedCategories] = useState([]);   // Categorias já usadas (não repetir)
+                const [tables, setTables] = useState([]);
+                const [categories, setCategories] = useState([]);
+                const [yellowCategory, setYellowCategory] = useState(null);
+                const [redCategory, setRedCategory] = useState(null);
+                const [usedCategories, setUsedCategories] = useState([]);
 
-                // ========== ESTADOS DE UI ==========
-                const [showLeaderboard, setShowLeaderboard] = useState(false);           // Mostrar classificação
-                const [leaderboardRevealPosition, setLeaderboardRevealPosition] = useState(null);  // Posição de revelação progressiva
-                const [showScores, setShowScores] = useState(false);                     // Mostrar pontuações nas mesas
-                const [flashEffects, setFlashEffects] = useState({});                    // Efeitos visuais de pontuação (+1, -1, +5)
-                const [showPredefined, setShowPredefined] = useState(false);             // Mostrar painel de categorias guardadas
-                const [showHistory, setShowHistory] = useState(false);                   // Mostrar histórico de sessões
-                const [showManageTables, setShowManageTables] = useState(false);         // Mostrar painel de gestão de mesas
-                const [showSessionCode, setShowSessionCode] = useState(false);           // Mostrar popup com código/QR
-                const [showQRCode, setShowQRCode] = useState(false);                     // (estado legacy)
+                const [showLeaderboard, setShowLeaderboard] = useState(false);
+                const [leaderboardRevealPosition, setLeaderboardRevealPosition] = useState(null);
+                const [showScores, setShowScores] = useState(false);
+                const [flashEffects, setFlashEffects] = useState({});
+                const [showPredefined, setShowPredefined] = useState(false);
+                const [showHistory, setShowHistory] = useState(false);
+                const [showManageTables, setShowManageTables] = useState(false);
+                const [showSessionCode, setShowSessionCode] = useState(false);
+                const [showQRCode, setShowQRCode] = useState(false);
 
-                // ========== ESTADOS DE SESSÃO ==========
-                const [sessionId, setSessionId] = useState(null);                        // Código único da sessão
-                const [customSessionCode, setCustomSessionCode] = useState('');          // Código personalizado pelo utilizador
-                const [codeError, setCodeError] = useState('');                          // Erro de validação de código
-                const [codeCopied, setCodeCopied] = useState(false);                     // Feedback de código copiado
-                const [connectedClients, setConnectedClients] = useState({});            // Clientes conectados: {tableNumber: {teamName, emails}}
-                const [buzzers, setBuzzers] = useState({});                              // Estado dos buzzers: {tableId: {pressed, timestamp}}
+                const [sessionId, setSessionId] = useState(null);
+                const [customSessionCode, setCustomSessionCode] = useState('');
+                const [codeError, setCodeError] = useState('');
+                const [codeCopied, setCodeCopied] = useState(false);
+                const [connectedClients, setConnectedClients] = useState({});
+                const [buzzers, setBuzzers] = useState({});
+                const [textResponses, setTextResponses] = useState({});
+                const [showResponses, setShowResponses] = useState(false);
+                const [responseScoreAdjustments, setResponseScoreAdjustments] = useState({});
+                const [textInputActive, setTextInputActive] = useState(false);
+                const [textInputSeconds, setTextInputSeconds] = useState(25);
+                const [textInputTimeRemaining, setTextInputTimeRemaining] = useState(0);
 
-                // ========== ESTADOS TEMPORÁRIOS (SETUP) ==========
-                const [tempNames, setTempNames] = useState({});                          // Nomes temporários das mesas durante setup
-                const [tempCategories, setTempCategories] = useState(['']);              // Categorias temporárias durante setup
-                const [predefinedCategories, setPredefinedCategories] = useState([]);    // Categorias guardadas no Firestore
-                const [sessionHistory, setSessionHistory] = useState([]);                // Histórico de sessões guardadas
-                const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);  // Entrada do histórico selecionada
-                const [availableLogos, setAvailableLogos] = useState([]);                // Logotipos encontrados (logo1.png até logo5.png)
+                const [tempNames, setTempNames] = useState({});
+                const [tempCategories, setTempCategories] = useState(['']);
+                const [predefinedCategories, setPredefinedCategories] = useState([]);
+                const [sessionHistory, setSessionHistory] = useState([]);
+                const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);
+                const [availableLogos, setAvailableLogos] = useState([]);
 
-                /* ==========================================
-                   EFFECT: Carregar categorias pré-definidas
-                   ==========================================
-                   Executa uma vez ao montar o componente
-                   Carrega todas as categorias guardadas no Firestore
-                   ========================================== */
                 useEffect(() => {
                     (async () => {
                         try {
@@ -151,13 +123,6 @@
                     })();
                 }, []);
 
-                /* ==========================================
-                   EFFECT: Verificar existência de logotipos
-                   ==========================================
-                   Verifica se existem ficheiros logo1.png até logo5.png
-                   na mesma pasta tentando carregar as imagens
-                   (evita problemas de CORS com file://)
-                   ========================================== */
                 useEffect(() => {
                     const checkLogos = () => {
                         const logos = [];
@@ -189,12 +154,6 @@
                     checkLogos();
                 }, []);
 
-                /* ==========================================
-                   EFFECT: Monitorizar histórico de sessões
-                   ==========================================
-                   Escuta mudanças no histórico quando o painel está aberto
-                   Ordena por timestamp (mais recentes primeiro)
-                   ========================================== */
                 useEffect(() => {
                     if (!showHistory) return;
                     const historyRef = ref(rtdb, 'sessionHistory');
@@ -214,28 +173,17 @@
                     return () => unsubHistory();
                 }, [showHistory]);
 
-                /* ==========================================
-                   EFFECT: Sincronizar com clientes e buzzers
-                   ==========================================
-                   Monitoriza em tempo real:
-                   1. Clientes conectados (atualiza nomes das mesas)
-                   2. Estado dos buzzers (reproduz som quando pressionados)
-                   
-                   Se numTables=0 (modo dinâmico), cria mesas automaticamente
-                   quando clientes se conectam
-                   ========================================== */
                 useEffect(() => {
                     if (!setupComplete || !sessionId) return;
 
                     const clientsRef = ref(rtdb, `sessions/${sessionId}/clients`);
                     const buzzersRef = ref(rtdb, `sessions/${sessionId}/buzzers`);
+                    const responsesRef = ref(rtdb, `sessions/${sessionId}/textResponses`);
 
-                    // Monitorizar clientes conectados
                     const unsubClients = onValue(clientsRef, (snapshot) => {
                         const data = snapshot.val() || {};
                         setConnectedClients(data);
                         
-                        // Modo dinâmico: criar mesas automaticamente
                         if (numTables === 0) {
                             const newTables = Object.values(data).map(client => ({
                                 id: client.tableNumber,
@@ -252,7 +200,6 @@
                                 return merged.sort((a, b) => a.id - b.id);
                             });
                         } else {
-                            // Modo fixo: apenas atualizar nomes
                             setTables(prev => prev.map(t => {
                                 const client = Object.values(data).find(c => c.tableNumber === t.id);
                                 return client ? { ...t, name: client.teamName || t.name } : t;
@@ -260,13 +207,11 @@
                         }
                     });
 
-                    // Monitorizar buzzers (reproduz som quando pressionados)
                     const unsubBuzzers = onValue(buzzersRef, (snapshot) => {
                         const data = snapshot.val() || {};
                         const prevBuzzers = { ...buzzers };
                         setBuzzers(data);
                         
-                        // Detectar novos buzzers e reproduzir som
                         Object.keys(data).forEach(key => {
                             if (data[key].pressed && !prevBuzzers[key]?.pressed) {
                                 playBuzzer();
@@ -274,19 +219,18 @@
                         });
                     });
 
+                    const unsubResponses = onValue(responsesRef, (snapshot) => {
+                        const data = snapshot.val() || {};
+                        setTextResponses(data);
+                    });
+
                     return () => {
                         unsubClients();
                         unsubBuzzers();
+                        unsubResponses();
                     };
                 }, [setupComplete, sessionId]);
 
-                /* ==========================================
-                   FUNÇÃO: saveCats()
-                   ==========================================
-                   Guarda lista de categorias no Firestore
-                   - Apaga todas as categorias existentes
-                   - Adiciona as novas categorias
-                   ========================================== */
                 const saveCats = async (cats) => {
                     try {
                         const snap = await getDocs(collection(db, 'categories'));
@@ -298,43 +242,38 @@
                     }
                 };
 
-                /* ==========================================
-                   FUNÇÃO: syncGame()
-                   ==========================================
-                   Sincroniza estado do jogo com Firebase Realtime Database
-                   - Executado automaticamente quando tables, yellowCategory ou redCategory mudam
-                   - Permite que clientes vejam estado atualizado
-                   ========================================== */
                 const syncGame = async () => {
                     if (!sessionId) return;
                     try {
                         await set(ref(rtdb, `sessions/${sessionId}/gameState`), {
                             tables: tables.map(t => ({ id: t.id, name: t.name, score: t.score })),
                             yellowCategory, redCategory, categories, active: true, 
-                            buzzerText, blockBuzzerAtZero, timestamp: Date.now()
+                            buzzerText, blockBuzzerAtZero, 
+                            enableBuzzer, enableTextInput,
+                            textInputActive, textInputTimeRemaining,
+                            timestamp: Date.now()
                         });
                     } catch (e) { console.error(e); }
                 };
 
-                // Auto-sincronizar quando mesas ou categorias mudam
-                useEffect(() => { if (setupComplete && sessionId) syncGame(); }, [tables, yellowCategory, redCategory]);
+                useEffect(() => { if (setupComplete && sessionId) syncGame(); }, [tables, yellowCategory, redCategory, textInputActive, textInputTimeRemaining]);
 
-                /* ==========================================
-                   FUNÇÃO: initGame()
-                   ==========================================
-                   Inicializa o jogo após configuração:
-                   1. Valida código de sessão personalizado (se fornecido)
-                   2. Verifica se código já existe no histórico
-                   3. Se existir, oferece carregar sessão anterior
-                   4. Cria mesas (se modo fixo) e categorias
-                   5. Ativa a sessão
-                   ========================================== */
+                useEffect(() => {
+                    if (textInputActive && textInputTimeRemaining > 0) {
+                        const timer = setTimeout(() => {
+                            setTextInputTimeRemaining(textInputTimeRemaining - 1);
+                        }, 1000);
+                        return () => clearTimeout(timer);
+                    } else if (textInputTimeRemaining === 0 && textInputActive && textInputSeconds !== 0) {
+                        setTextInputActive(false);
+                    }
+                }, [textInputActive, textInputTimeRemaining, textInputSeconds]);
+
                 const initGame = async () => {
                     setCodeError('');
                     
                     let finalCode = customSessionCode.trim().toUpperCase();
                     
-                    // Validação do código personalizado
                     if (finalCode) {
                         if (finalCode.length > 10) {
                             setCodeError('Código não pode ter mais de 10 caracteres');
@@ -345,7 +284,6 @@
                             return;
                         }
                         
-                        // Verificar se existe no histórico
                         const historyRef = ref(rtdb, 'sessionHistory');
                         const historySnapshot = await new Promise((resolve) => {
                             onValue(historyRef, resolve, { onlyOnce: true });
@@ -359,7 +297,6 @@
                                 .sort((a, b) => b.timestamp - a.timestamp);
                             
                             if (matchingSessions.length > 0) {
-                                // Código já usado - oferecer carregar sessão
                                 const mostRecent = matchingSessions[0];
                                 if (confirm(`Código "${finalCode}" já foi usado. Deseja carregar a última sessão com este código?`)) {
                                     loadSession(mostRecent, true);
@@ -371,11 +308,9 @@
                             }
                         }
                     } else {
-                        // Gerar código aleatório se não fornecido
                         finalCode = Math.random().toString(36).substring(2, 8).toUpperCase();
                     }
 
-                    // Criar mesas em modo fixo
                     if (numTables > 0) {
                         setTables(Array.from({ length: numTables }, (_, i) => ({ 
                             id: i + 1, 
@@ -389,29 +324,14 @@
                     setSetupComplete(true);
                 };
 
-                /* ==========================================
-                   FUNÇÃO: updateScore()
-                   ==========================================
-                   Atualiza pontuação de uma mesa
-                   - Incrementa/decrementa pontuação (mínimo 0)
-                   - Cria efeito visual flash com o valor alterado
-                   - Permite cliques rápidos consecutivos (cada clique tem ID único)
-                   ========================================== */
                 const updateScore = (id, change) => {
                     setTables(prev => prev.map(t => t.id === id ? { ...t, score: Math.max(0, t.score + change) } : t));
                     const txt = change > 0 ? `+${change}` : `${change}`;
-                    const flashId = `${id}_${Date.now()}`;  // ID único para permitir múltiplos flashes
+                    const flashId = `${id}_${Date.now()}`;
                     setFlashEffects(p => ({ ...p, [flashId]: { tableId: id, text: txt } }));
                     setTimeout(() => setFlashEffects(p => { const u = { ...p }; delete u[flashId]; return u; }), 400);
                 };
 
-                /* ==========================================
-                   FUNÇÃO: changeCategory()
-                   ==========================================
-                   Seleciona categoria aleatória para amarela/vermelha
-                   - Evita categorias já usadas
-                   - Marca categoria como usada
-                   ========================================== */
                 const changeCategory = (setter, current) => {
                     const avail = categories.filter(c => !usedCategories.includes(c) && c !== current);
                     if (!avail.length) return;
@@ -420,13 +340,6 @@
                     setter(cat);
                 };
 
-                /* ==========================================
-                   FUNÇÃO: resetBuzzer()
-                   ==========================================
-                   Reset buzzer de uma mesa específica
-                   - Define pressed=false, enabled=true
-                   - Permite que mesa pressione buzzer novamente
-                   ========================================== */
                 const resetBuzzer = async (tableId) => {
                     if (!sessionId) return;
                     try {
@@ -438,11 +351,6 @@
                     } catch (e) { console.error(e); }
                 };
 
-                /* ==========================================
-                   FUNÇÃO: resetAllBuzzers()
-                   ==========================================
-                   Reset de todos os buzzers da sessão
-                   ========================================== */
                 const resetAllBuzzers = async () => {
                     if (!sessionId) return;
                     try {
@@ -456,13 +364,42 @@
                     } catch (e) { console.error(e); }
                 };
 
-                /* ==========================================
-                   FUNÇÃO: saveSession()
-                   ==========================================
-                   Guarda sessão atual no histórico
-                   - Inclui: mesas, pontuações, emails, categorias, configurações
-                   - Gera ID aleatório para a entrada do histórico
-                   ========================================== */
+                const resetAllTextResponses = async () => {
+                    if (!sessionId) return;
+                    try {
+                        await remove(ref(rtdb, `sessions/${sessionId}/textResponses`));
+                        setTextResponses({});
+                        setTextInputActive(false);
+                        setTextInputTimeRemaining(0);
+                    } catch (e) { console.error(e); }
+                };
+
+                const activateTextInput = async () => {
+                    if (Object.keys(textResponses).length > 0) {
+                        alert('Tem respostas pendentes. Aplique os pontos e feche primeiro.');
+                        return;
+                    }
+                    setTextInputActive(true);
+                    setTextInputTimeRemaining(textInputSeconds);
+                };
+
+                const applyScoreAdjustments = () => {
+                    Object.entries(responseScoreAdjustments).forEach(([tableId, adjustment]) => {
+                        if (adjustment !== 0) {
+                            updateScore(parseInt(tableId), adjustment);
+                        }
+                    });
+                    setResponseScoreAdjustments({});
+                };
+
+                const closeResponsesScreen = async () => {
+                    applyScoreAdjustments();
+                    await resetAllTextResponses();
+                    setShowResponses(false);
+                    setTextInputActive(false);
+                    setTextInputTimeRemaining(0);
+                };
+
                 const saveSession = async () => {
                     if (!sessionId) return;
                     try {
@@ -480,10 +417,11 @@
                             redCategory: redCategory,
                             buzzerText: buzzerText,
                             blockBuzzerAtZero: blockBuzzerAtZero,
-                            initialScore: initialScore
+                            initialScore: initialScore,
+                            enableBuzzer: enableBuzzer,
+                            enableTextInput: enableTextInput
                         };
 
-                        // Copiar emails dos clientes conectados
                         Object.values(connectedClients).forEach(client => {
                             historyData.emails[client.tableNumber] = client.emails || [];
                         });
@@ -497,36 +435,20 @@
                     }
                 };
 
-                /* ==========================================
-                   FUNÇÃO: loadSession()
-                   ==========================================
-                   Carrega sessão do histórico
-                   - skipConfirm: se true, não pede confirmação (usado quando código já existe)
-                   - Restaura todas as mesas, pontuações, categorias e configurações
-                   - Usa timeout para garantir que states são resetados antes de carregar
-                   ========================================== */
                 const loadSession = (entry, skipConfirm = false) => {
                     if (!skipConfirm && !confirm('Deseja carregar esta sessão?')) return;
-                    
-                    console.log('Loading session:', entry);
                     
                     const code = entry.sessionId;
                     const loadedTables = entry.tables || [];
                     const loadedCategories = entry.categories || [];
-                    
-                    console.log('Tables to load:', loadedTables);
-                    console.log('Categories to load:', loadedCategories);
 
-                    // Reset completo antes de carregar
                     setShowHistory(false);
                     setSelectedHistoryEntry(null);
                     setSetupComplete(false);
                     
-                    // Delay para garantir reset
                     setTimeout(() => {
-                        // Carregar dados da sessão
                         setTables(loadedTables);
-                        setNumTables(0);  // Sempre modo dinâmico após carregar para permitir novas mesas
+                        setNumTables(0);
                         setCategories(loadedCategories);
                         setYellowCategory(entry.yellowCategory || null);
                         setRedCategory(entry.redCategory || null);
@@ -534,42 +456,34 @@
                         setBuzzerText(entry.buzzerText || 'BUZZER');
                         setBlockBuzzerAtZero(entry.blockBuzzerAtZero !== undefined ? entry.blockBuzzerAtZero : false);
                         setInitialScore(entry.initialScore !== undefined ? entry.initialScore : 0);
+                        setEnableBuzzer(entry.enableBuzzer !== undefined ? entry.enableBuzzer : true);
+                        setEnableTextInput(entry.enableTextInput !== undefined ? entry.enableTextInput : false);
                         
-                        // Reset UI
                         setShowScores(false);
                         setFlashEffects({});
                         setCodeCopied(false);
                         setConnectedClients({});
                         setBuzzers({});
+                        setTextResponses({});
                         setShowSessionCode(false);
                         setShowQRCode(false);
                         setShowManageTables(false);
                         setShowLeaderboard(false);
                         setLeaderboardRevealPosition(null);
+                        setShowResponses(false);
                         
-                        // Ativar sessão
                         setSessionId(code);
                         setSetupComplete(true);
-                        
-                        console.log('Session loaded successfully');
                     }, 100);
                 };
 
-                /* ==========================================
-                   FUNÇÃO: removeTable()
-                   ==========================================
-                   Remove mesa da sessão
-                   - Pede confirmação
-                   - Remove do Firebase (clientes e buzzers)
-                   - Remove do array local de mesas
-                   - Cliente é automaticamente desconectado
-                   ========================================== */
                 const removeTable = async (tableId) => {
                     if (!confirm(`Tem a certeza que deseja remover a Mesa ${tableId}?`)) return;
                     
                     try {
                         await remove(ref(rtdb, `sessions/${sessionId}/clients/${tableId}`));
                         await remove(ref(rtdb, `sessions/${sessionId}/buzzers/${tableId}`));
+                        await remove(ref(rtdb, `sessions/${sessionId}/textResponses/${tableId}`));
                         setTables(prev => prev.filter(t => t.id !== tableId));
                     } catch (e) {
                         console.error(e);
@@ -577,19 +491,11 @@
                     }
                 };
 
-                /* ==========================================
-                   FUNÇÃO: resetGame()
-                   ==========================================
-                   Inicia nova sessão
-                   - Remove sessão atual do Firebase
-                   - Reset completo de todos os estados
-                   ========================================== */
                 const resetGame = async () => {
                     if (!confirm('Tem a certeza que deseja iniciar uma nova sessão?')) return;
 
                     if (sessionId) try { await remove(ref(rtdb, `sessions/${sessionId}`)); } catch (e) {}
                     
-                    // Reset completo de estados
                     setSetupComplete(false); 
                     setTables([]); 
                     setCategories([]); 
@@ -608,22 +514,18 @@
                     setCodeCopied(false); 
                     setConnectedClients({}); 
                     setBuzzers({});
+                    setTextResponses({});
                     setShowSessionCode(false); 
                     setBuzzerText('BUZZER'); 
                     setBlockBuzzerAtZero(false); 
                     setShowQRCode(false);
                     setCustomSessionCode(''); 
                     setCodeError('');
+                    setEnableBuzzer(true);
+                    setEnableTextInput(false);
+                    setShowResponses(false);
                 };
 
-                /* ==========================================
-                   FUNÇÃO: resetAllScores()
-                   ==========================================
-                   Reset de todas as pontuações
-                   - Pede confirmação
-                   - Pergunta pontuação inicial (padrão: 0)
-                   - Aplica a todas as mesas
-                   ========================================== */
                 const resetAllScores = () => {
                     if (!confirm('Tem a certeza que deseja resetar todas as pontuações?')) return;
                     const newScore = prompt('Pontuação inicial para todas as mesas:', '0');
@@ -633,11 +535,6 @@
                     setInitialScore(score);
                 };
 
-                /* ==========================================
-                   FUNÇÃO: deleteHistoryEntry()
-                   ==========================================
-                   Apaga entrada do histórico
-                   ========================================== */
                 const deleteHistoryEntry = async (entryId) => {
                     if (!confirm('Tem a certeza que deseja eliminar este registo?')) return;
                     try {
@@ -646,22 +543,11 @@
                     } catch (e) { console.error(e); }
                 };
 
-                /* ==========================================
-                   FUNÇÃO: generateQRCodeUrl()
-                   ==========================================
-                   Gera URL para API de QR codes
-                   - Inclui URL do cliente com parâmetro de sessão
-                   ========================================== */
                 const generateQRCodeUrl = () => {
                     const url = `${CLIENT_URL}?session=${sessionId}`;
                     return `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(url)}`;
                 };
 
-                /* ==========================================
-                   FUNÇÃO: downloadQRCode()
-                   ==========================================
-                   Faz download do QR code como PNG
-                   ========================================== */
                 const downloadQRCode = async () => {
                     try {
                         const qrUrl = generateQRCodeUrl();
@@ -681,19 +567,8 @@
                     }
                 };
 
-                /* ==========================================
-                   FUNÇÃO: sorted()
-                   ==========================================
-                   Retorna mesas ordenadas por pontuação (maior para menor)
-                   ========================================== */
                 const sorted = () => [...tables].sort((a, b) => b.score - a.score);
 
-                /* ==========================================
-                   FUNÇÃO: getBuzzerOrder()
-                   ==========================================
-                   Retorna buzzers pressionados ordenados por timestamp
-                   - Mostra ordem de quem pressionou primeiro
-                   ========================================== */
                 const getBuzzerOrder = () => {
                     return Object.entries(buzzers)
                         .filter(([_, b]) => b.pressed)
@@ -701,23 +576,97 @@
                         .map(([id, b], idx) => ({ tableId: parseInt(id), order: idx + 1, timestamp: b.timestamp }));
                 };
 
-                /* ==========================================
-                   FUNÇÃO: formatDate()
-                   ==========================================
-                   Formata timestamp para formato português
-                   ========================================== */
+                const getTextResponsesOrder = () => {
+                    return Object.entries(textResponses)
+                        .filter(([_, r]) => r.submitted)
+                        .sort((a, b) => a[1].timestamp - b[1].timestamp)
+                        .map(([id, r], idx) => ({ 
+                            tableId: parseInt(id), 
+                            order: idx + 1, 
+                            timestamp: r.timestamp,
+                            text: r.text
+                        }));
+                };
+
                 const formatDate = (timestamp) => {
                     const date = new Date(timestamp);
                     return date.toLocaleDateString('pt-PT') + ' ' + date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
                 };
 
-                /* ==========================================
-                   RENDERIZAÇÃO: Painel de Gestão de Mesas
-                   ==========================================
-                   Mostra todas as mesas da sessão
-                   - Indica quais estão conectadas
-                   - Permite remover qualquer mesa
-                   ========================================== */
+                const formatTime = (timestamp) => {
+                    const date = new Date(timestamp);
+                    return date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                };
+
+                // ECRÃ: Respostas de Texto
+                if (showResponses) {
+                    const responses = getTextResponsesOrder();
+                    
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
+                        h('div', { className: 'max-w-6xl mx-auto pt-4' },
+                            h('div', { className: 'bg-white rounded-2xl p-4' },
+                                h('div', { className: 'flex justify-between mb-4' },
+                                    h('h2', { className: 'text-xl font-bold' }, 'Respostas Recebidas'),
+                                    h('button', { 
+                                        onClick: closeResponsesScreen, 
+                                        className: 'px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700' 
+                                    }, 'Aplicar Pontos e Fechar')
+                                ),
+                                                                    responses.length === 0
+                                    ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma resposta recebida')
+                                    : h('div', { className: 'space-y-3' },
+                                        responses.map(r => {
+                                            const table = tables.find(t => t.id === r.tableId);
+                                            const adjustment = responseScoreAdjustments[r.tableId] || 0;
+                                            
+                                            return h('div', { key: r.tableId, className: 'bg-gray-50 p-4 rounded-lg border-2 border-gray-200' },
+                                                h('div', { className: 'flex justify-between items-start gap-4' },
+                                                    h('div', { className: 'flex-1' },
+                                                        h('div', { className: 'flex items-center gap-2 mb-2' },
+                                                            h('span', { className: 'inline-block bg-indigo-600 text-white px-3 py-1 rounded-full text-sm font-bold' }, `${r.order}º`),
+                                                            h('span', { className: 'font-bold text-lg text-gray-800' }, table?.name || `Mesa ${r.tableId}`),
+                                                            h('span', { className: 'text-sm text-gray-600' }, `(Mesa ${r.tableId})`),
+                                                            h('span', { className: 'text-xs text-gray-500 ml-auto' }, formatTime(r.timestamp))
+                                                        ),
+                                                        h('div', { className: 'bg-white p-3 rounded border border-gray-300' },
+                                                            h('p', { className: 'text-gray-800 whitespace-pre-wrap' }, r.text)
+                                                        )
+                                                    ),
+                                                    h('div', { className: 'flex flex-col items-end gap-2 flex-shrink-0' },
+                                                        h('div', { className: 'flex items-center gap-1' },
+                                                            h('button', { 
+                                                                onClick: () => setResponseScoreAdjustments(p => ({ ...p, [r.tableId]: (p[r.tableId] || 0) - 1 })),
+                                                                className: 'px-2 py-1 bg-red-500 text-white rounded font-bold hover:bg-red-600 text-sm'
+                                                            }, '-1'),
+                                                            h('button', { 
+                                                                onClick: () => setResponseScoreAdjustments(p => ({ ...p, [r.tableId]: (p[r.tableId] || 0) + 1 })),
+                                                                className: 'px-2 py-1 bg-green-500 text-white rounded font-bold hover:bg-green-600 text-sm'
+                                                            }, '+1'),
+                                                            h('button', { 
+                                                                onClick: () => setResponseScoreAdjustments(p => ({ ...p, [r.tableId]: (p[r.tableId] || 0) + 5 })),
+                                                                className: 'px-2 py-1 bg-purple-500 text-white rounded font-bold hover:bg-purple-600 text-sm'
+                                                            }, '+5')
+                                                        ),
+                                                        h('input', {
+                                                            type: 'number',
+                                                            value: adjustment,
+                                                            onChange: (e) => setResponseScoreAdjustments(p => ({ ...p, [r.tableId]: parseInt(e.target.value) || 0 })),
+                                                            className: 'w-20 px-2 py-1 border-2 border-gray-300 rounded text-center font-bold text-sm'
+                                                        }),
+                                                        adjustment !== 0 && h('span', { className: `text-sm font-bold ${adjustment > 0 ? 'text-green-600' : 'text-red-600'}` }, 
+                                                            adjustment > 0 ? `+${adjustment}` : `${adjustment}`
+                                                        )
+                                                    )
+                                                )
+                                            );
+                                        })
+                                    )
+                            )
+                        )
+                    );
+                }
+
+                // ECRÃ: Gerir Mesas
                 if (showManageTables) {
                     const allTables = tables.map(t => ({
                         id: t.id,
@@ -755,51 +704,44 @@
                     );
                 }
 
-                /* ==========================================
-                   RENDERIZAÇÃO: Histórico de Sessões
-                   ==========================================
-                   Dois modos:
-                   1. Lista de sessões guardadas
-                   2. Detalhes de uma sessão específica
-                   ========================================== */
-                if (showHistory) {
-                    // Modo: Detalhes de uma sessão
-                    if (selectedHistoryEntry) {
-                        const entry = selectedHistoryEntry;
-                        const sortedTables = [...entry.tables].sort((a, b) => a.id - b.id);
-                        return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
-                            h('div', { className: 'max-w-4xl mx-auto pt-4' },
-                                h('div', { className: 'bg-white rounded-2xl p-4' },
-                                    h('div', { className: 'flex justify-between mb-4' },
-                                        h('h2', { className: 'text-xl font-bold' }, `Sessão ${entry.sessionId} - ${formatDate(entry.timestamp)}`),
-                                        h('div', { className: 'flex gap-2' },
-                                            h('button', { onClick: () => loadSession(entry), className: 'px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700' }, 'Carregar'),
-                                            h('button', { onClick: () => setSelectedHistoryEntry(null), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
-                                        )
-                                    ),
-                                    h('div', { className: 'space-y-3' },
-                                        sortedTables.map(t => h('div', { key: t.id, className: 'bg-gray-50 p-4 rounded-lg' },
-                                            h('div', { className: 'flex justify-between items-start mb-2' },
-                                                h('div', null,
-                                                    h('div', { className: 'font-bold text-lg text-gray-800' }, t.name || `Mesa ${t.id}`),
-                                                    h('div', { className: 'text-sm text-gray-600' }, `Mesa ${t.id}`)
-                                                ),
-                                                h('div', { className: 'text-2xl font-bold text-indigo-600' }, `${t.score} pts`)
-                                            ),
-                                            (entry.emails && entry.emails[t.id] && entry.emails[t.id].length > 0) && h('div', { className: 'mt-3 border-t pt-3' },
-                                                h('div', { className: 'text-xs font-semibold text-gray-600 mb-2' }, 'E-mails:'),
-                                                h('div', { className: 'space-y-1' },
-                                                    entry.emails[t.id].map((email, idx) => h('div', { key: idx, className: 'text-sm text-gray-700' }, email))
-                                                )
-                                            )
-                                        ))
+                // ECRÃ: Histórico - Detalhes
+                if (showHistory && selectedHistoryEntry) {
+                    const entry = selectedHistoryEntry;
+                    const sortedTables = [...entry.tables].sort((a, b) => a.id - b.id);
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
+                        h('div', { className: 'max-w-4xl mx-auto pt-4' },
+                            h('div', { className: 'bg-white rounded-2xl p-4' },
+                                h('div', { className: 'flex justify-between mb-4' },
+                                    h('h2', { className: 'text-xl font-bold' }, `Sessão ${entry.sessionId} - ${formatDate(entry.timestamp)}`),
+                                    h('div', { className: 'flex gap-2' },
+                                        h('button', { onClick: () => loadSession(entry), className: 'px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700' }, 'Carregar'),
+                                        h('button', { onClick: () => setSelectedHistoryEntry(null), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                     )
+                                ),
+                                h('div', { className: 'space-y-3' },
+                                    sortedTables.map(t => h('div', { key: t.id, className: 'bg-gray-50 p-4 rounded-lg' },
+                                        h('div', { className: 'flex justify-between items-start mb-2' },
+                                            h('div', null,
+                                                h('div', { className: 'font-bold text-lg text-gray-800' }, t.name || `Mesa ${t.id}`),
+                                                h('div', { className: 'text-sm text-gray-600' }, `Mesa ${t.id}`)
+                                            ),
+                                            h('div', { className: 'text-2xl font-bold text-indigo-600' }, `${t.score} pts`)
+                                        ),
+                                        (entry.emails && entry.emails[t.id] && entry.emails[t.id].length > 0) && h('div', { className: 'mt-3 border-t pt-3' },
+                                            h('div', { className: 'text-xs font-semibold text-gray-600 mb-2' }, 'E-mails:'),
+                                            h('div', { className: 'space-y-1' },
+                                                entry.emails[t.id].map((email, idx) => h('div', { key: idx, className: 'text-sm text-gray-700' }, email))
+                                            )
+                                        )
+                                    ))
                                 )
                             )
-                        );
-                    }
+                        )
+                    );
+                }
 
-                    // Modo: Lista de sessões
+                // ECRÃ: Histórico - Lista
+                if (showHistory) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
                         h('div', { className: 'max-w-4xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
@@ -826,18 +768,7 @@
                     );
                 }
 
-                /* ==========================================
-                   RENDERIZAÇÃO: Tela de Configuração Inicial
-                   ==========================================
-                   Formulário para configurar:
-                   - Código de sessão (personalizado ou automático)
-                   - Número de mesas (0 = dinâmico)
-                   - Pontuação inicial
-                   - Texto do buzzer
-                   - Bloqueio de buzzer aos 0 pontos
-                   - Nomes das mesas (se modo fixo)
-                   - Categorias
-                   ========================================== */
+                // ECRÃ: Setup Inicial
                 if (!setupComplete) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3 overflow-y-auto' },
                         h('div', { className: 'max-w-2xl mx-auto py-4' },
@@ -848,7 +779,6 @@
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4' },
                                 h('h1', { className: 'text-2xl font-bold text-gray-800 text-center mb-4' }, 'Configuração do Jogo'),
                                 h('div', { className: 'space-y-4' },
-                                    // Campo: Código de sessão personalizado
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Código da Sessão (opcional, máx: 10 caracteres)'),
                                         h('input', { 
@@ -865,28 +795,48 @@
                                         codeError && h('p', { className: 'text-xs text-red-600 mt-1' }, codeError),
                                         h('p', { className: 'text-xs text-gray-500 mt-1' }, 'Apenas letras e números. Se vazio, será gerado automaticamente.')
                                     ),
-                                    // Campo: Número de mesas
+                                    h('div', { className: 'bg-blue-50 p-3 rounded-lg border-2 border-blue-200' },
+                                        h('label', { className: 'block text-sm font-semibold mb-3 text-blue-900' }, 'Funcionalidades dos Clientes:'),
+                                        h('div', { className: 'space-y-2' },
+                                            h('div', { className: 'flex items-center gap-2' },
+                                                h('input', { 
+                                                    type: 'checkbox', 
+                                                    id: 'enableBuzzer', 
+                                                    checked: enableBuzzer, 
+                                                    onChange: e => setEnableBuzzer(e.target.checked), 
+                                                    className: 'w-4 h-4' 
+                                                }),
+                                                h('label', { htmlFor: 'enableBuzzer', className: 'text-sm font-semibold text-gray-700' }, 'Ativar Buzzer')
+                                            ),
+                                            h('div', { className: 'flex items-center gap-2' },
+                                                h('input', { 
+                                                    type: 'checkbox', 
+                                                    id: 'enableTextInput', 
+                                                    checked: enableTextInput, 
+                                                    onChange: e => setEnableTextInput(e.target.checked), 
+                                                    className: 'w-4 h-4' 
+                                                }),
+                                                h('label', { htmlFor: 'enableTextInput', className: 'text-sm font-semibold text-gray-700' }, 'Ativar Campo de Texto (Respostas)')
+                                            )
+                                        )
+                                    ),
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Número de Mesas (0 = Dinâmico, máx: 20)'),
                                         h('input', { type: 'number', min: 0, max: 20, value: numTables, onChange: e => setNumTables(Math.min(20, Math.max(0, +e.target.value || 0))), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' }),
                                         h('p', { className: 'text-xs text-gray-500 mt-1' }, 'Se 0, as mesas aparecem à medida que os clientes se conectam')
                                     ),
-                                    // Campo: Pontuação inicial
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Pontuação Inicial'),
                                         h('input', { type: 'number', min: 0, value: initialScore, onChange: e => setInitialScore(Math.max(0, +e.target.value || 0)), className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' })
                                     ),
-                                    // Campo: Texto do buzzer
-                                    h('div', null,
+                                    enableBuzzer && h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Texto do Botão Buzzer'),
                                         h('input', { type: 'text', value: buzzerText, onChange: e => setBuzzerText(e.target.value), placeholder: 'BUZZER', className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-indigo-500 outline-none' })
                                     ),
-                                    // Checkbox: Bloquear buzzer aos 0 pontos
-                                    h('div', { className: 'flex items-center gap-2' },
+                                    enableBuzzer && h('div', { className: 'flex items-center gap-2' },
                                         h('input', { type: 'checkbox', id: 'blockBuzzer', checked: blockBuzzerAtZero, onChange: e => setBlockBuzzerAtZero(e.target.checked), className: 'w-4 h-4' }),
                                         h('label', { htmlFor: 'blockBuzzer', className: 'text-sm font-semibold text-gray-700' }, 'Bloquear buzzer quando mesa tem 0 pontos')
                                     ),
-                                    // Nomes das mesas (apenas em modo fixo)
                                     numTables > 0 && h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Nomes das Mesas'),
                                         h('div', { className: 'grid gap-2 max-h-48 overflow-y-auto' },
@@ -896,7 +846,6 @@
                                             ))
                                         )
                                     ),
-                                    // Categorias
                                     h('div', null,
                                         h('div', { className: 'flex justify-between mb-2' },
                                             h('label', { className: 'text-sm font-semibold' }, 'Categorias'),
@@ -906,7 +855,6 @@
                                                 h('button', { onClick: () => setTempCategories([...tempCategories, '']), className: 'px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600' }, '+')
                                             )
                                         ),
-                                        // Painel de categorias guardadas
                                         showPredefined && h('div', { className: 'mb-3 p-3 bg-purple-50 rounded-lg' },
                                             h('h4', { className: 'text-sm font-bold mb-2' }, 'Categorias Guardadas'),
                                             predefinedCategories.map((cat, i) => h('div', { key: i, className: 'flex justify-between bg-white p-2 rounded mb-1' },
@@ -915,7 +863,6 @@
                                             )),
                                             h('input', { placeholder: 'Nova categoria...', onKeyPress: e => { if (e.key === 'Enter' && e.target.value.trim()) { saveCats([...predefinedCategories, e.target.value.trim()].sort()); e.target.value = ''; } }, className: 'w-full mt-2 px-3 py-1.5 text-sm border rounded' })
                                         ),
-                                        // Lista de categorias para esta sessão
                                         h('div', { className: 'space-y-2' },
                                             tempCategories.map((cat, i) => h('div', { key: i, className: 'flex gap-2' },
                                                 h('input', { value: cat, onChange: e => { const n = [...tempCategories]; n[i] = e.target.value; setTempCategories(n); }, className: 'flex-1 px-3 py-1.5 text-sm border rounded outline-none' }),
@@ -923,7 +870,6 @@
                                             ))
                                         )
                                     ),
-                                    // Botão iniciar jogo
                                     h('button', { onClick: initGame, className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700' }, 'Iniciar Jogo')
                                 )
                             )
@@ -931,14 +877,7 @@
                     );
                 }
 
-                /* ==========================================
-                   RENDERIZAÇÃO: Classificação (Leaderboard)
-                   ==========================================
-                   Mostra ranking com revelação progressiva
-                   - 1º lugar: fundo amarelo
-                   - 2º lugar: fundo cinza
-                   - 3º lugar: fundo laranja
-                   ========================================== */
+                // ECRÃ: Classificação
                 if (showLeaderboard) {
                     const s = sorted();
                     const visible = s.slice(leaderboardRevealPosition - 1);
@@ -968,14 +907,7 @@
                     );
                 }
 
-                /* ==========================================
-                   RENDERIZAÇÃO: Popup de Código/QR
-                   ==========================================
-                   Ecrã fullscreen verde com:
-                   - Código da sessão em grande (ideal para projetar)
-                   - QR code grande
-                   - Botões discretos: Copiar, Download, Fechar
-                   ========================================== */
+                // ECRÃ: Código/QR Fullscreen
                 if (showSessionCode && sessionId) {
                     return h('div', { className: 'h-screen bg-gradient-to-br from-green-600 to-green-700 flex flex-col items-center justify-center p-8 relative overflow-hidden' },
                         h('div', { className: 'text-center mb-12' },
@@ -1002,61 +934,51 @@
                     );
                 }
 
-                // Estado legacy do QR Code (mantido por compatibilidade)
-                if (showQRCode && sessionId) {
-                    return h('div', { className: 'h-screen bg-white flex flex-col items-center justify-center p-8' },
-                        h('div', { className: 'text-center mb-8' },
-                            h('h2', { className: 'text-6xl font-black text-gray-800 mb-4' }, sessionId),
-                            h('p', { className: 'text-2xl text-gray-600' }, 'Scannear para conectar')
-                        ),
-                        h('img', { src: generateQRCodeUrl(), alt: 'QR Code', className: 'max-w-2xl w-full mb-8' }),
-                        h('div', { className: 'flex gap-4' },
-                            h('button', { 
-                                onClick: downloadQRCode,
-                                className: 'px-6 py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700'
-                            }, '⬇ Download QR Code'),
-                            h('button', { 
-                                onClick: () => setShowQRCode(false),
-                                className: 'px-6 py-3 bg-gray-600 text-white rounded-lg font-bold hover:bg-gray-700'
-                            }, 'Fechar')
-                        )
-                    );
-                }
-
-                /* ==========================================
-                   RENDERIZAÇÃO: Ecrã Principal do Jogo
-                   ==========================================
-                   Layout:
-                   - Topo: Buzzers ativos (se existirem)
-                   - Meio superior: Categorias amarela e vermelha (33%)
-                   - Meio inferior: Grid de mesas (66%)
-                   - Fundo: Barra de botões de controlo
-                   ========================================== */
+                // ECRÃ PRINCIPAL: Jogo
                 const buzzerOrder = getBuzzerOrder();
+                const textResponsesOrder = getTextResponsesOrder();
+                const hasActiveNotifications = buzzerOrder.length > 0 || textResponsesOrder.length > 0;
 
                 return h('div', { className: 'h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-2 flex flex-col overflow-auto' },
                     h('div', { className: 'max-w-7xl mx-auto w-full flex flex-col flex-1' },
-                        // Área de buzzers ativos
-                        buzzerOrder.length > 0 && h('div', { 
+                        hasActiveNotifications && h('div', { 
                             className: 'text-white rounded-lg p-3 mb-2',
-                            style: { animation: 'buzzerFlash 1s ease-in-out infinite' }  // Animação de flash
+                            style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
                         },
                             h('div', { className: 'flex justify-between items-center mb-2' },
-                                h('h3', { className: 'font-bold text-lg' }, 'Buzzers Ativos'),
-                                h('button', { onClick: resetAllBuzzers, className: 'bg-white bg-opacity-20 px-3 py-1 rounded hover:bg-opacity-30 text-sm' }, 'Resetar Todos')
+                                h('h3', { className: 'font-bold text-lg' }, 'Notificações Ativas'),
+                                h('div', { className: 'flex gap-2' },
+                                    enableBuzzer && buzzerOrder.length > 0 && h('button', { 
+                                        onClick: resetAllBuzzers, 
+                                        className: 'bg-white bg-opacity-20 px-3 py-1 rounded hover:bg-opacity-30 text-sm' 
+                                    }, 'Reset Buzzers'),
+                                    enableTextInput && textResponsesOrder.length > 0 && h('button', { 
+                                        onClick: () => setShowResponses(true), 
+                                        className: 'bg-green-500 bg-opacity-90 px-3 py-1 rounded hover:bg-opacity-100 text-sm font-bold' 
+                                    }, `📝 Ver Respostas (${textResponsesOrder.length})`)
+                                )
                             ),
                             h('div', { className: 'flex flex-wrap gap-2' },
                                 buzzerOrder.map(b => {
                                     const table = tables.find(t => t.id === b.tableId);
-                                    return h('div', { key: b.tableId, className: 'bg-white bg-opacity-20 px-3 py-2 rounded flex items-center gap-2' },
+                                    return h('div', { key: `buzzer-${b.tableId}`, className: 'bg-red-500 bg-opacity-90 px-3 py-2 rounded flex items-center gap-2' },
+                                        h('span', { className: 'text-2xl' }, '🔔'),
                                         h('span', { className: 'font-bold' }, `${b.order}º`),
                                         h('span', null, table?.name || `Mesa ${b.tableId}`),
-                                        h('button', { onClick: () => resetBuzzer(b.tableId), className: 'bg-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-800' }, 'Reset')
+                                        h('button', { onClick: () => resetBuzzer(b.tableId), className: 'bg-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-800 ml-2' }, 'Reset')
+                                    );
+                                }),
+                                textResponsesOrder.map(r => {
+                                    const table = tables.find(t => t.id === r.tableId);
+                                    return h('div', { key: `response-${r.tableId}`, className: 'bg-green-500 bg-opacity-90 px-3 py-2 rounded flex items-center gap-2' },
+                                        h('span', { className: 'text-2xl' }, '📝'),
+                                        h('span', { className: 'font-bold' }, `${r.order}º`),
+                                        h('span', null, table?.name || `Mesa ${r.tableId}`),
+                                        h('span', { className: 'text-xs opacity-75' }, '(resposta recebida)')
                                     );
                                 })
                             )
                         ),
-                        // Categorias (amarela e vermelha) - duplo clique para mudar
                         categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-3 mb-2', style: { height: '33.333%' } },
                             h('button', { onDoubleClick: () => changeCategory(setYellowCategory, yellowCategory), className: 'bg-yellow-400 text-gray-900 rounded-xl p-4 font-black hover:bg-yellow-500 h-full flex items-center justify-center' },
                                 h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, yellowCategory || 'Duplo clique')
@@ -1065,7 +987,6 @@
                                 h('span', { className: 'text-center text-3xl sm:text-4xl md:text-5xl lg:text-6xl' }, redCategory || 'Duplo clique')
                             )
                         ),
-                        // Grid de mesas
                         h('div', { className: 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5 mb-2', style: { height: 'calc(66.666% - 3.5rem)' } },
                             tables.map(t => {
                                 const hasBuzzer = buzzers[t.id]?.pressed;
@@ -1077,45 +998,55 @@
                                     key: t.id, 
                                     className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` 
                                 },
-                                    // Flash effect de pontuação (mostra último valor)
                                     tableFlashes.length > 0 && h('div', { className: 'absolute inset-0 flex items-center justify-center z-10 bg-black bg-opacity-50 rounded-lg' },
                                         h('span', { className: 'text-5xl font-bold text-white' }, tableFlashes[tableFlashes.length - 1][1].text)
                                     ),
-                                    // Badge de ordem do buzzer
                                     hasBuzzer && h('div', { className: 'absolute top-0 right-0 bg-yellow-400 text-black rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold' }, buzzerInfo?.order),
-                                    // Nome e número da mesa
                                     h('div', { className: `text-center mb-1 ${hasBuzzer ? 'text-white' : ''}` },
                                         h('div', { className: `text-xl font-bold leading-tight ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.name || `Mesa ${t.id}`),
                                         h('div', { className: `text-[10px] ${hasBuzzer ? 'text-white opacity-75' : 'text-gray-500'}` }, `Mesa ${t.id}`)
                                     ),
-                                    // Botões de pontuação
                                     h('div', { className: 'flex items-center justify-center gap-1 mb-1 flex-1' },
                                         h('button', { 
                                             onClick: () => updateScore(t.id, -1), 
-                                            disabled: isZeroScore,  // Apenas -1 fica desabilitado aos 0 pontos
+                                            disabled: isZeroScore,
                                             className: `w-8 h-8 rounded-lg font-bold ${isZeroScore ? 'bg-gray-300 cursor-not-allowed text-gray-500' : 'bg-gray-500 text-white hover:bg-gray-600'}` 
                                         }, '-'),
                                         showScores && h('div', { className: `text-2xl font-bold w-10 text-center ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.score),
                                         !showScores && h('div', { className: 'w-10' }),
                                         h('button', { 
-                                            onClick: () => updateScore(t.id, 1),  // +1 sempre ativo
+                                            onClick: () => updateScore(t.id, 1),
                                             className: 'w-8 h-8 rounded-lg font-bold bg-green-500 text-white hover:bg-green-600' 
                                         }, '+')
                                     ),
-                                    // Botão +5
                                     h('button', { 
-                                        onClick: () => updateScore(t.id, 5),  // +5 sempre ativo
+                                        onClick: () => updateScore(t.id, 5),
                                         className: 'w-full py-1 rounded-lg font-bold text-[10px] bg-purple-500 text-white hover:bg-purple-600' 
                                     }, '+5')
                                 );
                             })
                         ),
-                        // Barra de botões de controlo
                         h('div', { className: 'flex justify-between bg-white rounded-lg p-2' },
                             h('div', { className: 'flex gap-2' },
                                 h('button', { onClick: () => setShowScores(!showScores), className: 'px-3 py-1.5 text-xs bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600' }, showScores ? 'Ocultar' : 'Mostrar'),
                                 h('button', { onClick: () => setShowManageTables(true), className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gerir Mesas'),
-                                h('button', { onClick: () => setShowSessionCode(true), className: 'px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700' }, 'Código/QR')
+                                h('button', { onClick: () => setShowSessionCode(true), className: 'px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700' }, 'Código/QR'),
+                                enableTextInput && h('div', { className: 'flex items-center gap-2' },
+                                    h('input', {
+                                        type: 'number',
+                                        value: textInputSeconds,
+                                        onChange: (e) => setTextInputSeconds(Math.max(0, parseInt(e.target.value) || 0)),
+                                        disabled: textInputActive,
+                                        className: 'w-16 px-2 py-1.5 text-xs border-2 border-gray-300 rounded text-center font-bold',
+                                        placeholder: '25'
+                                    }),
+                                    h('span', { className: 'text-xs text-gray-600' }, 's'),
+                                    h('button', { 
+                                        onClick: activateTextInput,
+                                        disabled: textInputActive,
+                                        className: `px-3 py-1.5 text-xs rounded-lg font-semibold ${textInputActive ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white`
+                                    }, textInputActive ? (textInputSeconds === 0 ? 'Ativo (∞)' : `Ativo (${textInputTimeRemaining}s)`) : 'Ativar Texto')
+                                )
                             ),
                             h('div', { className: 'flex gap-2' },
                                 h('button', { onClick: saveSession, className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gravar Sessão'),
@@ -1124,25 +1055,19 @@
                                 h('button', { onClick: resetGame, className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, 'Nova Sessão')
                             )
                         ),
-                        // Logotipos (se existirem)
                         availableLogos.length > 0 && h('div', { className: 'flex justify-center items-center gap-4 mt-2 py-2 bg-white bg-opacity-10 rounded-lg' },
                             availableLogos.map(logo => h('img', { 
                                 key: logo, 
                                 src: logo, 
                                 alt: 'Logo', 
                                 className: 'h-8 object-contain opacity-70 hover:opacity-100 transition-opacity',
-                                onError: (e) => e.target.style.display = 'none'  // Ocultar se falhar carregamento
+                                onError: (e) => e.target.style.display = 'none'
                             }))
                         )
                     )
                 );
             }
 
-            /* ==========================================
-               CSS: Animação de buzzer flash
-               ==========================================
-               Alterna entre azul claro e azul escuro
-               ========================================== */
             const style = document.createElement('style');
             style.textContent = `
                 @keyframes buzzerFlash {
@@ -1152,7 +1077,6 @@
             `;
             document.head.appendChild(style);
 
-            // Renderizar aplicação
             ReactDOM.createRoot(document.getElementById('root')).render(h(App));
         });
     </script>
