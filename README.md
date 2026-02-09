@@ -26,7 +26,7 @@ Sistema completo de gestão de pontuação em tempo real para eventos, jogos de 
 - ✅ **Categorias sorteaveis**: Amarela e vermelha com rotação aleatória
 - ✅ **Gestão de pontuação**: +1, -1, +5 ou manual
 - ✅ **QR Code**: Para conexão rápida dos clientes
-- ✅ **Histórico**: Guardar e carregar sessões anteriores
+- ✅ **Gestão de Sessões**: Sessões abertas vs arquivadas com interface dedicada
 - ✅ **Classificação**: Revelação progressiva do ranking
 - ✅ **Logotipos**: Suporte para logo1.png até logo5.png
 
@@ -115,11 +115,43 @@ cd score
 - **Editar**: Pode alterar e reenviar enquanto houver tempo
 - **Pontuação**: Visível em tempo real
 
-### 4️⃣ Finalizar
+### 4️⃣ Terminar Sessão
 
-- **Classificação**: Revelação progressiva do ranking
-- **Gravar Sessão**: Salvar para continuar depois
-- **Nova Sessão**: Reset completo
+Clique no botão **🏁 Terminar** para abrir o menu de fim de sessão:
+
+| Opção | Descrição |
+|-------|-----------|
+| 📦 **Arquivar e Fechar** | Guarda no histórico e termina definitivamente |
+| ⏸️ **Pausar** | Mantém aberta para retomar mais tarde |
+| ❌ **Cancelar** | Volta ao jogo |
+
+---
+
+## 🗂️ Gestão de Sessões
+
+O sistema inclui uma interface dedicada para gerir sessões:
+
+### Aceder à Gestão
+- No ecrã inicial, clique em **"📋 Gestão de Sessões"**
+
+### Sessões Abertas (🟢)
+- Sessões que estão em curso ou pausadas
+- Podem ser **retomadas** a qualquer momento
+- Podem ser **arquivadas** quando já não são necessárias
+
+### Sessões Arquivadas (⚫)
+- Sessões terminadas e guardadas no histórico
+- Podem ser **carregadas** para visualizar ou continuar
+- Podem ser **eliminadas** permanentemente
+
+### Fluxo Recomendado
+```
+Criar Sessão → Jogar → 🏁 Terminar
+                           │
+                           ├── 📦 Arquivar (fim definitivo)
+                           │
+                           └── ⏸️ Pausar (retomar depois)
+```
 
 ---
 
@@ -145,34 +177,33 @@ const firebaseConfig = {
 
 ### Regras de Segurança Firebase
 
-**Para desenvolvimento (permissivo):**
-```json
-{
-  "rules": {
-    ".read": true,
-    ".write": true
-  }
-}
-```
+**⚠️ IMPORTANTE:** Para que a listagem de sessões funcione, as regras devem permitir leitura ao nível de `sessions/`:
 
-**Para produção (recomendado):**
 ```json
 {
   "rules": {
     "sessions": {
-      "$sessionId": {
-        ".read": true,
-        ".write": "auth != null"
-      }
+      ".read": true,
+      ".write": true
+    },
+    "sessionHistory": {
+      ".read": true,
+      ".write": true
+    },
+    "categories": {
+      ".read": true,
+      ".write": true
     }
   }
 }
 ```
 
+> **Nota:** Regras com `"$sessionId": { ".read": true }` não permitem listar todas as sessões, apenas ler sessões específicas.
+
 ### Personalização
 
 #### Alterar URL do Cliente
-Em `master.html`, linha ~43:
+Em `master.html`, linha ~38:
 ```javascript
 const CLIENT_URL = 'https://SEU-DOMINIO.com/client.html';
 ```
@@ -203,15 +234,22 @@ Dimensões recomendadas: 200x80px (PNG transparente)
 ```
 Firebase Realtime Database:
 ├── sessions/{sessionId}/
-│   ├── gameState/          # Estado geral
+│   ├── gameState/          # Estado geral (active, tables, categories, etc.)
 │   ├── clients/            # Mesas conectadas
 │   ├── buzzers/            # Estado dos buzzers
 │   └── textResponses/      # Respostas de texto
-└── sessionHistory/         # Histórico
+└── sessionHistory/         # Sessões arquivadas
 
 Firestore:
 └── categories/             # Categorias pré-definidas
 ```
+
+### Estados de uma Sessão
+
+| Estado | Localização | Campo `active` |
+|--------|-------------|----------------|
+| **Aberta** | `sessions/` | `true` ou `undefined` |
+| **Arquivada** | `sessionHistory/` | N/A (`archived: true`) |
 
 ### Compatibilidade
 - ✅ Chrome 90+
@@ -251,32 +289,37 @@ Firestore:
 ### Estrutura de Ficheiros
 ```
 score/
-├── master.html          # Aplicação master
-├── client.html          # Aplicação cliente
-├── logo1.png           # Logotipo 1 (opcional)
-├── logo2.png           # Logotipo 2 (opcional)
-├── ...
-└── README.md           # Esta documentação
+├── master.html          # Aplicação master (~1700 linhas)
+├── client.html          # Aplicação cliente (~500 linhas)
+├── README.md            # Esta documentação
+├── CHANGELOG.md         # Histórico de alterações
+├── LICENSE              # Licença MIT
+├── logo1.png            # Logotipo 1 (opcional)
+├── logo2.png            # Logotipo 2 (opcional)
+└── ...
 ```
 
-### Modificar o Código
+### Arquitetura do Código
 
 Ambos os ficheiros são **standalone** (HTML + JavaScript inline):
 
-**Master:** ~2500 linhas
-- Linhas 1-50: Configuração Firebase
-- Linhas 50-100: Utilitários
-- Linhas 100-2500: Componente React principal
+**Master:**
+- Linhas 1-35: Configuração Firebase e imports
+- Linhas 35-65: Utilitários (playBuzzer)
+- Linhas 65-120: Estados React
+- Linhas 120-750: Funções de lógica
+- Linhas 750-1700: Componentes de UI
 
-**Cliente:** ~500 linhas
+**Cliente:**
 - Estrutura similar mas mais simples
-- Foco em UI responsiva
+- Foco em UI responsiva e interação com buzzer
 
 ### Princípios do Código
 - ✅ **Alterações cirúrgicas**: Modificar apenas o necessário
 - ✅ **Comentários em português**: Código bem documentado
-- ✅ **Estados consolidados**: Organização clara
+- ✅ **Estados consolidados**: Organização clara por categoria
 - ✅ **Sincronização automática**: Via useEffect
+- ✅ **Tratamento de erros**: Try-catch em operações críticas
 
 ---
 
@@ -291,6 +334,11 @@ Ambos os ficheiros são **standalone** (HTML + JavaScript inline):
 - ✅ Clica na página antes (browsers bloqueiam áudio)
 - ✅ Verifica volume do sistema
 - ✅ Testa noutro browser
+
+### Sessões não aparecem em "Sessões Abertas"
+- ✅ Verifica regras do Firebase (ver secção Configuração)
+- ✅ Desativa adblocker temporariamente
+- ✅ Verifica consola para erros "Permission denied"
 
 ### Sincronização falha
 - ✅ Verifica conexão internet
@@ -324,6 +372,14 @@ Contribuições são bem-vindas!
 ---
 
 ## 📝 Changelog
+
+### v2.1.0 (2026-02-09)
+- ✨ **Nova gestão de sessões**: Interface dedicada para sessões abertas vs arquivadas
+- ✨ **Botão "Terminar"**: Substitui "Gravar Sessão" e "Nova Sessão" por um único botão com modal
+- 🔧 **Correção de sessões fantasma**: Sessões são corretamente arquivadas/removidas
+- 🔧 **Filtro de sessões melhorado**: Detecta sessões sem campo `active` definido
+- 🔧 **Fecho robusto**: Verificação dupla de remoção do Firebase
+- 📝 **Documentação atualizada**: Regras Firebase corrigidas
 
 ### v2.0.0 (2026-01-10)
 - ✨ Adicionado sistema de respostas de texto
@@ -407,10 +463,16 @@ R: Até 20 mesas simultâneas.
 R: Sim! Licença MIT permite uso comercial.
 
 **P: Como faço backup das sessões?**  
-R: Usa o botão "Gravar Sessão" no master. Dados ficam no Firebase.
+R: Usa o botão "🏁 Terminar" → "📦 Arquivar e Fechar". Os dados ficam no Firebase.
+
+**P: Como retomo uma sessão pausada?**  
+R: Vai a "Gestão de Sessões" → "Sessões Abertas" → "🔄 Abrir".
 
 **P: Posso personalizar cores/design?**  
 R: Sim! Edita as classes Tailwind nos ficheiros HTML.
+
+**P: As sessões abertas não aparecem na lista!**  
+R: Verifica as regras do Firebase. Precisam de `.read: true` ao nível de `sessions/`, não dentro de `$sessionId`.
 
 ---
 

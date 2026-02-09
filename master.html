@@ -108,9 +108,18 @@
                 const [tempNames, setTempNames] = useState({});
                 const [tempCategories, setTempCategories] = useState(['']);
                 const [predefinedCategories, setPredefinedCategories] = useState([]);
+                // ===================================
+                // ESTADOS - HISTÓRICO E SESSÕES
+                // ===================================
                 const [sessionHistory, setSessionHistory] = useState([]);
+                const [activeSessions, setActiveSessions] = useState([]);
                 const [selectedHistoryEntry, setSelectedHistoryEntry] = useState(null);
                 const [availableLogos, setAvailableLogos] = useState([]);
+                const [selectedLogos, setSelectedLogos] = useState([]);
+                
+                const [showExistingSessionDialog, setShowExistingSessionDialog] = useState(false);
+                const [existingSessionData, setExistingSessionData] = useState(null);
+                const [showEndSessionModal, setShowEndSessionModal] = useState(false);
 
                 useEffect(() => {
                     (async () => {
@@ -156,6 +165,8 @@
 
                 useEffect(() => {
                     if (!showHistory) return;
+                    
+                    // Monitorar histórico de sessões arquivadas
                     const historyRef = ref(rtdb, 'sessionHistory');
                     const unsubHistory = onValue(historyRef, (snapshot) => {
                         const data = snapshot.val();
@@ -164,14 +175,57 @@
                                 id: key,
                                 ...data[key]
                             }));
+                            // Ordenar por timestamp (mais recente primeiro)
                             history.sort((a, b) => b.timestamp - a.timestamp);
                             setSessionHistory(history);
                         } else {
                             setSessionHistory([]);
                         }
                     });
-                    return () => unsubHistory();
+                    
+                    return () => {
+                        unsubHistory();
+                    };
                 }, [showHistory]);
+                
+                // CORREÇÃO: Monitorar sessões ativas SEMPRE (não depende de showHistory)
+                // Uma sessão é considerada "aberta" se existir em sessions/ E:
+                // - active === true OU
+                // - active não está definido (sessões antigas sem o campo)
+                // Uma sessão só é considerada "fechada" se foi arquivada (removida de sessions/)
+                useEffect(() => {
+                    // Monitorar sessões ativas (abertas) o tempo todo
+                    const sessionsRef = ref(rtdb, 'sessions');
+                    const unsubSessions = onValue(sessionsRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            const active = Object.keys(data)
+                                .filter(code => {
+                                    // Verifica se tem gameState
+                                    const gameState = data[code]?.gameState;
+                                    if (!gameState) return false;
+                                    // Sessão é ativa se: active === true OU active não está definido (undefined)
+                                    // Só é inativa se active === false explicitamente
+                                    return gameState.active !== false;
+                                })
+                                .map(code => ({
+                                    sessionId: code,
+                                    timestamp: data[code].gameState?.timestamp || Date.now(),
+                                    ...data[code].gameState
+                                }))
+                                .sort((a, b) => b.timestamp - a.timestamp);
+                            setActiveSessions(active);
+                            console.log(`📊 Sessões abertas detectadas: ${active.length}`, active.map(s => s.sessionId));
+                        } else {
+                            setActiveSessions([]);
+                            console.log('📊 Nenhuma sessão aberta');
+                        }
+                    });
+                    
+                    return () => {
+                        unsubSessions();
+                    };
+                }, []); // Array vazio = monitora sempre
 
                 useEffect(() => {
                     if (!setupComplete || !sessionId) return;
@@ -193,8 +247,12 @@
                             setTables(prev => {
                                 const merged = [...prev];
                                 newTables.forEach(nt => {
-                                    if (!merged.find(t => t.id === nt.id)) {
+                                    const existing = merged.find(t => t.id === nt.id);
+                                    if (!existing) {
                                         merged.push(nt);
+                                    } else if (nt.name && nt.name !== `Mesa ${nt.id}`) {
+                                        // Atualiza o nome se o cliente reconectou com um nome diferente
+                                        existing.name = nt.name;
                                     }
                                 });
                                 return merged.sort((a, b) => a.id - b.id);
@@ -202,7 +260,15 @@
                         } else {
                             setTables(prev => prev.map(t => {
                                 const client = Object.values(data).find(c => c.tableNumber === t.id);
-                                return client ? { ...t, name: client.teamName || t.name } : t;
+                                if (client) {
+                                    // Só atualiza o nome se o cliente forneceu um nome personalizado
+                                    // Se for apenas "Mesa X", mantém o nome atual
+                                    const newName = (client.teamName && client.teamName !== `Mesa ${t.id}`) 
+                                        ? client.teamName 
+                                        : t.name;
+                                    return { ...t, name: newName };
+                                }
+                                return t;
                             }));
                         }
                     });
@@ -269,11 +335,17 @@
                     }
                 }, [textInputActive, textInputTimeRemaining, textInputSeconds]);
 
+                /**
+                 * Iniciar uma nova sessão de jogo
+                 * Valida o código, verifica conflitos com sessões ativas
+                 * e cria a sessão se tudo estiver ok
+                 */
                 const initGame = async () => {
                     setCodeError('');
                     
                     let finalCode = customSessionCode.trim().toUpperCase();
                     
+                    // Validar código personalizado
                     if (finalCode) {
                         if (finalCode.length > 10) {
                             setCodeError('Código não pode ter mais de 10 caracteres');
@@ -284,44 +356,191 @@
                             return;
                         }
                         
-                        const historyRef = ref(rtdb, 'sessionHistory');
-                        const historySnapshot = await new Promise((resolve) => {
-                            onValue(historyRef, resolve, { onlyOnce: true });
+                        // VERIFICAÇÃO CRÍTICA: Existe uma sessão ATIVA com este código?
+                        const activeSessionRef = ref(rtdb, `sessions/${finalCode}/gameState`);
+                        const activeSessionSnapshot = await new Promise((resolve) => {
+                            onValue(activeSessionRef, resolve, { onlyOnce: true });
                         });
                         
-                        const historyData = historySnapshot.val();
-                        if (historyData) {
-                            const matchingSessions = Object.keys(historyData)
-                                .map(key => ({ id: key, ...historyData[key] }))
-                                .filter(entry => entry.sessionId === finalCode)
-                                .sort((a, b) => b.timestamp - a.timestamp);
-                            
-                            if (matchingSessions.length > 0) {
-                                const mostRecent = matchingSessions[0];
-                                if (confirm(`Código "${finalCode}" já foi usado. Deseja carregar a última sessão com este código?`)) {
-                                    loadSession(mostRecent, true);
-                                    return;
-                                } else {
-                                    setCodeError('Escolha outro código ou carregue a sessão existente');
-                                    return;
-                                }
-                            }
+                        const activeSessionData = activeSessionSnapshot.val();
+                        
+                        console.log(`🔍 Verificando código "${finalCode}":`, activeSessionData ? 'SESSÃO ATIVA ENCONTRADA' : 'Código disponível');
+                        
+                        if (activeSessionData && activeSessionData.active) {
+                            // Sessão ativa encontrada - mostrar diálogo para escolher ação
+                            console.log(`⚠️ Sessão ativa encontrada: ${finalCode}`, activeSessionData);
+                            setExistingSessionData({ 
+                                code: finalCode, 
+                                isOpen: true,
+                                data: activeSessionData 
+                            });
+                            setShowExistingSessionDialog(true);
+                            return;
                         }
                     } else {
+                        // Gerar código aleatório único
                         finalCode = Math.random().toString(36).substring(2, 8).toUpperCase();
                     }
 
+                    // Continuar com a criação da sessão
+                    await proceedWithSessionCreation(finalCode);
+                };
+
+                /**
+                 * Criar sessão após todas as validações
+                 * Esta função é chamada após confirmar que não há conflitos
+                 * @param {string} finalCode - Código validado da sessão
+                 */
+                const proceedWithSessionCreation = async (finalCode) => {
+                    // Inicializar mesas conforme configuração
                     if (numTables > 0) {
+                        // Modo fixo: criar mesas pré-definidas
                         setTables(Array.from({ length: numTables }, (_, i) => ({ 
                             id: i + 1, 
                             name: tempNames[i + 1] || '', 
                             score: initialScore 
                         })));
+                    } else {
+                        // Modo dinâmico: mesas criadas quando clientes se conectam
+                        setTables([]);
                     }
                     
+                    // Filtrar categorias vazias
                     setCategories(tempCategories.filter(c => c.trim()));
                     setSessionId(finalCode);
                     setSetupComplete(true);
+                    
+                    // CRÍTICO: Criar a sessão imediatamente no Firebase
+                    // Aguardar um pouco para os estados serem aplicados
+                    setTimeout(async () => {
+                        try {
+                            await set(ref(rtdb, `sessions/${finalCode}/gameState`), {
+                                tables: numTables > 0 ? Array.from({ length: numTables }, (_, i) => ({ 
+                                    id: i + 1, 
+                                    name: tempNames[i + 1] || '', 
+                                    score: initialScore 
+                                })) : [],
+                                yellowCategory: null,
+                                redCategory: null,
+                                categories: tempCategories.filter(c => c.trim()),
+                                active: true,
+                                buzzerText: buzzerText,
+                                blockBuzzerAtZero: blockBuzzerAtZero,
+                                enableBuzzer: enableBuzzer,
+                                enableTextInput: enableTextInput,
+                                textInputActive: false,
+                                textInputTimeRemaining: 0,
+                                timestamp: Date.now()
+                            });
+                            console.log(`✅ Sessão ${finalCode} criada no Firebase`);
+                        } catch (e) {
+                            console.error('❌ Erro ao criar sessão no Firebase:', e);
+                        }
+                    }, 100);
+                };
+
+                /**
+                 * Lidar com escolha quando encontra sessão existente
+                 * Opções: Carregar sessão / Arquivar e criar nova / Cancelar
+                 * @param {string} choice - 'yes', 'no' ou 'cancel'
+                 */
+                const handleExistingSessionChoice = async (choice) => {
+                    const { code, data } = existingSessionData;
+                    
+                    if (choice === 'yes') {
+                        // ===== OPÇÃO 1: Carregar a sessão existente =====
+                        setShowExistingSessionDialog(false);
+                        
+                        // Reconstruir objeto para loadSession
+                        const sessionEntry = {
+                            sessionId: code,
+                            tables: data.tables || [],
+                            categories: data.categories || [],
+                            yellowCategory: data.yellowCategory,
+                            redCategory: data.redCategory,
+                            buzzerText: data.buzzerText || 'BUZZER',
+                            blockBuzzerAtZero: data.blockBuzzerAtZero || false,
+                            initialScore: data.initialScore || 0,
+                            enableBuzzer: data.enableBuzzer !== undefined ? data.enableBuzzer : true,
+                            enableTextInput: data.enableTextInput || false
+                        };
+                        
+                        // Carregar sem pedir confirmação adicional
+                        loadSession(sessionEntry, true);
+                        
+                    } else if (choice === 'no') {
+                        // ===== OPÇÃO 2: Arquivar sessão antiga e criar nova =====
+                        setShowExistingSessionDialog(false);
+                        
+                        try {
+                            // PASSO 1: Marcar sessão como inativa PRIMEIRO
+                            console.log(`🔒 Marcando sessão ${code} como inativa antes de arquivar...`);
+                            await update(ref(rtdb, `sessions/${code}/gameState`), { 
+                                active: false,
+                                closedAt: Date.now()
+                            });
+                            
+                            // Aguardar Firebase processar
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            
+                            // PASSO 2: Preparar dados para arquivamento
+                            const historyData = {
+                                sessionId: code,
+                                timestamp: Date.now(),
+                                tables: data.tables || [],
+                                emails: {},
+                                categories: data.categories || [],
+                                yellowCategory: data.yellowCategory || null,
+                                redCategory: data.redCategory || null,
+                                buzzerText: data.buzzerText || 'BUZZER',
+                                blockBuzzerAtZero: data.blockBuzzerAtZero || false,
+                                initialScore: data.initialScore || 0,
+                                enableBuzzer: data.enableBuzzer !== undefined ? data.enableBuzzer : true,
+                                enableTextInput: data.enableTextInput || false,
+                                archived: true
+                            };
+
+                            // Gerar ID único para o histórico
+                            const historyId = Math.random().toString(36).substring(2, 12);
+                            
+                            // PASSO 3: Salvar no histórico
+                            await set(ref(rtdb, `sessionHistory/${historyId}`), historyData);
+                            console.log(`📦 Sessão ${code} arquivada com ID: ${historyId}`);
+                            
+                            // PASSO 4: Remover a sessão ativa do Firebase
+                            await remove(ref(rtdb, `sessions/${code}`));
+                            console.log(`🗑️ Sessão ${code} removida de sessions/`);
+                            
+                            // Aguardar Firebase processar a remoção
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            
+                            // PASSO 5: Verificar se foi realmente removida
+                            const verifyRef = ref(rtdb, `sessions/${code}`);
+                            const verifySnapshot = await new Promise((resolve) => {
+                                onValue(verifyRef, resolve, { onlyOnce: true });
+                            });
+                            
+                            if (verifySnapshot.exists()) {
+                                console.warn(`⚠️ Sessão ${code} ainda existe, tentando remover novamente...`);
+                                await remove(ref(rtdb, `sessions/${code}`));
+                                await new Promise(resolve => setTimeout(resolve, 200));
+                            }
+                            
+                            // PASSO 6: Criar nova sessão com o mesmo código (agora disponível)
+                            console.log(`✅ Criando nova sessão com código ${code}...`);
+                            await proceedWithSessionCreation(code);
+                            
+                        } catch (e) {
+                            console.error('Erro ao arquivar sessão antiga:', e);
+                            alert('Erro ao arquivar a sessão antiga. Detalhes: ' + e.message);
+                            // Mostrar diálogo novamente para tentar outra vez
+                            setShowExistingSessionDialog(true);
+                        }
+                    } else {
+                        // ===== OPÇÃO 3: Cancelar =====
+                        setShowExistingSessionDialog(false);
+                        setExistingSessionData(null);
+                    }
                 };
 
                 const updateScore = (id, change) => {
@@ -400,102 +619,10 @@
                     setTextInputTimeRemaining(0);
                 };
 
-                const saveSession = async () => {
-                    if (!sessionId) return;
-                    try {
-                        const historyData = {
-                            sessionId: sessionId,
-                            timestamp: Date.now(),
-                            tables: tables.map(t => ({
-                                id: t.id,
-                                name: t.name,
-                                score: t.score
-                            })),
-                            emails: {},
-                            categories: categories,
-                            yellowCategory: yellowCategory,
-                            redCategory: redCategory,
-                            buzzerText: buzzerText,
-                            blockBuzzerAtZero: blockBuzzerAtZero,
-                            initialScore: initialScore,
-                            enableBuzzer: enableBuzzer,
-                            enableTextInput: enableTextInput
-                        };
-
-                        Object.values(connectedClients).forEach(client => {
-                            historyData.emails[client.tableNumber] = client.emails || [];
-                        });
-
-                        const historyId = Math.random().toString(36).substring(2, 12);
-                        await set(ref(rtdb, `sessionHistory/${historyId}`), historyData);
-                        alert('Sessão gravada com sucesso!');
-                    } catch (e) { 
-                        console.error(e);
-                        alert('Erro ao gravar sessão');
-                    }
-                };
-
-                const loadSession = (entry, skipConfirm = false) => {
-                    if (!skipConfirm && !confirm('Deseja carregar esta sessão?')) return;
-                    
-                    const code = entry.sessionId;
-                    const loadedTables = entry.tables || [];
-                    const loadedCategories = entry.categories || [];
-
-                    setShowHistory(false);
-                    setSelectedHistoryEntry(null);
-                    setSetupComplete(false);
-                    
-                    setTimeout(() => {
-                        setTables(loadedTables);
-                        setNumTables(0);
-                        setCategories(loadedCategories);
-                        setYellowCategory(entry.yellowCategory || null);
-                        setRedCategory(entry.redCategory || null);
-                        setUsedCategories([entry.yellowCategory, entry.redCategory].filter(Boolean));
-                        setBuzzerText(entry.buzzerText || 'BUZZER');
-                        setBlockBuzzerAtZero(entry.blockBuzzerAtZero !== undefined ? entry.blockBuzzerAtZero : false);
-                        setInitialScore(entry.initialScore !== undefined ? entry.initialScore : 0);
-                        setEnableBuzzer(entry.enableBuzzer !== undefined ? entry.enableBuzzer : true);
-                        setEnableTextInput(entry.enableTextInput !== undefined ? entry.enableTextInput : false);
-                        
-                        setShowScores(false);
-                        setFlashEffects({});
-                        setCodeCopied(false);
-                        setConnectedClients({});
-                        setBuzzers({});
-                        setTextResponses({});
-                        setShowSessionCode(false);
-                        setShowQRCode(false);
-                        setShowManageTables(false);
-                        setShowLeaderboard(false);
-                        setLeaderboardRevealPosition(null);
-                        setShowResponses(false);
-                        
-                        setSessionId(code);
-                        setSetupComplete(true);
-                    }, 100);
-                };
-
-                const removeTable = async (tableId) => {
-                    if (!confirm(`Tem a certeza que deseja remover a Mesa ${tableId}?`)) return;
-                    
-                    try {
-                        await remove(ref(rtdb, `sessions/${sessionId}/clients/${tableId}`));
-                        await remove(ref(rtdb, `sessions/${sessionId}/buzzers/${tableId}`));
-                        await remove(ref(rtdb, `sessions/${sessionId}/textResponses/${tableId}`));
-                        setTables(prev => prev.filter(t => t.id !== tableId));
-                    } catch (e) {
-                        console.error(e);
-                        alert('Erro ao remover mesa');
-                    }
-                };
-
-                const resetGame = async () => {
-                    if (!confirm('Tem a certeza que deseja iniciar uma nova sessão?')) return;
-
-                    if (sessionId) try { await remove(ref(rtdb, `sessions/${sessionId}`)); } catch (e) {}
-                    
+                /**
+                 * Função auxiliar: Limpa todos os estados e volta ao setup
+                 */
+                const resetToSetup = () => {
                     setSetupComplete(false); 
                     setTables([]); 
                     setCategories([]); 
@@ -524,6 +651,198 @@
                     setEnableBuzzer(true);
                     setEnableTextInput(false);
                     setShowResponses(false);
+                    setSelectedLogos([]);
+                    setShowEndSessionModal(false);
+                };
+
+                /**
+                 * Terminar Sessão - Opção 1: Arquivar e Fechar
+                 * Guarda no histórico, remove de sessions/, volta ao setup
+                 */
+                const endSessionArchive = async () => {
+                    if (!sessionId) return;
+                    
+                    try {
+                        const currentSessionId = sessionId;
+                        
+                        // Preparar dados para o histórico
+                        const historyData = {
+                            sessionId: currentSessionId,
+                            timestamp: Date.now(),
+                            tables: tables.map(t => ({ id: t.id, name: t.name, score: t.score })),
+                            emails: {},
+                            categories: categories,
+                            yellowCategory: yellowCategory,
+                            redCategory: redCategory,
+                            buzzerText: buzzerText,
+                            blockBuzzerAtZero: blockBuzzerAtZero,
+                            initialScore: initialScore,
+                            enableBuzzer: enableBuzzer,
+                            enableTextInput: enableTextInput,
+                            archived: true
+                        };
+                        
+                        // Adicionar emails dos clientes
+                        Object.values(connectedClients).forEach(client => {
+                            historyData.emails[client.tableNumber] = client.emails || [];
+                        });
+                        
+                        // PASSO 1: Marcar sessão como inativa
+                        console.log(`🔒 Marcando sessão ${currentSessionId} como inativa...`);
+                        await update(ref(rtdb, `sessions/${currentSessionId}/gameState`), { 
+                            active: false,
+                            closedAt: Date.now()
+                        });
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                        // PASSO 2: Salvar no histórico
+                        const historyId = Math.random().toString(36).substring(2, 12);
+                        await set(ref(rtdb, `sessionHistory/${historyId}`), historyData);
+                        console.log(`📦 Sessão ${currentSessionId} arquivada com ID: ${historyId}`);
+                        
+                        // PASSO 3: Remover de sessions/
+                        await remove(ref(rtdb, `sessions/${currentSessionId}`));
+                        console.log(`🗑️ Sessão ${currentSessionId} removida de sessions/`);
+                        
+                        // Verificar remoção
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        const verifyRef = ref(rtdb, `sessions/${currentSessionId}`);
+                        const verifySnapshot = await new Promise((resolve) => {
+                            onValue(verifyRef, resolve, { onlyOnce: true });
+                        });
+                        if (verifySnapshot.exists()) {
+                            await remove(ref(rtdb, `sessions/${currentSessionId}`));
+                        }
+                        
+                        // Voltar ao setup
+                        resetToSetup();
+                        
+                    } catch (e) {
+                        console.error('❌ Erro ao arquivar sessão:', e);
+                        alert('Erro ao arquivar sessão: ' + e.message);
+                    }
+                };
+
+                /**
+                 * Terminar Sessão - Opção 2: Pausar (deixar aberta)
+                 * Mantém em sessions/, volta ao setup (pode retomar depois)
+                 */
+                const endSessionPause = () => {
+                    console.log(`⏸️ Sessão ${sessionId} pausada (permanece aberta em sessions/)`);
+                    resetToSetup();
+                };
+
+                /**
+                 * Carregar uma sessão do histórico ou sessão ativa
+                 * IMPORTANTE: Limpa completamente a sessão anterior do Firebase antes de carregar a nova
+                 * @param {Object} entry - Dados da sessão a carregar
+                 * @param {boolean} skipConfirm - Se true, não pede confirmação
+                 */
+                const loadSession = async (entry, skipConfirm = false) => {
+                    if (!skipConfirm && !confirm('Deseja carregar esta sessão?')) return;
+                    
+                    const code = entry.sessionId;
+                    const loadedTables = entry.tables || [];
+                    const loadedCategories = entry.categories || [];
+
+                    console.log(`🔄 Carregando sessão: ${code}`);
+
+                    // Fechar ecrãs secundários
+                    setShowHistory(false);
+                    setSelectedHistoryEntry(null);
+                    setSetupComplete(false);
+                    
+                    try {
+                        // PASSO 1: Limpar COMPLETAMENTE a sessão anterior do Firebase
+                        if (sessionId && sessionId !== code) {
+                            console.log(`🧹 Limpando sessão anterior: ${sessionId}`);
+                            await remove(ref(rtdb, `sessions/${sessionId}`));
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                        }
+                        
+                        // PASSO 2: Verificar se a sessão que vamos carregar já existe
+                        const checkRef = ref(rtdb, `sessions/${code}/gameState`);
+                        const checkSnapshot = await new Promise((resolve) => {
+                            onValue(checkRef, resolve, { onlyOnce: true });
+                        });
+                        
+                        if (checkSnapshot.exists()) {
+                            console.log(`⚠️ Sessão ${code} já existe no Firebase - limpando para recriar`);
+                            await remove(ref(rtdb, `sessions/${code}`));
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                        }
+                        
+                    } catch (e) {
+                        console.error('❌ Erro ao limpar sessões antigas:', e);
+                    }
+                    
+                    // PASSO 3: Restaurar dados da sessão localmente
+                    setTables(loadedTables);
+                    setNumTables(0); // Sempre modo dinâmico ao carregar
+                    setCategories(loadedCategories);
+                    setYellowCategory(entry.yellowCategory || null);
+                    setRedCategory(entry.redCategory || null);
+                    setUsedCategories([entry.yellowCategory, entry.redCategory].filter(Boolean));
+                    setBuzzerText(entry.buzzerText || 'BUZZER');
+                    setBlockBuzzerAtZero(entry.blockBuzzerAtZero || false);
+                    setInitialScore(entry.initialScore || 0);
+                    setEnableBuzzer(entry.enableBuzzer !== undefined ? entry.enableBuzzer : true);
+                    setEnableTextInput(entry.enableTextInput || false);
+                    
+                    // Limpar estados temporários
+                    setShowScores(false);
+                    setFlashEffects({});
+                    setCodeCopied(false);
+                    setConnectedClients({});
+                    setBuzzers({});
+                    setTextResponses({});
+                    setShowSessionCode(false);
+                    setShowQRCode(false);
+                    setShowManageTables(false);
+                    setShowLeaderboard(false);
+                    setLeaderboardRevealPosition(null);
+                    setShowResponses(false);
+                    
+                    // Ativar a nova sessão
+                    setSessionId(code);
+                    setSetupComplete(true);
+                    
+                    // PASSO 4: Criar a sessão no Firebase com os dados carregados
+                    setTimeout(async () => {
+                        try {
+                            await set(ref(rtdb, `sessions/${code}/gameState`), {
+                                tables: loadedTables,
+                                yellowCategory: entry.yellowCategory || null,
+                                redCategory: entry.redCategory || null,
+                                categories: loadedCategories,
+                                active: true,
+                                buzzerText: entry.buzzerText || 'BUZZER',
+                                blockBuzzerAtZero: entry.blockBuzzerAtZero || false,
+                                enableBuzzer: entry.enableBuzzer !== undefined ? entry.enableBuzzer : true,
+                                enableTextInput: entry.enableTextInput || false,
+                                textInputActive: false,
+                                textInputTimeRemaining: 0,
+                                timestamp: Date.now()
+                            });
+                            console.log(`✅ Sessão ${code} carregada e recriada no Firebase com sucesso`);
+                        } catch (e) {
+                            console.error('❌ Erro ao recriar sessão no Firebase:', e);
+                        }
+                    }, 200);
+                };
+
+                const removeTable = async (tableId) => {
+                    if (!confirm(`Tem a certeza que deseja remover a Mesa ${tableId}?`)) return;
+                    
+                    try {
+                        await remove(ref(rtdb, `sessions/${sessionId}/clients/${tableId}`));
+                        await remove(ref(rtdb, `sessions/${sessionId}/buzzers/${tableId}`));
+                        await remove(ref(rtdb, `sessions/${sessionId}/textResponses/${tableId}`));
+                        setTables(prev => prev.filter(t => t.id !== tableId));
+                    } catch (e) {
+                        console.error(e);
+                        alert('Erro ao remover mesa');
+                    }
                 };
 
                 const resetAllScores = () => {
@@ -541,6 +860,96 @@
                         await remove(ref(rtdb, `sessionHistory/${entryId}`));
                         setSessionHistory(sessionHistory.filter(h => h.id !== entryId));
                     } catch (e) { console.error(e); }
+                };
+
+                /**
+                 * Fechar e arquivar uma sessão ativa
+                 * IMPORTANTE: Primeiro marca active: false, depois arquiva e remove
+                 * @param {string} sessionCode - Código da sessão a fechar
+                 */
+                const closeActiveSession = async (sessionCode) => {
+                    if (!confirm(`Tem a certeza que deseja fechar e arquivar a sessão "${sessionCode}"?`)) return;
+                    
+                    try {
+                        // Buscar dados da sessão ativa
+                        const sessionRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
+                        const snapshot = await new Promise((resolve) => {
+                            onValue(sessionRef, resolve, { onlyOnce: true });
+                        });
+                        const sessionData = snapshot.val();
+                        
+                        if (!sessionData) {
+                            alert('Sessão não encontrada');
+                            return;
+                        }
+                        
+                        // PASSO 1: Marcar sessão como inativa PRIMEIRO (segurança extra)
+                        await update(ref(rtdb, `sessions/${sessionCode}/gameState`), { 
+                            active: false,
+                            closedAt: Date.now()
+                        });
+                        console.log(`🔒 Sessão ${sessionCode} marcada como inativa`);
+                        
+                        // Aguardar Firebase processar
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                        // Buscar clientes conectados
+                        const clientsRef = ref(rtdb, `sessions/${sessionCode}/clients`);
+                        const clientsSnapshot = await new Promise((resolve) => {
+                            onValue(clientsRef, resolve, { onlyOnce: true });
+                        });
+                        const clientsData = clientsSnapshot.val() || {};
+                        
+                        // PASSO 2: Criar entrada no histórico
+                        const historyData = {
+                            sessionId: sessionCode,
+                            timestamp: Date.now(),
+                            tables: sessionData.tables || [],
+                            emails: {},
+                            categories: sessionData.categories || [],
+                            yellowCategory: sessionData.yellowCategory || null,
+                            redCategory: sessionData.redCategory || null,
+                            buzzerText: sessionData.buzzerText || 'BUZZER',
+                            blockBuzzerAtZero: sessionData.blockBuzzerAtZero || false,
+                            initialScore: sessionData.initialScore || 0,
+                            enableBuzzer: sessionData.enableBuzzer !== undefined ? sessionData.enableBuzzer : true,
+                            enableTextInput: sessionData.enableTextInput || false,
+                            archived: true
+                        };
+                        
+                        // Adicionar emails dos clientes
+                        Object.values(clientsData).forEach(client => {
+                            historyData.emails[client.tableNumber] = client.emails || [];
+                        });
+                        
+                        // Salvar no histórico
+                        const historyId = Math.random().toString(36).substring(2, 12);
+                        await set(ref(rtdb, `sessionHistory/${historyId}`), historyData);
+                        console.log(`📦 Sessão ${sessionCode} arquivada com ID: ${historyId}`);
+                        
+                        // PASSO 3: Remover sessão do nó sessions/ completamente
+                        await remove(ref(rtdb, `sessions/${sessionCode}`));
+                        console.log(`🗑️ Sessão ${sessionCode} removida de sessions/`);
+                        
+                        // Aguardar Firebase processar a remoção
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                        // PASSO 4: Verificar se foi realmente removida
+                        const verifyRef = ref(rtdb, `sessions/${sessionCode}`);
+                        const verifySnapshot = await new Promise((resolve) => {
+                            onValue(verifyRef, resolve, { onlyOnce: true });
+                        });
+                        
+                        if (verifySnapshot.exists()) {
+                            console.warn(`⚠️ Sessão ${sessionCode} ainda existe após remoção, tentando novamente...`);
+                            await remove(ref(rtdb, `sessions/${sessionCode}`));
+                        }
+                        
+                        alert(`Sessão "${sessionCode}" foi fechada e arquivada com sucesso!`);
+                    } catch (e) {
+                        console.error('Erro ao fechar sessão:', e);
+                        alert('Erro ao fechar sessão: ' + e.message);
+                    }
                 };
 
                 const generateQRCodeUrl = () => {
@@ -597,6 +1006,92 @@
                     const date = new Date(timestamp);
                     return date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 };
+
+                // MODAL: Sessão Existente
+                if (showExistingSessionDialog && existingSessionData) {
+                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
+                            h('div', { className: 'text-center mb-6' },
+                                h('div', { className: 'w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-4' },
+                                    h('span', { className: 'text-3xl' }, '⚠️')
+                                ),
+                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, 'Sessão Aberta Encontrada'),
+                                h('p', { className: 'text-gray-600' }, 
+                                    `Já existe uma sessão aberta com o código "${existingSessionData.code}".`
+                                ),
+                                h('p', { className: 'text-gray-600 mt-2' }, 
+                                    'Deseja carregar a sessão anterior?'
+                                )
+                            ),
+                            h('div', { className: 'space-y-3' },
+                                h('button', { 
+                                    onClick: () => handleExistingSessionChoice('yes'),
+                                    className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition'
+                                }, 'Sim - Carregar Sessão Anterior'),
+                                h('button', { 
+                                    onClick: () => handleExistingSessionChoice('no'),
+                                    className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700 transition'
+                                }, 'Não - Arquivar e Criar Nova'),
+                                h('button', { 
+                                    onClick: () => handleExistingSessionChoice('cancel'),
+                                    className: 'w-full bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600 transition'
+                                }, 'Cancelar')
+                            ),
+                            h('p', { className: 'text-xs text-gray-500 mt-4 text-center' }, 
+                                'Escolhendo "Não", a sessão anterior será arquivada e uma nova sessão será criada com o mesmo código.'
+                            )
+                        )
+                    );
+                }
+
+                // MODAL: Terminar Sessão
+                if (showEndSessionModal) {
+                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
+                            h('div', { className: 'text-center mb-6' },
+                                h('div', { className: 'w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4' },
+                                    h('span', { className: 'text-3xl' }, '🏁')
+                                ),
+                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, 'Terminar Sessão'),
+                                h('p', { className: 'text-gray-600' }, 
+                                    `Sessão: ${sessionId}`
+                                ),
+                                h('p', { className: 'text-gray-600 mt-1' }, 
+                                    `${tables.length} mesa(s) • ${tables.reduce((acc, t) => acc + t.score, 0)} pontos totais`
+                                )
+                            ),
+                            h('div', { className: 'space-y-3' },
+                                h('button', { 
+                                    onClick: endSessionArchive,
+                                    className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition flex items-center justify-center gap-2'
+                                }, 
+                                    h('span', null, '📦'),
+                                    h('span', null, 'Arquivar e Fechar')
+                                ),
+                                h('p', { className: 'text-xs text-gray-500 text-center -mt-1 mb-2' }, 
+                                    'Guarda no histórico e termina definitivamente'
+                                ),
+                                h('button', { 
+                                    onClick: endSessionPause,
+                                    className: 'w-full bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600 transition flex items-center justify-center gap-2'
+                                }, 
+                                    h('span', null, '⏸️'),
+                                    h('span', null, 'Pausar (deixar aberta)')
+                                ),
+                                h('p', { className: 'text-xs text-gray-500 text-center -mt-1 mb-2' }, 
+                                    'Pode retomar mais tarde em "Gestão de Sessões"'
+                                ),
+                                h('button', { 
+                                    onClick: () => setShowEndSessionModal(false),
+                                    className: 'w-full bg-gray-400 text-white py-3 rounded-lg font-bold hover:bg-gray-500 transition flex items-center justify-center gap-2'
+                                }, 
+                                    h('span', null, '❌'),
+                                    h('span', null, 'Cancelar')
+                                )
+                            )
+                        )
+                    );
+                }
 
                 // ECRÃ: Respostas de Texto
                 if (showResponses) {
@@ -746,29 +1241,111 @@
                     );
                 }
 
-                // ECRÃ: Histórico - Lista
+                // ECRÃ: Histórico - Lista (Sessões Ativas + Arquivadas)
                 if (showHistory) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
-                        h('div', { className: 'max-w-4xl mx-auto pt-4' },
+                        h('div', { className: 'max-w-5xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
+                                // Cabeçalho
                                 h('div', { className: 'flex justify-between mb-4' },
-                                    h('h2', { className: 'text-xl font-bold' }, 'Histórico de Sessões'),
-                                    h('button', { onClick: () => setShowHistory(false), className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
+                                    h('h2', { className: 'text-xl font-bold' }, 'Gestão de Sessões'),
+                                    h('button', { 
+                                        onClick: () => setShowHistory(false), 
+                                        className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' 
+                                    }, 'Voltar')
                                 ),
-                                sessionHistory.length === 0
-                                    ? h('p', { className: 'text-gray-600 text-center py-8' }, 'Nenhuma sessão gravada')
-                                    : h('div', { className: 'space-y-2' },
-                                        sessionHistory.map(entry => h('div', { key: entry.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
-                                            h('button', { 
-                                                onClick: () => setSelectedHistoryEntry(entry),
-                                                className: 'flex-1 text-left hover:bg-gray-100 p-2 rounded transition'
-                                            }, h('span', { className: 'font-semibold' }, `${entry.sessionId} - ${formatDate(entry.timestamp)}`)),
-                                            h('button', { 
-                                                onClick: () => deleteHistoryEntry(entry.id),
-                                                className: 'px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 ml-2'
-                                            }, 'Apagar')
-                                        ))
-                                    )
+                                
+                                // SECÇÃO: Sessões Abertas (Ativas)
+                                h('div', { className: 'mb-6' },
+                                    h('h3', { className: 'text-lg font-bold text-green-700 mb-3 flex items-center gap-2' }, 
+                                        h('span', { className: 'inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse' }),
+                                        `Sessões Abertas (${activeSessions.length})`
+                                    ),
+                                    activeSessions.length === 0
+                                        ? h('p', { className: 'text-gray-500 text-sm italic pl-5' }, 'Nenhuma sessão aberta')
+                                        : h('div', { className: 'space-y-2' },
+                                            activeSessions.map(session => h('div', { 
+                                                key: session.sessionId, 
+                                                className: 'flex justify-between items-center bg-green-50 border-2 border-green-200 p-3 rounded-lg' 
+                                            },
+                                                // Informações da sessão
+                                                h('div', { className: 'flex-1' },
+                                                    h('div', { className: 'font-bold text-lg text-gray-800' }, 
+                                                        session.sessionId
+                                                    ),
+                                                    h('div', { className: 'text-sm text-gray-600' }, 
+                                                        `${session.tables?.length || 0} mesa(s) • Atualizada: ${formatDate(session.timestamp)}`
+                                                    )
+                                                ),
+                                                // Botões de ação
+                                                h('div', { className: 'flex gap-2' },
+                                                    h('button', { 
+                                                        onClick: () => {
+                                                            // Carregar esta sessão ativa
+                                                            loadSession({
+                                                                sessionId: session.sessionId,
+                                                                tables: session.tables || [],
+                                                                categories: session.categories || [],
+                                                                yellowCategory: session.yellowCategory,
+                                                                redCategory: session.redCategory,
+                                                                buzzerText: session.buzzerText || 'BUZZER',
+                                                                blockBuzzerAtZero: session.blockBuzzerAtZero || false,
+                                                                initialScore: session.initialScore || 0,
+                                                                enableBuzzer: session.enableBuzzer !== undefined ? session.enableBuzzer : true,
+                                                                enableTextInput: session.enableTextInput || false
+                                                            }, true);
+                                                        },
+                                                        className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 font-semibold'
+                                                    }, '🔄 Abrir'),
+                                                    h('button', { 
+                                                        onClick: () => closeActiveSession(session.sessionId),
+                                                        className: 'px-4 py-2 bg-orange-600 text-white text-sm rounded hover:bg-orange-700 font-semibold'
+                                                    }, '📦 Arquivar')
+                                                )
+                                            ))
+                                        )
+                                ),
+                                
+                                // Divisor
+                                h('div', { className: 'border-t-2 border-gray-200 my-6' }),
+                                
+                                // SECÇÃO: Sessões Arquivadas
+                                h('div', null,
+                                    h('h3', { className: 'text-lg font-bold text-gray-700 mb-3 flex items-center gap-2' }, 
+                                        h('span', { className: 'inline-block w-3 h-3 bg-gray-400 rounded-full' }),
+                                        `Sessões Arquivadas (${sessionHistory.length})`
+                                    ),
+                                    sessionHistory.length === 0
+                                        ? h('p', { className: 'text-gray-500 text-sm italic pl-5' }, 'Nenhuma sessão arquivada')
+                                        : h('div', { className: 'space-y-2' },
+                                            sessionHistory.map(entry => h('div', { 
+                                                key: entry.id, 
+                                                className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' 
+                                            },
+                                                // Botão para ver detalhes
+                                                h('button', { 
+                                                    onClick: () => setSelectedHistoryEntry(entry),
+                                                    className: 'flex-1 text-left hover:bg-gray-100 p-2 rounded transition'
+                                                }, 
+                                                    h('div', { className: 'font-semibold text-gray-800' }, entry.sessionId),
+                                                    h('div', { className: 'text-sm text-gray-600' }, 
+                                                        `${entry.tables?.length || 0} mesa(s) • ${formatDate(entry.timestamp)}`
+                                                    )
+                                                ),
+                                                // Botões de ação
+                                                h('div', { className: 'flex gap-2' },
+                                                    h('button', { 
+                                                        onClick: () => loadSession(entry),
+                                                        className: 'px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 font-semibold'
+                                                    }, 'Carregar'),
+                                                    h('button', { 
+                                                        onClick: () => deleteHistoryEntry(entry.id),
+                                                        className: 'px-3 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600'
+                                                    }, '✕')
+                                                )
+                                            ))
+                                        )
+                                )
                             )
                         )
                     );
@@ -781,7 +1358,7 @@
                             h('button', { 
                                 onClick: () => setShowHistory(true),
                                 className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4'
-                            }, 'Histórico de Sessões'),
+                            }, '📋 Gestão de Sessões (Abertas + Arquivadas)'),
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-4' },
                                 h('h1', { className: 'text-2xl font-bold text-gray-800 text-center mb-4' }, 'Configuração do Jogo'),
                                 h('div', { className: 'space-y-4' },
@@ -875,6 +1452,36 @@
                                                 tempCategories.length > 1 && h('button', { onClick: () => setTempCategories(tempCategories.filter((_, x) => x !== i)), className: 'px-2 bg-red-500 text-white text-sm rounded' }, '✕')
                                             ))
                                         )
+                                    ),
+                                    availableLogos.length > 0 && h('div', { className: 'bg-green-50 p-3 rounded-lg border-2 border-green-200' },
+                                        h('label', { className: 'block text-sm font-semibold mb-3 text-green-900' }, 'Logotipos a Exibir:'),
+                                        h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 gap-3' },
+                                            availableLogos.map(logo => h('div', { 
+                                                key: logo, 
+                                                className: 'flex items-center gap-2 bg-gray-800 p-2 rounded-lg border-2 hover:border-green-400 transition-colors cursor-pointer',
+                                                onClick: () => {
+                                                    setSelectedLogos(prev => 
+                                                        prev.includes(logo) 
+                                                            ? prev.filter(l => l !== logo)
+                                                            : [...prev, logo]
+                                                    );
+                                                }
+                                            },
+                                                h('input', { 
+                                                    type: 'checkbox',
+                                                    checked: selectedLogos.includes(logo),
+                                                    onChange: () => {},
+                                                    className: 'w-4 h-4 cursor-pointer'
+                                                }),
+                                                h('img', { 
+                                                    src: logo, 
+                                                    alt: logo, 
+                                                    className: 'h-8 object-contain flex-1',
+                                                    onError: (e) => e.target.style.display = 'none'
+                                                })
+                                            ))
+                                        ),
+                                        selectedLogos.length === 0 && h('p', { className: 'text-xs text-gray-500 mt-2' }, 'Nenhum logotipo selecionado. Selecione os que deseja exibir durante a sessão.')
                                     ),
                                     h('button', { onClick: initGame, className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700' }, 'Iniciar Jogo')
                                 )
@@ -1055,14 +1662,13 @@
                                 )
                             ),
                             h('div', { className: 'flex gap-2' },
-                                h('button', { onClick: saveSession, className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gravar Sessão'),
                                 h('button', { onClick: () => { const s = sorted(); setLeaderboardRevealPosition(s.length > 5 ? 6 : s.length); setShowLeaderboard(true); }, className: 'px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600' }, 'Rank'),
                                 h('button', { onClick: resetAllScores, className: 'px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, 'Reset Pontos'),
-                                h('button', { onClick: resetGame, className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, 'Nova Sessão')
+                                h('button', { onClick: () => setShowEndSessionModal(true), className: 'px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, '🏁 Terminar')
                             )
                         ),
-                        availableLogos.length > 0 && h('div', { className: 'flex justify-center items-center gap-4 mt-2 py-2 bg-white bg-opacity-10 rounded-lg' },
-                            availableLogos.map(logo => h('img', { 
+                        selectedLogos.length > 0 && h('div', { className: 'flex justify-center items-center gap-4 mt-2 py-2 bg-white bg-opacity-10 rounded-lg' },
+                            selectedLogos.map(logo => h('img', { 
                                 key: logo, 
                                 src: logo, 
                                 alt: 'Logo', 
