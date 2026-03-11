@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Cliente - Visualização de Mesa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
+            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
+            projectId: "contador-de-pontos-321ee",
+            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
+            messagingSenderId: "817191889469",
+            appId: "1:817191889469:web:cfb88023612f6b37491854",
+            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { ref, onValue, set, update };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <script>
+        const playBuzzer = () => {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.3);
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.6);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 0.9);
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 1.2);
+            oscillator.frequency.setValueAtTime(650, audioContext.currentTime + 1.5);
+            
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + 1.8);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 2);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 2);
+        };
+
+        window.addEventListener('firebaseReady', () => {
+            const { useState, useEffect, createElement: h } = React;
+            const { rtdb, fbModules } = window;
+            const { ref, onValue, set, update } = fbModules;
+
+            function App() {
+                const [registered, setRegistered] = useState(false);
+                const [sessionCode, setSessionCode] = useState('');
+                const [tableNumber, setTableNumber] = useState('');
+                const [teamName, setTeamName] = useState('');
+                const [emails, setEmails] = useState(['']);
+                const [error, setError] = useState('');
+                const [connecting, setConnecting] = useState(false);
+
+                const [gameData, setGameData] = useState(null);
+                const [myTable, setMyTable] = useState(null);
+                const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
+                
+                const [textInput, setTextInput] = useState('');
+                const [textJustSubmitted, setTextJustSubmitted] = useState(false);
+
+                useEffect(() => {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const session = urlParams.get('session');
+                    if (session) {
+                        setSessionCode(session.toUpperCase());
+                    }
+                }, []);
+
+                useEffect(() => {
+                    if (!registered || !sessionCode) return;
+
+                    const gameStateRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
+                    const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
+                    const clientRef = ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`);
+                    const textResponseRef = ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`);
+
+                    const unsubGame = onValue(gameStateRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            setGameData(data);
+                            const table = data.tables?.find(t => t.id === parseInt(tableNumber));
+                            if (table) {
+                                setMyTable(table);
+                            }
+                        }
+                    });
+
+                    const unsubBuzzer = onValue(buzzerRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            setBuzzerState(data);
+                        } else if (registered && gameData?.enableBuzzer) {
+                            set(buzzerRef, { pressed: false, enabled: true, timestamp: null });
+                        }
+                    });
+
+                    const unsubTextResponse = onValue(textResponseRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data) {
+                            setTextInput('');
+                            setTextJustSubmitted(false);
+                        }
+                    });
+
+                    const unsubClient = onValue(clientRef, (snapshot) => {
+                        if (!snapshot.exists() && registered) {
+                            setRegistered(false);
+                            setError('Foste desconectado pelo master. Por favor, conecta-te novamente.');
+                            setGameData(null);
+                            setMyTable(null);
+                            setBuzzerState({ pressed: false, enabled: true });
+                            setTextInput('');
+                            setTextSubmitted(false);
+                        }
+                    });
+
+                    return () => {
+                        unsubGame();
+                        unsubBuzzer();
+                        unsubClient();
+                        unsubTextResponse();
+                    };
+                }, [registered, sessionCode, tableNumber]);
+
+                const handleRegister = async () => {
+                    setError('');
+                    
+                    if (!sessionCode.trim()) {
+                        setError('Código da sessão é obrigatório');
+                        return;
+                    }
+                    
+                    if (!tableNumber || tableNumber < 1 || tableNumber > 20) {
+                        setError('Número da mesa inválido (1-20)');
+                        return;
+                    }
+
+                    setConnecting(true);
+
+                    const sessionRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/gameState`);
+                    onValue(sessionRef, async (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data || !data.active) {
+                            setError('Código de sessão inválido ou jogo não iniciado');
+                            setConnecting(false);
+                        } else {
+                            const clientCheckRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`);
+                            onValue(clientCheckRef, async (clientSnapshot) => {
+                                const isReconnection = clientSnapshot.exists();
+
+                                if (!isReconnection) {
+                                    const validEmails = emails.filter(e => e.trim());
+                                    if (validEmails.length === 0) {
+                                        setError('Pelo menos um e-mail tem que ser preenchido');
+                                        setConnecting(false);
+                                        return;
+                                    }
+                                }
+
+                                const existingClientData = clientSnapshot.val() || {};
+                                await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`), {
+                                    tableNumber: parseInt(tableNumber),
+                                    teamName: teamName || `Mesa ${tableNumber}`,
+                                    emails: isReconnection ? (existingClientData.emails || []) : emails.filter(e => e.trim()),
+                                    connectedAt: Date.now()
+                                });
+
+                                if (data.enableBuzzer) {
+                                    await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`), {
+                                        pressed: false,
+                                        enabled: true,
+                                        timestamp: null
+                                    });
+                                }
+
+                                setSessionCode(sessionCode.toUpperCase());
+                                setRegistered(true);
+                                setConnecting(false);
+                            }, (err) => {
+                                setError('Erro ao conectar. Tenta novamente.');
+                                setConnecting(false);
+                            }, { onlyOnce: true });
+                        }
+                    }, (err) => {
+                        setError('Erro ao conectar. Tenta novamente.');
+                        setConnecting(false);
+                    }, { onlyOnce: true });
+                };
+
+                const pressBuzzer = async () => {
+                    if (!buzzerState.enabled || buzzerState.pressed) return;
+                    
+                    if (gameData?.blockBuzzerAtZero && myTable?.score === 0) {
+                        return;
+                    }
+
+                    playBuzzer();
+
+                    try {
+                        await update(ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`), {
+                            pressed: true,
+                            timestamp: Date.now(),
+                            enabled: false
+                        });
+                    } catch (e) {
+                        console.error('Erro ao pressionar buzzer:', e);
+                    }
+                };
+
+                const submitTextResponse = async () => {
+                    if (!textInput.trim()) return;
+                    if (!isUnlimitedTime && textTimeRemaining === 0) return;
+
+                    try {
+                        await set(ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`), {
+                            text: textInput.trim(),
+                            submitted: true,
+                            timestamp: Date.now()
+                        });
+                        setTextJustSubmitted(true);
+                    } catch (e) {
+                        console.error('Erro ao enviar resposta:', e);
+                    }
+                };
+
+                const handleTextChange = (e) => {
+                    setTextInput(e.target.value);
+                    if (textJustSubmitted) {
+                        setTextJustSubmitted(false);
+                    }
+                };
+
+                const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
+
+                if (!registered) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
+                        h('div', { className: 'max-w-md w-full bg-white rounded-2xl shadow-2xl p-6' },
+                            h('div', { className: 'text-center mb-6' },
+                                h('h1', { className: 'text-3xl font-bold text-gray-800' }, 'Registo de Mesa')
+                            ),
+                            error && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4' }, error),
+                            h('div', { className: 'space-y-4' },
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Código da Sessão *'),
+                                    h('input', {
+                                        type: 'text',
+                                        value: sessionCode,
+                                        onChange: (e) => setSessionCode(e.target.value.toUpperCase()),
+                                        placeholder: 'Ex: ABC123',
+                                        maxLength: 10,
+                                        className: 'w-full px-4 py-3 text-lg font-mono border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 uppercase'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Número da Mesa *'),
+                                    h('input', {
+                                        type: 'number',
+                                        min: 1,
+                                        max: 20,
+                                        value: tableNumber,
+                                        onChange: (e) => setTableNumber(e.target.value),
+                                        placeholder: '1-20',
+                                        className: 'w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-2' }, 'Nome da Equipa'),
+                                    h('input', {
+                                        type: 'text',
+                                        value: teamName,
+                                        onChange: (e) => setTeamName(e.target.value),
+                                        placeholder: 'Nome da vossa equipa',
+                                        className: 'w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'flex items-center justify-between mb-2' },
+                                        h('label', { className: 'block text-sm font-semibold text-gray-700' }, 'E-mails'),
+                                        h('button', {
+                                            onClick: () => setEmails([...emails, '']),
+                                            className: 'text-sm text-purple-600 hover:text-purple-700 font-semibold'
+                                        }, '+ Adicionar')
+                                    ),
+                                    h('div', { className: 'space-y-2 max-h-48 overflow-y-auto' },
+                                        emails.map((email, index) =>
+                                            h('div', { key: index, className: 'flex gap-2' },
+                                                h('span', { className: 'text-gray-400 mt-3' }, '✉'),
+                                                h('input', {
+                                                    type: 'email',
+                                                    value: email,
+                                                    onChange: (e) => {
+                                                        const newEmails = [...emails];
+                                                        newEmails[index] = e.target.value;
+                                                        setEmails(newEmails);
+                                                    },
+                                                    placeholder: 'email@exemplo.com',
+                                                    className: 'flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500'
+                                                }),
+                                                emails.length > 1 && h('button', {
+                                                    onClick: () => setEmails(emails.filter((_, i) => i !== index)),
+                                                    className: 'px-3 py-2 bg-red-500 text-white text-sm rounded-lg hover:bg-red-600'
+                                                }, '✕')
+                                            )
+                                        )
+                                    )
+                                ),
+                                h('button', {
+                                    onClick: handleRegister,
+                                    disabled: connecting,
+                                    className: `w-full py-4 rounded-lg text-lg font-bold transition-colors shadow-lg ${
+                                        connecting ? 'bg-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'
+                                    }`
+                                }, connecting ? 'A Conectar...' : 'Conectar ao Jogo')
+                            )
+                        )
+                    );
+                }
+
+                const showBuzzer = gameData?.enableBuzzer;
+                const showTextInput = gameData?.enableTextInput && gameData?.textInputActive;
+                const textTimeRemaining = gameData?.textInputTimeRemaining || 0;
+                const isUnlimitedTime = showTextInput && textTimeRemaining === 0;
+
+                return h('div', { className: 'h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col overflow-hidden' },
+                    h('div', { className: 'max-w-4xl mx-auto w-full h-full flex flex-col' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-3 mb-3 flex-shrink-0' },
+                            h('div', { className: 'flex items-center justify-between' },
+                                h('div', null,
+                                    h('div', { className: 'text-xs text-gray-600' }, `Mesa ${tableNumber}`),
+                                    h('div', { className: 'text-lg font-bold text-gray-800' }, teamName || `Mesa ${tableNumber}`)
+                                ),
+                                h('div', { className: 'text-xs text-gray-500' }, `Sessão: ${sessionCode}`)
+                            )
+                        ),
+                        gameData?.categories && gameData.categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-2 mb-3 flex-shrink-0' },
+                            gameData.yellowCategory && h('div', { className: 'bg-yellow-400 text-gray-900 rounded-xl p-4 font-black shadow-xl flex items-center justify-center h-24' },
+                                h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.yellowCategory)
+                            ),
+                            gameData.redCategory && h('div', { className: 'bg-red-500 text-white rounded-xl p-4 font-black shadow-xl flex items-center justify-center h-24' },
+                                h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.redCategory)
+                            )
+                        ),
+                        h('div', { className: 'flex-1 flex flex-col items-center justify-center gap-4' },
+                            showBuzzer && h('button', {
+                                onClick: pressBuzzer,
+                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore,
+                                className: `${showTextInput ? 'w-44 h-44 sm:w-48 sm:h-48' : 'w-56 h-56 sm:w-64 sm:h-64'} rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
+                                    !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore
+                                        ? 'bg-gray-400 cursor-not-allowed opacity-50' 
+                                        : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
+                                }`
+                            }, h('div', { className: 'flex flex-col items-center gap-2' },
+                                h('div', { className: 'text-5xl' }, 
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔒' : '🔔'
+                                ),
+                                h('div', null, 
+                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
+                                )
+                            )),
+                            showTextInput && h('div', { className: 'w-full max-w-2xl' },
+                                h('div', { className: 'bg-indigo-50 rounded-2xl shadow-2xl p-4' },
+                                    !isUnlimitedTime && textTimeRemaining > 0 && h('div', { className: 'mb-2 text-center' },
+                                        h('span', { className: 'text-sm font-bold text-indigo-600' }, `⏱️ Tempo restante: ${textTimeRemaining}s`)
+                                    ),
+                                    isUnlimitedTime && h('div', { className: 'mb-2 text-center' },
+                                        h('span', { className: 'text-sm font-bold text-green-600' }, `✓ Tempo ilimitado`)
+                                    ),
+                                    h('textarea', {
+                                        value: textInput,
+                                        onChange: handleTextChange,
+                                        disabled: !isUnlimitedTime && textTimeRemaining === 0,
+                                        maxLength: 250,
+                                        placeholder: (!isUnlimitedTime && textTimeRemaining === 0) ? 'Tempo esgotado!' : 'Escreve a tua resposta...',
+                                        className: `w-full h-32 px-4 py-3 text-lg border-2 rounded-lg resize-none focus:outline-none ${
+                                            !isUnlimitedTime && textTimeRemaining === 0
+                                                ? 'border-gray-300 bg-gray-100 cursor-not-allowed' 
+                                                : 'border-purple-500 focus:border-purple-600'
+                                        }`
+                                    }),
+                                    h('div', { className: 'flex justify-between items-center mt-2' },
+                                        h('span', { className: 'text-xs text-gray-500' }, `${textInput.length}/250`),
+                                        h('button', {
+                                            onClick: submitTextResponse,
+                                            disabled: !textInput.trim() || (!isUnlimitedTime && textTimeRemaining === 0) || textJustSubmitted,
+                                            className: `px-6 py-2 rounded-lg font-bold transition-colors ${
+                                                !textInput.trim() || (!isUnlimitedTime && textTimeRemaining === 0) || textJustSubmitted
+                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                    : 'bg-green-600 text-white hover:bg-green-700'
+                                            }`
+                                        }, textJustSubmitted ? 'Enviado' : 'Enviar')
+                                    )
+                                )
+                            )
+                        ),
+                        h('div', { className: 'flex-shrink-0 mb-3 mt-4' },
+                            h('div', { className: 'bg-gray-50 rounded-2xl shadow-2xl p-6 text-center' },
+                                h('div', { className: 'text-5xl sm:text-6xl font-black text-purple-600 mb-2' }, myTable?.score ?? '---'),
+                                h('div', { className: 'text-lg text-gray-600 font-semibold' }, 'pontos')
+                            )
+                        ),
+                        !gameData && h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'animate-pulse' }, 'A aguardar início do jogo...')
+                        )
+                    )
+                );
+            }
+
+            ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+        });
+    </script>
+</body>
+</html>
