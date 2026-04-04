@@ -2,85 +2,96 @@
 
 Todas as alterações notáveis deste projeto serão documentadas neste ficheiro.
 
-O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
-e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+---
+
+## [3.0.0] - 2026-04-04
+
+### 🏗️ Arquitetura Modular
+
+Esta versão introduz uma **arquitetura modular** que permite criar diferentes modos de jogo.
+
+### Adicionado
+- **Sistema de Módulos de Jogos**
+  - `games/game-interface.js` - Interface base para todos os jogos
+  - `games/game-system.js` - Sistema de gestão e registo de módulos
+  - `games/generic.js` - Módulo do jogo genérico (funcionalidade atual)
+  - `shared/firebase-config.js` - Configuração Firebase partilhada
+
+- **Suporte a gameType**
+  - Campo `gameType` em todos os estados Firebase
+  - Preparado para múltiplos modos de jogo
+  - Cliente adapta-se automaticamente ao tipo de jogo
+
+- **Documentação**
+  - README.md com guia completo de criação de módulos
+  - Exemplo de implementação do Diamant
+
+### Alterado
+- Estrutura de pastas reorganizada
+- Scripts de módulos carregados no `<head>`
+
+### Notas de Migração
+- O sistema é retrocompatível
+- Sessões antigas sem `gameType` assumem `'generic'`
+- Nenhuma alteração necessária em sessões existentes
+
+---
+
+## [2.2.0] - 2026-02-12
+
+### Adicionado
+- **Persistência de sessão no cliente**: Refresh reconecta automaticamente
+- **Botão X para desconectar**: Canto superior direito
+- **Logotipos no cliente**: Logo principal centrado, patrocinadores em background
+- **Bloqueio/Desbloqueio de Buzzers**: Checkbox + botão na barra inferior
+- **Animações intensas**: Botões pulsantes para não passarem despercebidos
+- **Pontos visíveis por defeito**: Ao criar sessão
+
+### Corrigido
+- Bug `setTextSubmitted` → `setTextJustSubmitted`
+- Robustez do envio de texto com retry automático
 
 ---
 
 ## [2.1.0] - 2026-02-09
 
 ### Adicionado
-- **Modal "Terminar Sessão"**: Interface elegante com 3 opções claras
-  - 📦 Arquivar e Fechar (guarda no histórico e termina)
-  - ⏸️ Pausar (mantém aberta para retomar)
-  - ❌ Cancelar (volta ao jogo)
-- **Gestão de Sessões melhorada**: Distinção visual entre sessões abertas e arquivadas
-- **Monitorização em tempo real**: Sessões abertas atualizam automaticamente na lista
-- **Logs de debug**: Mensagens na consola para rastrear operações de sessão
-
-### Alterado
-- **Substituídos 2 botões por 1**: "Gravar Sessão" + "Nova Sessão" → "🏁 Terminar"
-- **Filtro de sessões**: Agora detecta sessões sem campo `active` definido (retrocompatibilidade)
-- **Fecho de sessões**: Processo mais robusto com verificação dupla
+- **Modal "Terminar Sessão"**: 3 opções (Arquivar/Pausar/Cancelar)
+- **Gestão de Sessões**: Distinção entre abertas e arquivadas
+- **Monitorização em tempo real**
 
 ### Corrigido
-- **Sessões fantasma**: Sessões que ficavam "perdidas" no Firebase são agora corretamente geridas
-- **Listagem de sessões**: Corrigido erro "Permission denied" com novas regras Firebase
-- **Arquivamento**: Sessões são marcadas como `active: false` antes de serem removidas
-
-### Documentação
-- **Regras Firebase atualizadas**: Documentação clara sobre configuração necessária
-- **FAQ expandido**: Novas perguntas sobre gestão de sessões
-- **Troubleshooting**: Secção sobre sessões não aparecerem na lista
+- Sessões fantasma no Firebase
+- Listagem de sessões com novas regras Firebase
 
 ---
 
 ## [2.0.0] - 2026-01-10
 
 ### Adicionado
-- **Sistema de respostas de texto**: Campo para escrever respostas além do buzzer
-- **Temporizador configurável**: Define tempo para respostas (0 = ilimitado)
-- **Edição de respostas**: Possível alterar enquanto o tempo não acabar
-- **Visualização de respostas**: Ecrã dedicado no master para ver e pontuar respostas
-- **Opção de funcionalidades**: Ativar/desativar buzzer e texto independentemente
-
-### Alterado
-- **Layout de respostas**: Disposição horizontal para melhor visualização
-- **Buzzer responsivo**: Melhor experiência em dispositivos móveis
-- **Cores no cliente**: Áreas visuais distintas para buzzer, texto e informação
-
-### Corrigido
-- Diversos bugs de sincronização
-- Problemas de UI em ecrãs pequenos
+- Sistema de respostas de texto
+- Temporizador configurável
+- Visualização de respostas no master
 
 ---
 
 ## [1.0.0] - 2025-12-15
 
-### Adicionado
-- **Sistema de buzzers**: Botão com som e ordem de resposta
-- **Gestão de pontuação**: Botões +1, -1, +5 por mesa
-- **Categorias sorteaveis**: Duas categorias (amarela e vermelha) com rotação aleatória
-- **QR Code**: Geração automática para conexão rápida dos clientes
-- **Histórico**: Guardar e carregar sessões
-- **Classificação**: Revelação progressiva do ranking
-- **Logotipos**: Suporte para até 5 logos personalizados
-- **Design responsivo**: Funciona em desktop, tablet e telemóvel
-
-### Características Iniciais
-- Aplicação master para organizador
-- Aplicação cliente para participantes
-- Sincronização em tempo real via Firebase
-- Suporte para 0-20 mesas (fixas ou dinâmicas)
-- Código da sessão personalizável ou automático
+### Versão Inicial
+- Sistema de buzzers
+- Gestão de pontuação
+- Categorias sorteaveis
+- QR Code para conexão
+- Histórico de sessões
+- Classificação com revelação progressiva
 
 ---
 
 ## Tipos de Alterações
 
-- `Adicionado` para novas funcionalidades
-- `Alterado` para alterações em funcionalidades existentes
-- `Obsoleto` para funcionalidades que serão removidas em breve
-- `Removido` para funcionalidades removidas
-- `Corrigido` para correção de bugs
-- `Segurança` para vulnerabilidades corrigidas
+- `Adicionado` - Novas funcionalidades
+- `Alterado` - Alterações em funcionalidades existentes
+- `Obsoleto` - Funcionalidades que serão removidas
+- `Removido` - Funcionalidades removidas
+- `Corrigido` - Correção de bugs
+- `Segurança` - Vulnerabilidades corrigidas

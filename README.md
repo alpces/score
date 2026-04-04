@@ -1,497 +1,395 @@
-# 🎮 Sistema de Pontuação para Jogos/Quizzes
+# 🎮 Sistema de Pontuação Modular para Jogos
 
-Sistema completo de gestão de pontuação em tempo real para eventos, jogos de tabuleiro, quizzes e competições. Com buzzers sonoros, respostas de texto e sincronização automática via Firebase.
+Sistema completo de gestão de pontuação em tempo real para eventos, jogos de tabuleiro, quizzes e competições. Arquitetura modular que permite criar diferentes modos de jogo.
 
 [![Live Demo](https://img.shields.io/badge/demo-live-success)](https://alpces.github.io/score/master.html)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
-## 📸 Capturas de Ecrã
+## 📁 Estrutura do Projeto
 
-### Master - Controlo do Jogo
-![Master Interface](https://via.placeholder.com/800x450/4F46E5/FFFFFF?text=Master+Interface)
-
-### Cliente - Vista da Mesa
-![Client Interface](https://via.placeholder.com/400x800/7C3AED/FFFFFF?text=Client+View)
+```
+score/
+├── master.html              # App do organizador
+├── client.html              # App dos participantes
+├── games/
+│   ├── game-interface.js    # Interface base para módulos
+│   ├── game-system.js       # Sistema de gestão de módulos
+│   └── generic.js           # Módulo: Contador Genérico
+├── shared/
+│   └── firebase-config.js   # Configuração Firebase
+├── logo1.png ... logo5.png  # Logotipos (opcional)
+├── README.md
+├── CHANGELOG.md
+└── LICENSE
+```
 
 ---
 
-## ✨ Funcionalidades
+## ✨ Jogos Disponíveis
 
-### 🎯 Sistema Master (Organizador)
-- ✅ **Configuração flexível**: Mesas fixas ou dinâmicas (0-20 mesas)
-- ✅ **Buzzers em tempo real**: Som + ordem de resposta
-- ✅ **Respostas de texto**: Com temporizador configurável ou ilimitado
-- ✅ **Categorias sorteaveis**: Amarela e vermelha com rotação aleatória
-- ✅ **Gestão de pontuação**: +1, -1, +5 ou manual
-- ✅ **QR Code**: Para conexão rápida dos clientes
-- ✅ **Gestão de Sessões**: Sessões abertas vs arquivadas com interface dedicada
-- ✅ **Classificação**: Revelação progressiva do ranking
-- ✅ **Logotipos**: Suporte para logo1.png até logo5.png
+### 🎯 Contador Genérico (`generic`)
+Sistema de pontuação manual com:
+- ✅ Pontuação manual (+1, -1, +5)
+- ✅ Buzzers com bloqueio
+- ✅ Respostas de texto com temporizador
+- ✅ Categorias sorteaveis
+- ✅ Leaderboard com revelação progressiva
+- ✅ Até 5 logotipos personalizados
 
-### 📱 Sistema Cliente (Participantes)
-- ✅ **Registo simples**: Código da sessão + número da mesa
-- ✅ **Buzzer interativo**: Botão grande com feedback sonoro
-- ✅ **Respostas de texto**: Campo de 250 caracteres com contador
-- ✅ **Visualização em tempo real**: Pontuação e categorias ativas
-- ✅ **Design responsivo**: Funciona em telemóvel, tablet e desktop
-- ✅ **Edição de respostas**: Possível alterar antes do tempo acabar
+### 💎 Diamant / Incan Gold (`diamant`) - *Em desenvolvimento*
+Adaptação do jogo de tabuleiro com:
+- Distribuição automática de rubis
+- Votação "Ficar/Sair" via telemóvel
+- Gestão de sobras e expedições
+- Cartas de perigo
 
 ---
 
-## 🚀 Começar a Usar
+## 🚀 Como Usar
 
-### Acesso Direto (GitHub Pages)
-
-**Master (Organizador):**
-```
-https://alpces.github.io/score/master.html
-```
-
-**Cliente (Participantes):**
-```
-https://alpces.github.io/score/client.html
-```
+### Acesso Rápido
+- **Master:** https://alpces.github.io/score/master.html
+- **Cliente:** https://alpces.github.io/score/client.html
 
 ### Instalação Local
-
-1. **Clone o repositório:**
 ```bash
 git clone https://github.com/alpces/score.git
 cd score
-```
-
-2. **Abra os ficheiros:**
-   - `master.html` - Para o organizador
-   - `client.html` - Para os participantes
-
-3. **Opcional - Adicione logotipos:**
-   - Coloque ficheiros `logo1.png`, `logo2.png`, etc. na pasta raiz
-   - Serão exibidos automaticamente no rodapé
-
----
-
-## 📖 Como Utilizar
-
-### 1️⃣ Configurar Sessão (Master)
-
-1. Abra `master.html`
-2. Configure:
-   - **Código da sessão** (opcional, será gerado automaticamente)
-   - **Funcionalidades**: Ativar Buzzer ☑️ / Ativar Texto ☑️
-   - **Número de mesas**: `0` para dinâmico, `1-20` para fixo
-   - **Pontuação inicial**: Pontos que cada mesa começa
-   - **Texto do buzzer**: Personalizar botão (ex: "RESPONDER")
-   - **Categorias**: Lista de temas para sorteio
-3. Clique **"Iniciar Jogo"**
-4. Partilhe o **código** ou **QR code** com os participantes
-
-### 2️⃣ Conectar Mesas (Cliente)
-
-1. Abra `client.html` (ou escaneie QR code)
-2. Insira:
-   - Código da sessão (ex: `ABC123`)
-   - Número da mesa (`1-20`)
-   - Nome da equipa (opcional)
-   - E-mails (opcional)
-3. Clique **"Conectar ao Jogo"**
-4. Aguarde que o jogo comece!
-
-### 3️⃣ Durante o Jogo
-
-#### Master:
-- **Mostrar/Ocultar**: Toggle da visibilidade das pontuações
-- **Buzzer**: Veja ordem de quem tocou, reset individual ou geral
-- **Ativar Texto**: Define tempo (0 = ilimitado) e ativa
-- **Ver Respostas**: Visualiza todas as respostas, ajusta pontos
-- **Categorias**: Duplo clique para sortear nova categoria
-- **+1 / -1 / +5**: Botões rápidos de pontuação nas mesas
-- **Código/QR**: Mostra ecrã fullscreen para projetar
-
-#### Cliente:
-- **Buzzer** 🔔: Pressionar quando ativo (som + ordem)
-- **Texto** 📝: Escrever resposta quando ativado
-- **Editar**: Pode alterar e reenviar enquanto houver tempo
-- **Pontuação**: Visível em tempo real
-
-### 4️⃣ Terminar Sessão
-
-Clique no botão **🏁 Terminar** para abrir o menu de fim de sessão:
-
-| Opção | Descrição |
-|-------|-----------|
-| 📦 **Arquivar e Fechar** | Guarda no histórico e termina definitivamente |
-| ⏸️ **Pausar** | Mantém aberta para retomar mais tarde |
-| ❌ **Cancelar** | Volta ao jogo |
-
----
-
-## 🗂️ Gestão de Sessões
-
-O sistema inclui uma interface dedicada para gerir sessões:
-
-### Aceder à Gestão
-- No ecrã inicial, clique em **"📋 Gestão de Sessões"**
-
-### Sessões Abertas (🟢)
-- Sessões que estão em curso ou pausadas
-- Podem ser **retomadas** a qualquer momento
-- Podem ser **arquivadas** quando já não são necessárias
-
-### Sessões Arquivadas (⚫)
-- Sessões terminadas e guardadas no histórico
-- Podem ser **carregadas** para visualizar ou continuar
-- Podem ser **eliminadas** permanentemente
-
-### Fluxo Recomendado
-```
-Criar Sessão → Jogar → 🏁 Terminar
-                           │
-                           ├── 📦 Arquivar (fim definitivo)
-                           │
-                           └── ⏸️ Pausar (retomar depois)
+# Abrir master.html num browser
 ```
 
 ---
 
-## ⚙️ Configuração Avançada
+## 🔧 Arquitetura Modular
 
-### Firebase (Obrigatório)
+### Como Funciona
 
-O sistema usa Firebase para sincronização. **Já vem configurado**, mas podes usar o teu próprio:
+1. **GameSystem** (`game-system.js`) - Regista e gere módulos de jogos
+2. **GameInterface** (`game-interface.js`) - Define a interface que cada jogo deve implementar
+3. **Módulos** (`games/*.js`) - Implementações específicas de cada jogo
 
-1. Cria projeto em [Firebase Console](https://console.firebase.google.com)
-2. Ativa **Realtime Database** e **Firestore**
-3. Substitui credenciais em `master.html` e `client.html`:
+### Fluxo de Dados
+
+```
+┌─────────────┐     Firebase      ┌─────────────┐
+│   MASTER    │ ←───────────────→ │   CLIENT    │
+│  master.html│   gameType: X     │ client.html │
+└──────┬──────┘                   └──────┬──────┘
+       │                                 │
+       ▼                                 ▼
+┌─────────────┐                   ┌─────────────┐
+│ GameSystem  │                   │ GameSystem  │
+│  .get('X')  │                   │  .get('X')  │
+└──────┬──────┘                   └──────┬──────┘
+       │                                 │
+       ▼                                 ▼
+┌─────────────┐                   ┌─────────────┐
+│  Módulo X   │                   │  Módulo X   │
+│ (generic.js)│                   │ (generic.js)│
+└─────────────┘                   └─────────────┘
+```
+
+---
+
+## 📝 Como Criar um Novo Módulo de Jogo
+
+### 1. Criar o Ficheiro
+
+Criar `games/meujogo.js`:
 
 ```javascript
-const firebaseConfig = {
-    apiKey: "TUA_API_KEY",
-    authDomain: "TEU_PROJETO.firebaseapp.com",
-    projectId: "TEU_PROJETO",
-    databaseURL: "https://TEU_PROJETO.firebasedatabase.app"
-    // ...
+const MeuJogo = {
+    // METADADOS
+    id: 'meujogo',
+    name: 'Meu Jogo Fantástico',
+    description: 'Descrição do jogo',
+    icon: '🎲',
+    
+    // CONFIGURAÇÃO PADRÃO
+    getDefaultConfig: () => ({
+        minhaOpcao: true,
+        outraOpcao: 10
+    }),
+    
+    // UI DE CONFIGURAÇÃO (setup)
+    getConfigUI: (config, setConfig, h) => {
+        return h('div', { className: 'space-y-4' },
+            h('label', null, 'Minha Opção'),
+            h('input', {
+                type: 'checkbox',
+                checked: config.minhaOpcao,
+                onChange: e => setConfig({...config, minhaOpcao: e.target.checked})
+            })
+        );
+    },
+    
+    // ESTADO INICIAL
+    onSessionStart: (config) => ({
+        fase: 'inicio',
+        pontos: {}
+    }),
+    
+    // PROCESSAR AÇÕES
+    processAction: (action, gameState, tables) => {
+        switch (action.type) {
+            case 'MINHA_ACAO':
+                return {
+                    gameState: { ...gameState, fase: 'proxima' },
+                    tables
+                };
+            default:
+                return { gameState, tables };
+        }
+    },
+    
+    // DADOS PARA FIREBASE
+    getFirebaseState: (gameState, config, tables, extra) => ({
+        gameType: 'meujogo',
+        tables: tables,
+        fase: gameState.fase,
+        active: true,
+        timestamp: Date.now()
+    }),
+    
+    // UI DOS CONTROLOS (barra inferior master)
+    getGameControlsUI: ({ gameState, config, tables, actions, h }) => {
+        return h('button', {
+            onClick: () => actions.dispatch({ type: 'MINHA_ACAO' }),
+            className: 'px-4 py-2 bg-blue-500 text-white rounded'
+        }, 'Minha Ação');
+    },
+    
+    // UI DO CLIENTE
+    getClientUI: ({ gameData, myTable, actions, h }) => {
+        return h('div', { className: 'text-center' },
+            h('h2', null, `Fase: ${gameData.fase}`),
+            h('button', {
+                onClick: actions.minhaAcaoCliente,
+                className: 'px-6 py-3 bg-green-500 text-white rounded-lg'
+            }, 'Ação do Cliente')
+        );
+    },
+    
+    // DADOS PARA HISTÓRICO
+    onSessionEnd: (gameState, tables, config) => ({
+        gameType: 'meujogo',
+        tables: tables,
+        fasesFinal: gameState.fase
+    })
 };
+
+// REGISTAR O MÓDULO
+window.GameModules = window.GameModules || {};
+window.GameModules.meujogo = MeuJogo;
 ```
 
-### Regras de Segurança Firebase
+### 2. Incluir no HTML
 
-**⚠️ IMPORTANTE:** Para que a listagem de sessões funcione, as regras devem permitir leitura ao nível de `sessions/`:
+Em `master.html` e `client.html`, adicionar:
 
-```json
-{
-  "rules": {
-    "sessions": {
-      ".read": true,
-      ".write": true
-    },
-    "sessionHistory": {
-      ".read": true,
-      ".write": true
-    },
-    "categories": {
-      ".read": true,
-      ".write": true
-    }
-  }
-}
+```html
+<script src="games/meujogo.js"></script>
 ```
 
-> **Nota:** Regras com `"$sessionId": { ".read": true }` não permitem listar todas as sessões, apenas ler sessões específicas.
+### 3. Ativar o Módulo
 
-### Personalização
+Mudar `GAME_TYPE` em `master.html`:
 
-#### Alterar URL do Cliente
-Em `master.html`, linha ~38:
 ```javascript
-const CLIENT_URL = 'https://SEU-DOMINIO.com/client.html';
+const GAME_TYPE = 'meujogo';
 ```
 
-#### Adicionar Logotipos
-Coloca ficheiros na pasta raiz:
-- `logo1.png`
-- `logo2.png`
-- `logo3.png`
-- `logo4.png`
-- `logo5.png`
-
-Dimensões recomendadas: 200x80px (PNG transparente)
-
 ---
 
-## 🎨 Características Técnicas
+## 🎲 Exemplo: Módulo Diamant
 
-### Stack Tecnológico
-- **Frontend**: React 18 (via CDN)
-- **Styling**: Tailwind CSS
-- **Backend**: Firebase Realtime Database + Firestore
-- **Audio**: Web Audio API
-- **QR Codes**: API externa (qrserver.com)
+```javascript
+const DiamantGame = {
+    id: 'diamant',
+    name: 'Diamant / Incan Gold',
+    icon: '💎',
+    
+    getDefaultConfig: () => ({
+        totalExpeditions: 5,
+        maxPlayers: 8
+    }),
+    
+    onSessionStart: (config) => ({
+        expedition: 1,
+        phase: 'waiting',      // waiting, exploring, voting, results
+        rubiesOnTable: 0,      // Sobras acumuladas
+        currentCard: null,     // Carta atual
+        dangers: [],           // Perigos saídos
+        teamsIn: [],           // Equipas na expedição
+        votes: {}              // { tableId: 'stay' | 'leave' }
+    }),
+    
+    processAction: (action, state, tables) => {
+        switch (action.type) {
+            case 'DRAW_RUBY_CARD': {
+                const rubies = action.payload.value;
+                const teamsCount = state.teamsIn.length;
+                const perTeam = Math.floor(rubies / teamsCount);
+                const leftover = rubies % teamsCount;
+                
+                // Distribuir rubis
+                const newTables = tables.map(t => {
+                    if (state.teamsIn.includes(t.id)) {
+                        return { ...t, score: t.score + perTeam };
+                    }
+                    return t;
+                });
+                
+                return {
+                    gameState: {
+                        ...state,
+                        rubiesOnTable: state.rubiesOnTable + leftover,
+                        currentCard: { type: 'ruby', value: rubies },
+                        phase: 'voting'
+                    },
+                    tables: newTables
+                };
+            }
+            
+            case 'TEAM_VOTE': {
+                const { tableId, vote } = action.payload;
+                return {
+                    gameState: {
+                        ...state,
+                        votes: { ...state.votes, [tableId]: vote }
+                    },
+                    tables
+                };
+            }
+            
+            case 'REVEAL_VOTES': {
+                const leaving = Object.entries(state.votes)
+                    .filter(([_, vote]) => vote === 'leave')
+                    .map(([id, _]) => parseInt(id));
+                
+                // Distribuir sobras entre quem sai
+                const rubiesPerLeaver = leaving.length > 0 
+                    ? Math.floor(state.rubiesOnTable / leaving.length)
+                    : 0;
+                
+                const newTables = tables.map(t => {
+                    if (leaving.includes(t.id)) {
+                        return { ...t, score: t.score + rubiesPerLeaver };
+                    }
+                    return t;
+                });
+                
+                return {
+                    gameState: {
+                        ...state,
+                        teamsIn: state.teamsIn.filter(id => !leaving.includes(id)),
+                        rubiesOnTable: leaving.length > 0 ? state.rubiesOnTable % leaving.length : state.rubiesOnTable,
+                        votes: {},
+                        phase: 'exploring'
+                    },
+                    tables: newTables
+                };
+            }
+            
+            default:
+                return { gameState: state, tables };
+        }
+    },
+    
+    getClientUI: ({ gameData, myTable, actions, h }) => {
+        const inExpedition = gameData.teamsIn?.includes(myTable?.id);
+        const hasVoted = gameData.votes?.[myTable?.id];
+        
+        if (gameData.phase === 'voting' && inExpedition && !hasVoted) {
+            return h('div', { className: 'flex gap-4' },
+                h('button', {
+                    onClick: () => actions.vote('stay'),
+                    className: 'px-8 py-4 bg-green-500 text-white text-xl rounded-lg'
+                }, '💎 Ficar'),
+                h('button', {
+                    onClick: () => actions.vote('leave'),
+                    className: 'px-8 py-4 bg-red-500 text-white text-xl rounded-lg'
+                }, '🏃 Sair')
+            );
+        }
+        
+        return h('div', { className: 'text-center text-white' },
+            h('div', { className: 'text-4xl mb-2' }, '💎'),
+            h('div', null, inExpedition ? 'Na expedição' : 'Fora da expedição'),
+            h('div', { className: 'text-2xl mt-4' }, `${myTable?.score || 0} rubis`)
+        );
+    }
+};
 
-### Estrutura de Dados
-
+window.GameModules.diamant = DiamantGame;
 ```
-Firebase Realtime Database:
-├── sessions/{sessionId}/
-│   ├── gameState/          # Estado geral (active, tables, categories, etc.)
-│   ├── clients/            # Mesas conectadas
-│   ├── buzzers/            # Estado dos buzzers
-│   └── textResponses/      # Respostas de texto
-└── sessionHistory/         # Sessões arquivadas
 
-Firestore:
-└── categories/             # Categorias pré-definidas
+---
+
+## 📋 API do GameSystem
+
+```javascript
+// Registar módulo
+GameSystem.register(MeuModulo);
+
+// Obter módulo
+const modulo = GameSystem.get('meujogo');
+
+// Listar módulos
+const lista = GameSystem.list();
+// [{ id, name, description, icon }, ...]
+
+// Definir módulo atual
+GameSystem.setCurrent('meujogo');
+
+// Obter módulo atual
+const atual = GameSystem.getCurrent();
+
+// Processar ação
+const resultado = GameSystem.processAction('meujogo', action, state, tables);
+
+// Iniciar sessão
+const estadoInicial = GameSystem.startSession('meujogo', config);
+
+// Obter estado para Firebase
+const firebaseState = GameSystem.getFirebaseState('meujogo', state, config, tables, extra);
 ```
 
-### Estados de uma Sessão
-
-| Estado | Localização | Campo `active` |
-|--------|-------------|----------------|
-| **Aberta** | `sessions/` | `true` ou `undefined` |
-| **Arquivada** | `sessionHistory/` | N/A (`archived: true`) |
-
-### Compatibilidade
-- ✅ Chrome 90+
-- ✅ Firefox 88+
-- ✅ Safari 14+
-- ✅ Edge 90+
-- ✅ Mobile browsers (iOS Safari, Chrome Android)
-
 ---
 
-## 📊 Casos de Uso
+## 🔍 Dicas para Desenvolvimento
 
-### 🎲 Jogos de Tabuleiro
-- Sessões longas com pausas
-- Guardar progresso
-- Múltiplas equipas
+### Trabalhar com o Claude
 
-### 🧠 Quizzes e Trivia
-- Buzzers para respostas rápidas
-- Categorias temáticas
-- Classificação final
+1. **Um ficheiro por sessão** - Focar num módulo de cada vez
+2. **Mostrar interface** - Começar com `game-interface.js`
+3. **Testar incrementalmente** - Implementar uma função de cada vez
 
-### 🏫 Educação
-- Gamificação de aulas
-- Competições entre turmas
-- Perguntas escritas
+### Boas Práticas
 
-### 🎪 Eventos
-- Jogos de grupo
-- Dinâmicas de team building
-- Competições corporativas
-
----
-
-## 🛠️ Desenvolvimento
-
-### Estrutura de Ficheiros
-```
-score/
-├── master.html          # Aplicação master (~1700 linhas)
-├── client.html          # Aplicação cliente (~500 linhas)
-├── README.md            # Esta documentação
-├── CHANGELOG.md         # Histórico de alterações
-├── LICENSE              # Licença MIT
-├── logo1.png            # Logotipo 1 (opcional)
-├── logo2.png            # Logotipo 2 (opcional)
-└── ...
-```
-
-### Arquitetura do Código
-
-Ambos os ficheiros são **standalone** (HTML + JavaScript inline):
-
-**Master:**
-- Linhas 1-35: Configuração Firebase e imports
-- Linhas 35-65: Utilitários (playBuzzer)
-- Linhas 65-120: Estados React
-- Linhas 120-750: Funções de lógica
-- Linhas 750-1700: Componentes de UI
-
-**Cliente:**
-- Estrutura similar mas mais simples
-- Foco em UI responsiva e interação com buzzer
-
-### Princípios do Código
-- ✅ **Alterações cirúrgicas**: Modificar apenas o necessário
-- ✅ **Comentários em português**: Código bem documentado
-- ✅ **Estados consolidados**: Organização clara por categoria
-- ✅ **Sincronização automática**: Via useEffect
-- ✅ **Tratamento de erros**: Try-catch em operações críticas
-
----
-
-## 🐛 Resolução de Problemas
-
-### Cliente não conecta
-- ✅ Verifica código da sessão (case-sensitive)
-- ✅ Confirma que master iniciou o jogo
-- ✅ Verifica consola do browser (F12)
-
-### Buzzers sem som
-- ✅ Clica na página antes (browsers bloqueiam áudio)
-- ✅ Verifica volume do sistema
-- ✅ Testa noutro browser
-
-### Sessões não aparecem em "Sessões Abertas"
-- ✅ Verifica regras do Firebase (ver secção Configuração)
-- ✅ Desativa adblocker temporariamente
-- ✅ Verifica consola para erros "Permission denied"
-
-### Sincronização falha
-- ✅ Verifica conexão internet
-- ✅ Confirma credenciais Firebase
-- ✅ Verifica regras de segurança Firebase
-
-### Ecrã branco
-- ✅ Abre consola (F12) e verifica erros
-- ✅ Limpa cache do browser
-- ✅ Testa em modo incógnito
-
----
-
-## 🤝 Contribuir
-
-Contribuições são bem-vindas! 
-
-### Como contribuir:
-1. Fork o projeto
-2. Cria branch (`git checkout -b feature/NovaFuncionalidade`)
-3. Commit alterações (`git commit -m 'Adiciona nova funcionalidade'`)
-4. Push para branch (`git push origin feature/NovaFuncionalidade`)
-5. Abre Pull Request
-
-### Guidelines:
-- Mantém código em português
-- Adiciona comentários explicativos
-- Testa em múltiplos browsers
-- Documenta novas funcionalidades
-
----
-
-## 📝 Changelog
-
-### v2.1.0 (2026-02-09)
-- ✨ **Nova gestão de sessões**: Interface dedicada para sessões abertas vs arquivadas
-- ✨ **Botão "Terminar"**: Substitui "Gravar Sessão" e "Nova Sessão" por um único botão com modal
-- 🔧 **Correção de sessões fantasma**: Sessões são corretamente arquivadas/removidas
-- 🔧 **Filtro de sessões melhorado**: Detecta sessões sem campo `active` definido
-- 🔧 **Fecho robusto**: Verificação dupla de remoção do Firebase
-- 📝 **Documentação atualizada**: Regras Firebase corrigidas
-
-### v2.0.0 (2026-01-10)
-- ✨ Adicionado sistema de respostas de texto
-- ✨ Temporizador configurável (0 = ilimitado)
-- ✨ Edição de respostas antes do tempo acabar
-- 🎨 Layout horizontal das respostas no master
-- 🎨 Buzzer responsivo em telemóveis
-- 🎨 Cores distintas para áreas no cliente
-- 🐛 Correções de bugs diversos
-
-### v1.0.0 (2025-12-15)
-- 🎉 Lançamento inicial
-- ✨ Sistema de buzzers
-- ✨ Gestão de pontuação
-- ✨ Categorias sorteaveis
-- ✨ QR Code para conexão
+1. **Ações imutáveis** - Nunca modificar `gameState` diretamente
+2. **Validar inputs** - Verificar `action.payload` antes de usar
+3. **Estados claros** - Usar enums/strings para fases (`'waiting'`, `'playing'`, etc.)
+4. **Fallbacks** - Sempre ter valores por defeito (`|| []`, `|| 0`)
 
 ---
 
 ## 📄 Licença
 
-Este projeto está sob a licença MIT. Vê o ficheiro [LICENSE](LICENSE) para detalhes.
-
-```
-MIT License
-
-Copyright (c) 2026 ALPCeS - Ludonautas
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-```
+MIT License - Ver [LICENSE](LICENSE)
 
 ---
 
 ## 👥 Créditos
 
-**Desenvolvido por:** [ALPCeS - Associação Ludopedagógica Cultural e Social](https://alpces.pt)  
-**Também conhecido como:** Ludonautas  
-**Contacto:** [geral@alpces.pt](mailto:geral@alpces.pt)
-
-### Tecnologias Utilizadas:
-- [React](https://react.dev) - UI Framework
-- [Tailwind CSS](https://tailwindcss.com) - Styling
-- [Firebase](https://firebase.google.com) - Backend & Sincronização
-- [QR Server API](https://goqr.me/api/) - Geração de QR Codes
-
----
-
-## 🔗 Links Úteis
-
-- 📖 [Documentação Firebase](https://firebase.google.com/docs)
-- 🎨 [Tailwind CSS Docs](https://tailwindcss.com/docs)
-- ⚛️ [React Documentation](https://react.dev)
-- 🎮 [ALPCeS Website](https://alpces.pt)
-
----
-
-## ❓ FAQ
-
-**P: Preciso de conta Firebase?**  
-R: Não! O sistema já vem configurado. Mas podes usar a tua própria.
-
-**P: Funciona offline?**  
-R: Não. Requer internet para sincronização em tempo real.
-
-**P: Quantas mesas suporta?**  
-R: Até 20 mesas simultâneas.
-
-**P: Posso usar em eventos comerciais?**  
-R: Sim! Licença MIT permite uso comercial.
-
-**P: Como faço backup das sessões?**  
-R: Usa o botão "🏁 Terminar" → "📦 Arquivar e Fechar". Os dados ficam no Firebase.
-
-**P: Como retomo uma sessão pausada?**  
-R: Vai a "Gestão de Sessões" → "Sessões Abertas" → "🔄 Abrir".
-
-**P: Posso personalizar cores/design?**  
-R: Sim! Edita as classes Tailwind nos ficheiros HTML.
-
-**P: As sessões abertas não aparecem na lista!**  
-R: Verifica as regras do Firebase. Precisam de `.read: true` ao nível de `sessions/`, não dentro de `$sessionId`.
-
----
-
-## 💡 Suporte
-
-Encontraste um bug? Tens uma sugestão?
-
-- 🐛 [Reportar Bug](https://github.com/alpces/score/issues)
-- 💬 [Discussões](https://github.com/alpces/score/discussions)
-- 📧 [Email](mailto:geral@alpces.pt)
+**Desenvolvido por:** [ALPCeS - Ludonautas](https://alpces.pt)
 
 ---
 
 <div align="center">
 
 **Feito com ❤️ por [Ludonautas](https://alpces.pt)**
-
-⭐ Se este projeto te foi útil, dá uma estrela!
-
-[⬆️ Voltar ao topo](#-sistema-de-pontuação-para-jogosquizzes)
 
 </div>

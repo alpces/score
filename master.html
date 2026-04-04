@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>App Master - Sistema de Pontuação</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Sistema de Módulos de Jogos -->
+    <script src="games/game-interface.js"></script>
+    <script src="games/game-system.js"></script>
+    <script src="games/generic.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -36,6 +41,9 @@
     
     <script>
         const CLIENT_URL = 'https://alpces.github.io/score/client.html';
+        
+        // Tipo de jogo atual (para futura expansão)
+        const GAME_TYPE = 'generic';
 
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -75,6 +83,8 @@
                 const [blockBuzzerAtZero, setBlockBuzzerAtZero] = useState(false);
                 const [enableBuzzer, setEnableBuzzer] = useState(true);
                 const [enableTextInput, setEnableTextInput] = useState(false);
+                const [startWithBuzzersBlocked, setStartWithBuzzersBlocked] = useState(true);
+                const [buzzersBlocked, setBuzzersBlocked] = useState(true);
 
                 const [tables, setTables] = useState([]);
                 const [categories, setCategories] = useState([]);
@@ -312,17 +322,20 @@
                     if (!sessionId) return;
                     try {
                         await set(ref(rtdb, `sessions/${sessionId}/gameState`), {
+                            gameType: GAME_TYPE,
                             tables: tables.map(t => ({ id: t.id, name: t.name, score: t.score })),
                             yellowCategory, redCategory, categories, active: true, 
                             buzzerText, blockBuzzerAtZero, 
                             enableBuzzer, enableTextInput,
+                            buzzersBlocked,
+                            selectedLogos,
                             textInputActive, textInputTimeRemaining,
                             timestamp: Date.now()
                         });
                     } catch (e) { console.error(e); }
                 };
 
-                useEffect(() => { if (setupComplete && sessionId) syncGame(); }, [tables, yellowCategory, redCategory, textInputActive, textInputTimeRemaining]);
+                useEffect(() => { if (setupComplete && sessionId) syncGame(); }, [tables, yellowCategory, redCategory, textInputActive, textInputTimeRemaining, buzzersBlocked, selectedLogos]);
 
                 useEffect(() => {
                     if (textInputActive && textInputTimeRemaining > 0) {
@@ -410,11 +423,19 @@
                     setSessionId(finalCode);
                     setSetupComplete(true);
                     
+                    // Mostrar pontos por defeito
+                    setShowScores(true);
+                    
+                    // Definir estado inicial dos buzzers
+                    const initialBuzzersBlocked = enableBuzzer ? startWithBuzzersBlocked : false;
+                    setBuzzersBlocked(initialBuzzersBlocked);
+                    
                     // CRÍTICO: Criar a sessão imediatamente no Firebase
                     // Aguardar um pouco para os estados serem aplicados
                     setTimeout(async () => {
                         try {
                             await set(ref(rtdb, `sessions/${finalCode}/gameState`), {
+                                gameType: GAME_TYPE,
                                 tables: numTables > 0 ? Array.from({ length: numTables }, (_, i) => ({ 
                                     id: i + 1, 
                                     name: tempNames[i + 1] || '', 
@@ -428,6 +449,8 @@
                                 blockBuzzerAtZero: blockBuzzerAtZero,
                                 enableBuzzer: enableBuzzer,
                                 enableTextInput: enableTextInput,
+                                buzzersBlocked: initialBuzzersBlocked,
+                                selectedLogos: selectedLogos,
                                 textInputActive: false,
                                 textInputTimeRemaining: 0,
                                 timestamp: Date.now()
@@ -653,6 +676,8 @@
                     setShowResponses(false);
                     setSelectedLogos([]);
                     setShowEndSessionModal(false);
+                    setStartWithBuzzersBlocked(true);
+                    setBuzzersBlocked(true);
                 };
 
                 /**
@@ -669,6 +694,7 @@
                         const historyData = {
                             sessionId: currentSessionId,
                             timestamp: Date.now(),
+                            gameType: GAME_TYPE,
                             tables: tables.map(t => ({ id: t.id, name: t.name, score: t.score })),
                             emails: {},
                             categories: categories,
@@ -679,6 +705,8 @@
                             initialScore: initialScore,
                             enableBuzzer: enableBuzzer,
                             enableTextInput: enableTextInput,
+                            buzzersBlocked: buzzersBlocked,
+                            selectedLogos: selectedLogos,
                             archived: true
                         };
                         
@@ -788,9 +816,15 @@
                     setInitialScore(entry.initialScore || 0);
                     setEnableBuzzer(entry.enableBuzzer !== undefined ? entry.enableBuzzer : true);
                     setEnableTextInput(entry.enableTextInput || false);
+                    setSelectedLogos(entry.selectedLogos || []);
+                    
+                    // Restaurar estado de buzzers bloqueados (default: true ao carregar)
+                    const loadedBuzzersBlocked = entry.buzzersBlocked !== undefined ? entry.buzzersBlocked : true;
+                    setBuzzersBlocked(loadedBuzzersBlocked);
                     
                     // Limpar estados temporários
-                    setShowScores(false);
+                    // Mostrar pontos por defeito
+                    setShowScores(true);
                     setFlashEffects({});
                     setCodeCopied(false);
                     setConnectedClients({});
@@ -811,6 +845,7 @@
                     setTimeout(async () => {
                         try {
                             await set(ref(rtdb, `sessions/${code}/gameState`), {
+                                gameType: entry.gameType || GAME_TYPE,
                                 tables: loadedTables,
                                 yellowCategory: entry.yellowCategory || null,
                                 redCategory: entry.redCategory || null,
@@ -820,6 +855,8 @@
                                 blockBuzzerAtZero: entry.blockBuzzerAtZero || false,
                                 enableBuzzer: entry.enableBuzzer !== undefined ? entry.enableBuzzer : true,
                                 enableTextInput: entry.enableTextInput || false,
+                                buzzersBlocked: loadedBuzzersBlocked,
+                                selectedLogos: entry.selectedLogos || [],
                                 textInputActive: false,
                                 textInputTimeRemaining: 0,
                                 timestamp: Date.now()
@@ -1391,6 +1428,16 @@
                                                 }),
                                                 h('label', { htmlFor: 'enableBuzzer', className: 'text-sm font-semibold text-gray-700' }, 'Ativar Buzzer')
                                             ),
+                                            enableBuzzer && h('div', { className: 'flex items-center gap-2 ml-6' },
+                                                h('input', { 
+                                                    type: 'checkbox', 
+                                                    id: 'startWithBuzzersBlocked', 
+                                                    checked: startWithBuzzersBlocked, 
+                                                    onChange: e => setStartWithBuzzersBlocked(e.target.checked), 
+                                                    className: 'w-4 h-4' 
+                                                }),
+                                                h('label', { htmlFor: 'startWithBuzzersBlocked', className: 'text-sm text-gray-600' }, 'Buzzers bloqueados no início')
+                                            ),
                                             h('div', { className: 'flex items-center gap-2' },
                                                 h('input', { 
                                                     type: 'checkbox', 
@@ -1640,26 +1687,40 @@
                             })
                         ),
                         h('div', { className: 'flex justify-between bg-white rounded-lg p-2' },
-                            h('div', { className: 'flex gap-2' },
+                            h('div', { className: 'flex gap-2 items-center' },
                                 h('button', { onClick: () => setShowScores(!showScores), className: 'px-3 py-1.5 text-xs bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600' }, showScores ? 'Ocultar' : 'Mostrar'),
                                 h('button', { onClick: () => setShowManageTables(true), className: 'px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-lg font-semibold hover:bg-cyan-600' }, 'Gerir Mesas'),
                                 h('button', { onClick: () => setShowSessionCode(true), className: 'px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700' }, 'Código/QR'),
-                                enableTextInput && h('div', { className: 'flex items-center gap-2' },
-                                    h('input', {
-                                        type: 'number',
-                                        value: textInputSeconds,
-                                        onChange: (e) => setTextInputSeconds(Math.max(0, parseInt(e.target.value) || 0)),
-                                        disabled: textInputActive,
-                                        className: 'w-16 px-2 py-1.5 text-xs border-2 border-gray-300 rounded text-center font-bold',
-                                        placeholder: '25'
-                                    }),
-                                    h('span', { className: 'text-xs text-gray-600' }, 's'),
-                                    h('button', { 
-                                        onClick: activateTextInput,
-                                        disabled: textInputActive,
-                                        className: `px-3 py-1.5 text-xs rounded-lg font-semibold ${textInputActive ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white`
-                                    }, textInputActive ? (textInputSeconds === 0 ? 'Ativo (∞)' : `Ativo (${textInputTimeRemaining}s)`) : 'Ativar Texto')
-                                )
+                                // Botão de bloqueio/desbloqueio de buzzers - ROXO INTENSO
+                                enableBuzzer && h('button', { 
+                                    onClick: () => setBuzzersBlocked(!buzzersBlocked), 
+                                    className: `px-4 py-2 text-sm text-white rounded-lg font-bold transition-all ${
+                                        buzzersBlocked 
+                                            ? 'bg-purple-600 hover:bg-purple-700 btn-pulse-purple' 
+                                            : 'bg-gray-500 hover:bg-gray-600'
+                                    }`
+                                }, buzzersBlocked ? '🔓 Desbloquear Buzzers' : '🔒 Bloquear')
+                            ),
+                            // Separador visual + Botão Ativar Texto destacado - VERDE INTENSO
+                            enableTextInput && h('div', { className: 'flex items-center gap-2 ml-4 pl-4 border-l-2 border-gray-300' },
+                                h('input', {
+                                    type: 'number',
+                                    value: textInputSeconds,
+                                    onChange: (e) => setTextInputSeconds(Math.max(0, parseInt(e.target.value) || 0)),
+                                    disabled: textInputActive,
+                                    className: 'w-16 px-2 py-1.5 text-xs border-2 border-gray-300 rounded text-center font-bold',
+                                    placeholder: '25'
+                                }),
+                                h('span', { className: 'text-xs text-gray-600' }, 's'),
+                                h('button', { 
+                                    onClick: activateTextInput,
+                                    disabled: textInputActive,
+                                    className: `px-5 py-2.5 text-sm rounded-lg font-bold transition-all ${
+                                        textInputActive 
+                                            ? 'bg-gray-400 cursor-not-allowed text-white' 
+                                            : 'bg-green-500 hover:bg-green-600 text-white btn-pulse-green'
+                                    }`
+                                }, textInputActive ? (textInputSeconds === 0 ? '✓ Ativo (∞)' : `⏱️ ${textInputTimeRemaining}s`) : '📝 ATIVAR TEXTO')
                             ),
                             h('div', { className: 'flex gap-2' },
                                 h('button', { onClick: () => { const s = sorted(); setLeaderboardRevealPosition(s.length > 5 ? 6 : s.length); setShowLeaderboard(true); }, className: 'px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600' }, 'Rank'),
@@ -1685,6 +1746,32 @@
                 @keyframes buzzerFlash {
                     0%, 100% { background-color: rgb(59, 130, 246); }
                     50% { background-color: rgb(30, 58, 138); }
+                }
+                @keyframes pulseIntensePurple {
+                    0%, 100% { 
+                        transform: scale(1); 
+                        box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.7);
+                    }
+                    50% { 
+                        transform: scale(1.05); 
+                        box-shadow: 0 0 20px 5px rgba(147, 51, 234, 0.9);
+                    }
+                }
+                @keyframes pulseIntenseGreen {
+                    0%, 100% { 
+                        transform: scale(1); 
+                        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+                    }
+                    50% { 
+                        transform: scale(1.08); 
+                        box-shadow: 0 0 25px 8px rgba(34, 197, 94, 0.9);
+                    }
+                }
+                .btn-pulse-purple {
+                    animation: pulseIntensePurple 0.6s ease-in-out infinite;
+                }
+                .btn-pulse-green {
+                    animation: pulseIntenseGreen 0.5s ease-in-out infinite;
                 }
             `;
             document.head.appendChild(style);

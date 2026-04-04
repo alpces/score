@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>App Cliente - Visualização de Mesa</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Sistema de Módulos de Jogos (para futura expansão) -->
+    <script src="games/game-interface.js"></script>
+    <script src="games/game-system.js"></script>
+    <script src="games/generic.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -33,6 +38,10 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
+        // Tipo de jogo atual (lido do Firebase gameData.gameType)
+        // Por defeito é 'generic' se não especificado
+        const DEFAULT_GAME_TYPE = 'generic';
+        
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -71,6 +80,7 @@
                 const [emails, setEmails] = useState(['']);
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
+                const [autoReconnecting, setAutoReconnecting] = useState(false);
 
                 const [gameData, setGameData] = useState(null);
                 const [myTable, setMyTable] = useState(null);
@@ -78,14 +88,58 @@
                 
                 const [textInput, setTextInput] = useState('');
                 const [textJustSubmitted, setTextJustSubmitted] = useState(false);
+                const [isSubmitting, setIsSubmitting] = useState(false);
 
+                // Carregar sessão do URL ou localStorage
                 useEffect(() => {
                     const urlParams = new URLSearchParams(window.location.search);
-                    const session = urlParams.get('session');
-                    if (session) {
-                        setSessionCode(session.toUpperCase());
+                    const sessionFromUrl = urlParams.get('session');
+                    
+                    if (sessionFromUrl) {
+                        setSessionCode(sessionFromUrl.toUpperCase());
+                    }
+                    
+                    // Tentar restaurar sessão do localStorage
+                    const savedSession = localStorage.getItem('gameSession');
+                    if (savedSession) {
+                        try {
+                            const data = JSON.parse(savedSession);
+                            if (data.sessionCode && data.tableNumber) {
+                                setSessionCode(data.sessionCode);
+                                setTableNumber(data.tableNumber);
+                                setTeamName(data.teamName || '');
+                                setEmails(data.emails || ['']);
+                                setTextInput(data.textInput || '');
+                                // Auto-reconectar
+                                setAutoReconnecting(true);
+                            }
+                        } catch (e) {
+                            console.error('Erro ao restaurar sessão:', e);
+                            localStorage.removeItem('gameSession');
+                        }
                     }
                 }, []);
+
+                // Auto-reconectar quando dados são carregados do localStorage
+                useEffect(() => {
+                    if (autoReconnecting && sessionCode && tableNumber) {
+                        handleAutoReconnect();
+                    }
+                }, [autoReconnecting, sessionCode, tableNumber]);
+
+                // Guardar texto no localStorage enquanto escreve
+                useEffect(() => {
+                    if (registered && sessionCode && tableNumber) {
+                        const savedSession = localStorage.getItem('gameSession');
+                        if (savedSession) {
+                            try {
+                                const data = JSON.parse(savedSession);
+                                data.textInput = textInput;
+                                localStorage.setItem('gameSession', JSON.stringify(data));
+                            } catch (e) {}
+                        }
+                    }
+                }, [textInput, registered]);
 
                 useEffect(() => {
                     if (!registered || !sessionCode) return;
@@ -125,13 +179,15 @@
 
                     const unsubClient = onValue(clientRef, (snapshot) => {
                         if (!snapshot.exists() && registered) {
+                            // Limpar localStorage quando desconectado pelo master
+                            localStorage.removeItem('gameSession');
                             setRegistered(false);
                             setError('Foste desconectado pelo master. Por favor, conecta-te novamente.');
                             setGameData(null);
                             setMyTable(null);
                             setBuzzerState({ pressed: false, enabled: true });
                             setTextInput('');
-                            setTextSubmitted(false);
+                            setTextJustSubmitted(false);
                         }
                     });
 
@@ -181,20 +237,39 @@
                                 const existingClientData = clientSnapshot.val() || {};
                                 await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`), {
                                     tableNumber: parseInt(tableNumber),
-                                    teamName: teamName || `Mesa ${tableNumber}`,
+                                    teamName: teamName || existingClientData.teamName || `Mesa ${tableNumber}`,
                                     emails: isReconnection ? (existingClientData.emails || []) : emails.filter(e => e.trim()),
                                     connectedAt: Date.now()
                                 });
 
-                                if (data.enableBuzzer) {
-                                    await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`), {
-                                        pressed: false,
-                                        enabled: true,
-                                        timestamp: null
-                                    });
+                                // Só criar buzzer se não existir (não resetar em reconexão)
+                                if (data.enableBuzzer && !isReconnection) {
+                                    const buzzerCheckRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`);
+                                    onValue(buzzerCheckRef, async (buzzerSnapshot) => {
+                                        if (!buzzerSnapshot.exists()) {
+                                            await set(buzzerCheckRef, {
+                                                pressed: false,
+                                                enabled: true,
+                                                timestamp: null
+                                            });
+                                        }
+                                    }, { onlyOnce: true });
                                 }
 
+                                // Guardar sessão no localStorage
+                                const sessionData = {
+                                    sessionCode: sessionCode.toUpperCase(),
+                                    tableNumber: tableNumber,
+                                    teamName: teamName || existingClientData.teamName || `Mesa ${tableNumber}`,
+                                    emails: isReconnection ? (existingClientData.emails || []) : emails.filter(e => e.trim()),
+                                    textInput: textInput || ''
+                                };
+                                localStorage.setItem('gameSession', JSON.stringify(sessionData));
+
                                 setSessionCode(sessionCode.toUpperCase());
+                                if (isReconnection && existingClientData.teamName) {
+                                    setTeamName(existingClientData.teamName);
+                                }
                                 setRegistered(true);
                                 setConnecting(false);
                             }, (err) => {
@@ -208,10 +283,69 @@
                     }, { onlyOnce: true });
                 };
 
+                // Auto-reconectar silenciosamente (após refresh)
+                const handleAutoReconnect = async () => {
+                    const sessionRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
+                    onValue(sessionRef, async (snapshot) => {
+                        const data = snapshot.val();
+                        if (!data || !data.active) {
+                            // Sessão não existe mais, limpar localStorage
+                            localStorage.removeItem('gameSession');
+                            setAutoReconnecting(false);
+                            setSessionCode('');
+                            setTableNumber('');
+                            setTeamName('');
+                            setTextInput('');
+                        } else {
+                            // Sessão existe, verificar se cliente ainda está registado
+                            const clientRef = ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`);
+                            onValue(clientRef, async (clientSnapshot) => {
+                                if (clientSnapshot.exists()) {
+                                    // Cliente existe, restaurar sessão
+                                    const clientData = clientSnapshot.val();
+                                    setTeamName(clientData.teamName || `Mesa ${tableNumber}`);
+                                    setRegistered(true);
+                                } else {
+                                    // Cliente foi removido, limpar
+                                    localStorage.removeItem('gameSession');
+                                    setSessionCode('');
+                                    setTableNumber('');
+                                    setTeamName('');
+                                    setTextInput('');
+                                }
+                                setAutoReconnecting(false);
+                            }, { onlyOnce: true });
+                        }
+                    }, { onlyOnce: true });
+                };
+
+                // Desconectar manualmente (botão X)
+                const handleDisconnect = () => {
+                    if (confirm('Tens a certeza que queres sair da sessão?')) {
+                        localStorage.removeItem('gameSession');
+                        setRegistered(false);
+                        setSessionCode('');
+                        setTableNumber('');
+                        setTeamName('');
+                        setEmails(['']);
+                        setTextInput('');
+                        setGameData(null);
+                        setMyTable(null);
+                        setBuzzerState({ pressed: false, enabled: true });
+                        setTextJustSubmitted(false);
+                        setError('');
+                    }
+                };
+
                 const pressBuzzer = async () => {
                     if (!buzzerState.enabled || buzzerState.pressed) return;
                     
                     if (gameData?.blockBuzzerAtZero && myTable?.score === 0) {
+                        return;
+                    }
+                    
+                    // Verificar se buzzers estão bloqueados pelo master
+                    if (gameData?.buzzersBlocked) {
                         return;
                     }
 
@@ -229,8 +363,14 @@
                 };
 
                 const submitTextResponse = async () => {
+                    // Validações
                     if (!textInput.trim()) return;
-                    if (!isUnlimitedTime && textTimeRemaining === 0) return;
+                    if (isSubmitting) return; // Prevenir duplo clique
+                    
+                    const canSubmit = isUnlimitedTime || textTimeRemaining > 0;
+                    if (!canSubmit) return;
+
+                    setIsSubmitting(true);
 
                     try {
                         await set(ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`), {
@@ -239,8 +379,28 @@
                             timestamp: Date.now()
                         });
                         setTextJustSubmitted(true);
+                        
+                        // Feedback visual de sucesso
+                        setTimeout(() => {
+                            setIsSubmitting(false);
+                        }, 500);
                     } catch (e) {
                         console.error('Erro ao enviar resposta:', e);
+                        setIsSubmitting(false);
+                        // Tentar novamente automaticamente
+                        setTimeout(async () => {
+                            try {
+                                await set(ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`), {
+                                    text: textInput.trim(),
+                                    submitted: true,
+                                    timestamp: Date.now()
+                                });
+                                setTextJustSubmitted(true);
+                            } catch (e2) {
+                                console.error('Erro na segunda tentativa:', e2);
+                                alert('Erro ao enviar. Tenta novamente.');
+                            }
+                        }, 1000);
                     }
                 };
 
@@ -252,6 +412,24 @@
                 };
 
                 const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
+                const isBuzzersBlockedByMaster = gameData?.buzzersBlocked;
+                const selectedLogos = gameData?.selectedLogos || [];
+                const mainLogo = selectedLogos.length > 0 ? selectedLogos[0] : null;
+                const sponsorLogos = selectedLogos.slice(1);
+                
+                // Tipo de jogo (para futura expansão com módulos diferentes)
+                const gameType = gameData?.gameType || DEFAULT_GAME_TYPE;
+
+                // Mostrar loading quando está a auto-reconectar
+                if (autoReconnecting) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-4xl mb-4 animate-spin' }, '🔄'),
+                            h('div', { className: 'text-xl font-semibold' }, 'A reconectar...'),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'Por favor aguarde')
+                        )
+                    );
+                }
 
                 if (!registered) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
@@ -342,15 +520,50 @@
                 const textTimeRemaining = gameData?.textInputTimeRemaining || 0;
                 const isUnlimitedTime = showTextInput && textTimeRemaining === 0;
 
-                return h('div', { className: 'h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col overflow-hidden' },
-                    h('div', { className: 'max-w-4xl mx-auto w-full h-full flex flex-col' },
+                return h('div', { className: 'h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col overflow-hidden relative' },
+                    // Logotipos patrocinadores em background
+                    sponsorLogos.length > 0 && h('div', { className: 'absolute inset-0 pointer-events-none overflow-hidden' },
+                        sponsorLogos.map((logo, index) => h('img', {
+                            key: index,
+                            src: logo,
+                            alt: 'Patrocinador',
+                            className: 'absolute opacity-10 h-16 object-contain',
+                            style: {
+                                top: `${15 + (index * 25) % 70}%`,
+                                left: index % 2 === 0 ? '5%' : 'auto',
+                                right: index % 2 === 1 ? '5%' : 'auto'
+                            },
+                            onError: (e) => e.target.style.display = 'none'
+                        }))
+                    ),
+                    h('div', { className: 'max-w-4xl mx-auto w-full h-full flex flex-col relative z-10' },
+                        // Header com logo centrado, mesa à esquerda, sessão à direita
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-3 mb-3 flex-shrink-0' },
-                            h('div', { className: 'flex items-center justify-between' },
-                                h('div', null,
+                            h('div', { className: 'flex items-center' },
+                                // Coluna esquerda - Mesa (flex-1 para ocupar espaço igual)
+                                h('div', { className: 'flex-1' },
                                     h('div', { className: 'text-xs text-gray-600' }, `Mesa ${tableNumber}`),
                                     h('div', { className: 'text-lg font-bold text-gray-800' }, teamName || `Mesa ${tableNumber}`)
                                 ),
-                                h('div', { className: 'text-xs text-gray-500' }, `Sessão: ${sessionCode}`)
+                                // Coluna central - Logo principal (centrado)
+                                h('div', { className: 'flex-shrink-0 px-4' },
+                                    mainLogo ? h('img', {
+                                        src: mainLogo,
+                                        alt: 'Logo do Evento',
+                                        className: 'h-12 max-w-32 object-contain',
+                                        onError: (e) => e.target.style.display = 'none'
+                                    }) : h('div', { className: 'h-12' }) // Placeholder para manter centragem
+                                ),
+                                // Coluna direita - Sessão e X (flex-1 para ocupar espaço igual, alinhado à direita)
+                                h('div', { className: 'flex-1 flex items-center justify-end gap-2' },
+                                    h('div', { className: 'text-xs text-gray-500 text-right' }, `Sessão: ${sessionCode}`),
+                                    // Botão X para desconectar
+                                    h('button', {
+                                        onClick: handleDisconnect,
+                                        className: 'w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors',
+                                        title: 'Sair da sessão'
+                                    }, '✕')
+                                )
                             )
                         ),
                         gameData?.categories && gameData.categories.length > 0 && h('div', { className: 'grid grid-cols-2 gap-2 mb-3 flex-shrink-0' },
@@ -364,21 +577,23 @@
                         h('div', { className: 'flex-1 flex flex-col items-center justify-center gap-4' },
                             showBuzzer && h('button', {
                                 onClick: pressBuzzer,
-                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore,
+                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzersBlockedByMaster,
                                 className: `${showTextInput ? 'w-44 h-44 sm:w-48 sm:h-48' : 'w-56 h-56 sm:w-64 sm:h-64'} rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
-                                    !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore
-                                        ? 'bg-gray-400 cursor-not-allowed opacity-50' 
-                                        : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
+                                    isBuzzersBlockedByMaster
+                                        ? 'bg-gray-400 cursor-not-allowed'
+                                        : (!buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore)
+                                            ? 'bg-gray-400 cursor-not-allowed opacity-50' 
+                                            : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
                                 }`
                             }, h('div', { className: 'flex flex-col items-center gap-2' },
                                 h('div', { className: 'text-5xl' }, 
-                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔒' : '🔔'
+                                    isBuzzersBlockedByMaster ? '⏳' : (buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔒' : '🔔')
                                 ),
                                 h('div', null, 
-                                    buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER')
+                                    isBuzzersBlockedByMaster ? 'Aguarde' : (buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER'))
                                 )
                             )),
-                            showTextInput && h('div', { className: 'w-full max-w-2xl' },
+                            showTextInput && h('div', { className: 'w-full max-w-2xl relative z-20' },
                                 h('div', { className: 'bg-indigo-50 rounded-2xl shadow-2xl p-4' },
                                     !isUnlimitedTime && textTimeRemaining > 0 && h('div', { className: 'mb-2 text-center' },
                                         h('span', { className: 'text-sm font-bold text-indigo-600' }, `⏱️ Tempo restante: ${textTimeRemaining}s`)
@@ -402,13 +617,17 @@
                                         h('span', { className: 'text-xs text-gray-500' }, `${textInput.length}/250`),
                                         h('button', {
                                             onClick: submitTextResponse,
-                                            disabled: !textInput.trim() || (!isUnlimitedTime && textTimeRemaining === 0) || textJustSubmitted,
-                                            className: `px-6 py-2 rounded-lg font-bold transition-colors ${
-                                                !textInput.trim() || (!isUnlimitedTime && textTimeRemaining === 0) || textJustSubmitted
-                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                    : 'bg-green-600 text-white hover:bg-green-700'
+                                            disabled: !textInput.trim() || (!isUnlimitedTime && textTimeRemaining === 0) || isSubmitting,
+                                            className: `px-8 py-3 rounded-lg font-bold text-lg transition-all active:scale-95 ${
+                                                isSubmitting
+                                                    ? 'bg-yellow-500 text-white cursor-wait'
+                                                    : textJustSubmitted
+                                                        ? 'bg-green-500 text-white'
+                                                        : (!textInput.trim() || (!isUnlimitedTime && textTimeRemaining === 0))
+                                                            ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                            : 'bg-green-600 text-white hover:bg-green-700 shadow-lg hover:shadow-xl'
                                             }`
-                                        }, textJustSubmitted ? 'Enviado' : 'Enviar')
+                                        }, isSubmitting ? '⏳ A enviar...' : (textJustSubmitted ? '✓ Enviado' : '📤 Enviar'))
                                     )
                                 )
                             )
