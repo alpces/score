@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diamant - Master</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
+            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
+            projectId: "contador-de-pontos-321ee",
+            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
+            messagingSenderId: "817191889469",
+            appId: "1:817191889469:web:cfb88023612f6b37491854",
+            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.db = getFirestore(app);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <script>
+        /**
+         * ====================================================================
+         * DIAMANT - MASTER APP
+         * ====================================================================
+         * 
+         * Sistema de controlo para o jogo Diamant / Incan Gold
+         * 
+         * FLUXO:
+         * 1. Setup: Configurar sessão e número de mesas
+         * 2. Iniciar Expedição: Todas as mesas entram na gruta
+         * 3. Cartas: Master coloca rubis ou perigo
+         * 4. Votação: Jogadores decidem continuar ou sair
+         * 5. Revelação: Mostrar quem sai e quem fica
+         * 6. Repetir até todos saírem ou perigo repetido
+         * 
+         * ====================================================================
+         */
+        
+        const CLIENT_URL = 'https://alpces.github.io/score/client-diamant.html';
+        const GAME_TYPE = 'diamant';
+
+        window.addEventListener('firebaseReady', () => {
+            const { useState, useEffect, useRef, createElement: h } = React;
+            const { db, rtdb, fbModules } = window;
+            const { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update } = fbModules;
+
+            function App() {
+                // =============================================================
+                // ESTADOS - SETUP
+                // =============================================================
+                const [setupComplete, setSetupComplete] = useState(false);
+                const [numTables, setNumTables] = useState(8);
+                const [sessionId, setSessionId] = useState(null);
+                const [customSessionCode, setCustomSessionCode] = useState('');
+                const [codeError, setCodeError] = useState('');
+                const [codeCopied, setCodeCopied] = useState(false);
+                
+                // Config do jogo
+                const [votingTimeoutDefault, setVotingTimeoutDefault] = useState(0);
+                const [showProvisional, setShowProvisional] = useState(true);
+                
+                // =============================================================
+                // ESTADOS - JOGO DIAMANT
+                // =============================================================
+                const [phase, setPhase] = useState('waiting_start');
+                const [expedition, setExpedition] = useState(1);
+                const [reserve, setReserve] = useState(0);
+                const [teamsInExpedition, setTeamsInExpedition] = useState([]);
+                const [provisionalScores, setProvisionalScores] = useState({});
+                const [definitiveScores, setDefinitiveScores] = useState({});
+                const [votes, setVotes] = useState({});
+                const [votingTimeout, setVotingTimeout] = useState(0);
+                const [lastCard, setLastCard] = useState(null);
+                const [lastRevealResult, setLastRevealResult] = useState(null);
+                const [rubyInputValue, setRubyInputValue] = useState('');
+                
+                // =============================================================
+                // ESTADOS - UI
+                // =============================================================
+                const [tables, setTables] = useState([]);
+                const [connectedClients, setConnectedClients] = useState({});
+                const [showQRCode, setShowQRCode] = useState(false);
+                const [showLeaderboard, setShowLeaderboard] = useState(false);
+                const [leaderboardRevealPosition, setLeaderboardRevealPosition] = useState(null);
+                const [tempNames, setTempNames] = useState({});
+                const [availableLogos, setAvailableLogos] = useState([]);
+                const [selectedLogos, setSelectedLogos] = useState([]);
+                
+                // Timer ref
+                const timerRef = useRef(null);
+                
+                // =============================================================
+                // EFEITOS - LOGOS
+                // =============================================================
+                useEffect(() => {
+                    const checkLogos = () => {
+                        const logos = [];
+                        let loadedCount = 0;
+                        const totalToCheck = 5;
+                        
+                        for (let i = 1; i <= totalToCheck; i++) {
+                            const img = new Image();
+                            const logoPath = `logo${i}.png`;
+                            
+                            img.onload = () => {
+                                logos.push(logoPath);
+                                loadedCount++;
+                                if (loadedCount === totalToCheck) {
+                                    setAvailableLogos(logos.sort());
+                                }
+                            };
+                            
+                            img.onerror = () => {
+                                loadedCount++;
+                                if (loadedCount === totalToCheck) {
+                                    setAvailableLogos(logos.sort());
+                                }
+                            };
+                            
+                            img.src = logoPath;
+                        }
+                    };
+                    checkLogos();
+                }, []);
+                
+                // =============================================================
+                // EFEITOS - SINCRONIZAÇÃO COM FIREBASE
+                // =============================================================
+                useEffect(() => {
+                    if (!sessionId) return;
+                    
+                    // Sincronizar estado do jogo para Firebase
+                    const syncGame = async () => {
+                        try {
+                            await set(ref(rtdb, `sessions/${sessionId}/gameState`), {
+                                gameType: GAME_TYPE,
+                                active: true,
+                                timestamp: Date.now(),
+                                phase,
+                                expedition,
+                                reserve,
+                                teamsInExpedition,
+                                provisionalScores,
+                                definitiveScores,
+                                votes,
+                                votingTimeout,
+                                lastCard,
+                                lastRevealResult,
+                                tables: tables.map(t => ({ 
+                                    id: t.id, 
+                                    name: t.name, 
+                                    score: definitiveScores[t.id] || 0
+                                })),
+                                selectedLogos
+                            });
+                        } catch (e) { 
+                            console.error('Erro ao sincronizar:', e); 
+                        }
+                    };
+                    
+                    syncGame();
+                }, [sessionId, phase, expedition, reserve, teamsInExpedition, provisionalScores, 
+                    definitiveScores, votes, votingTimeout, lastCard, lastRevealResult, tables, selectedLogos]);
+                
+                // =============================================================
+                // EFEITOS - LISTENERS FIREBASE
+                // =============================================================
+                useEffect(() => {
+                    if (!sessionId) return;
+                    
+                    // Escutar clientes conectados
+                    const clientsRef = ref(rtdb, `sessions/${sessionId}/clients`);
+                    const unsubClients = onValue(clientsRef, (snapshot) => {
+                        const data = snapshot.val();
+                        setConnectedClients(data || {});
+                        
+                        // Atualizar nomes das mesas
+                        if (data) {
+                            const newTables = [...tables];
+                            Object.entries(data).forEach(([tableId, clientData]) => {
+                                const idx = newTables.findIndex(t => t.id === parseInt(tableId));
+                                if (idx >= 0 && clientData.teamName) {
+                                    newTables[idx] = { ...newTables[idx], name: clientData.teamName };
+                                }
+                            });
+                            setTables(newTables);
+                        }
+                    });
+                    
+                    // Escutar votos
+                    const votesRef = ref(rtdb, `sessions/${sessionId}/diamantVotes`);
+                    const unsubVotes = onValue(votesRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            setVotes(prev => ({ ...prev, ...data }));
+                        }
+                    });
+                    
+                    return () => {
+                        unsubClients();
+                        unsubVotes();
+                    };
+                }, [sessionId, tables.length]);
+                
+                // =============================================================
+                // EFEITOS - TIMER DE VOTAÇÃO
+                // =============================================================
+                useEffect(() => {
+                    if (votingTimeout > 0) {
+                        timerRef.current = setTimeout(() => {
+                            setVotingTimeout(prev => prev - 1);
+                        }, 1000);
+                    } else if (votingTimeout === 0 && timerRef.current) {
+                        clearTimeout(timerRef.current);
+                    }
+                    
+                    return () => {
+                        if (timerRef.current) clearTimeout(timerRef.current);
+                    };
+                }, [votingTimeout]);
+                
+                // =============================================================
+                // FUNÇÕES - SETUP
+                // =============================================================
+                const generateSessionCode = () => {
+                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                    let code = '';
+                    for (let i = 0; i < 6; i++) {
+                        code += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    return code;
+                };
+                
+                const startSession = async () => {
+                    let finalCode = customSessionCode.trim().toUpperCase();
+                    
+                    if (finalCode) {
+                        if (!/^[A-Z0-9]+$/.test(finalCode)) {
+                            setCodeError('Apenas letras e números são permitidos');
+                            return;
+                        }
+                        if (finalCode.length > 10) {
+                            setCodeError('Máximo 10 caracteres');
+                            return;
+                        }
+                    } else {
+                        finalCode = generateSessionCode();
+                    }
+                    
+                    // Criar mesas
+                    const initialTables = Array.from({ length: numTables }, (_, i) => ({
+                        id: i + 1,
+                        name: tempNames[i + 1] || '',
+                        score: 0
+                    }));
+                    
+                    // Inicializar scores
+                    const initialProvisional = {};
+                    const initialDefinitive = {};
+                    initialTables.forEach(t => {
+                        initialProvisional[t.id] = 0;
+                        initialDefinitive[t.id] = 0;
+                    });
+                    
+                    setTables(initialTables);
+                    setProvisionalScores(initialProvisional);
+                    setDefinitiveScores(initialDefinitive);
+                    setSessionId(finalCode);
+                    setSetupComplete(true);
+                    
+                    // Criar sessão no Firebase
+                    try {
+                        await set(ref(rtdb, `sessions/${finalCode}/gameState`), {
+                            gameType: GAME_TYPE,
+                            active: true,
+                            timestamp: Date.now(),
+                            phase: 'waiting_start',
+                            expedition: 1,
+                            reserve: 0,
+                            teamsInExpedition: [],
+                            provisionalScores: initialProvisional,
+                            definitiveScores: initialDefinitive,
+                            votes: {},
+                            votingTimeout: 0,
+                            lastCard: null,
+                            lastRevealResult: null,
+                            tables: initialTables,
+                            selectedLogos
+                        });
+                        console.log(`✅ Sessão Diamant ${finalCode} criada`);
+                    } catch (e) {
+                        console.error('❌ Erro ao criar sessão:', e);
+                    }
+                };
+                
+                // =============================================================
+                // FUNÇÕES - JOGO DIAMANT
+                // =============================================================
+                
+                /**
+                 * Inicia uma nova expedição
+                 * Todas as mesas entram na gruta
+                 */
+                const startExpedition = async () => {
+                    const allTableIds = tables.map(t => t.id);
+                    
+                    // Reset provisórios
+                    const newProvisional = {};
+                    allTableIds.forEach(id => {
+                        newProvisional[id] = 0;
+                    });
+                    
+                    // Limpar votos no Firebase
+                    await remove(ref(rtdb, `sessions/${sessionId}/diamantVotes`));
+                    
+                    setPhase('exploring');
+                    setReserve(0);
+                    setTeamsInExpedition(allTableIds);
+                    setProvisionalScores(newProvisional);
+                    setVotes({});
+                    setLastCard(null);
+                    setLastRevealResult(null);
+                };
+                
+                /**
+                 * Processa carta de rubis
+                 * Divide entre jogadores, sobras vão para reserva
+                 */
+                const drawRubyCard = async () => {
+                    const value = parseInt(rubyInputValue);
+                    if (!value || value <= 0) return;
+                    
+                    const teamsCount = teamsInExpedition.length;
+                    if (teamsCount === 0) return;
+                    
+                    // Calcular divisão
+                    const perTeam = Math.floor(value / teamsCount);
+                    const leftover = value % teamsCount;
+                    
+                    // Atualizar provisórios
+                    const newProvisional = { ...provisionalScores };
+                    teamsInExpedition.forEach(id => {
+                        newProvisional[id] = (newProvisional[id] || 0) + perTeam;
+                    });
+                    
+                    // Limpar votos anteriores
+                    await remove(ref(rtdb, `sessions/${sessionId}/diamantVotes`));
+                    
+                    setProvisionalScores(newProvisional);
+                    setReserve(reserve + leftover);
+                    setPhase('voting');
+                    setVotes({});
+                    setVotingTimeout(0);
+                    setLastCard({ type: 'ruby', value, perTeam, leftover });
+                    setRubyInputValue('');
+                };
+                
+                /**
+                 * Processa carta de perigo
+                 */
+                const drawDangerCard = async () => {
+                    // Limpar votos anteriores
+                    await remove(ref(rtdb, `sessions/${sessionId}/diamantVotes`));
+                    
+                    setPhase('voting');
+                    setVotes({});
+                    setVotingTimeout(0);
+                    setLastCard({ type: 'danger', awaitingConfirmation: true });
+                };
+                
+                /**
+                 * Confirma se perigo é repetido
+                 */
+                const confirmDanger = async (isRepeated) => {
+                    if (isRepeated) {
+                        // Todos perdem provisórios, reserva vai a 0
+                        setPhase('expedition_end');
+                        setReserve(0);
+                        setTeamsInExpedition([]);
+                        setProvisionalScores({});
+                        setVotes({});
+                        setLastCard({ type: 'danger', isRepeated: true });
+                        setLastRevealResult({
+                            staying: [],
+                            leaving: [],
+                            dangerRepeated: true
+                        });
+                    } else {
+                        // Continua votação normal
+                        setLastCard({ type: 'danger', isRepeated: false });
+                    }
+                };
+                
+                /**
+                 * Ativa timeout de votação
+                 */
+                const startVotingTimeout = (seconds = 10) => {
+                    setVotingTimeout(seconds);
+                };
+                
+                /**
+                 * Revela votos e processa quem sai/fica
+                 */
+                const revealVotes = async () => {
+                    // Quem não votou assume que continua
+                    const finalVotes = { ...votes };
+                    teamsInExpedition.forEach(id => {
+                        if (finalVotes[id] === null || finalVotes[id] === undefined) {
+                            finalVotes[id] = 'continue';
+                        }
+                    });
+                    
+                    // Separar quem sai e quem fica
+                    const leaving = teamsInExpedition.filter(id => finalVotes[id] === 'leave');
+                    const staying = teamsInExpedition.filter(id => finalVotes[id] !== 'leave');
+                    
+                    // Calcular distribuição da reserva
+                    let reservePerLeaver = 0;
+                    let reserveLeftover = 0;
+                    
+                    if (leaving.length > 0 && reserve > 0) {
+                        reservePerLeaver = Math.floor(reserve / leaving.length);
+                        reserveLeftover = reserve % leaving.length;
+                    }
+                    
+                    // Atualizar pontos
+                    const newProvisional = { ...provisionalScores };
+                    const newDefinitive = { ...definitiveScores };
+                    
+                    leaving.forEach(id => {
+                        // Provisório + parte da reserva → definitivo
+                        const provisional = newProvisional[id] || 0;
+                        const fromReserve = reservePerLeaver;
+                        newDefinitive[id] = (newDefinitive[id] || 0) + provisional + fromReserve;
+                        newProvisional[id] = 0;
+                    });
+                    
+                    // Nova reserva
+                    let newReserve = staying.length > 0 ? reserveLeftover : 0;
+                    if (leaving.length === 0) {
+                        newReserve = reserve;
+                    }
+                    
+                    // Expedição termina?
+                    const expeditionEnds = staying.length === 0;
+                    
+                    // Limpar votos no Firebase
+                    await remove(ref(rtdb, `sessions/${sessionId}/diamantVotes`));
+                    
+                    setProvisionalScores(newProvisional);
+                    setDefinitiveScores(newDefinitive);
+                    setReserve(newReserve);
+                    setTeamsInExpedition(staying);
+                    setVotes({});
+                    setVotingTimeout(0);
+                    setPhase(expeditionEnds ? 'expedition_end' : 'exploring');
+                    setLastRevealResult({
+                        staying,
+                        leaving,
+                        reserveDistributed: reservePerLeaver,
+                        reserveLost: expeditionEnds ? reserveLeftover : 0
+                    });
+                };
+                
+                /**
+                 * Prepara nova expedição
+                 */
+                const prepareNewExpedition = () => {
+                    setPhase('waiting_start');
+                    setExpedition(expedition + 1);
+                    setReserve(0);
+                    setTeamsInExpedition([]);
+                    setProvisionalScores({});
+                    setVotes({});
+                    setLastCard(null);
+                    setLastRevealResult(null);
+                    setVotingTimeout(0);
+                };
+                
+                // =============================================================
+                // FUNÇÕES - LEADERBOARD
+                // =============================================================
+                const showFinalLeaderboard = () => {
+                    setShowLeaderboard(true);
+                    setLeaderboardRevealPosition(null);
+                };
+                
+                const revealNextPosition = () => {
+                    const sorted = [...tables].sort((a, b) => 
+                        (definitiveScores[b.id] || 0) - (definitiveScores[a.id] || 0)
+                    );
+                    
+                    if (leaderboardRevealPosition === null) {
+                        setLeaderboardRevealPosition(sorted.length);
+                    } else if (leaderboardRevealPosition > 1) {
+                        setLeaderboardRevealPosition(leaderboardRevealPosition - 1);
+                    }
+                };
+                
+                // =============================================================
+                // FUNÇÕES - QR CODE
+                // =============================================================
+                const copySessionLink = () => {
+                    const link = `${CLIENT_URL}?session=${sessionId}`;
+                    navigator.clipboard.writeText(link);
+                    setCodeCopied(true);
+                    setTimeout(() => setCodeCopied(false), 2000);
+                };
+                
+                // =============================================================
+                // CONTADORES
+                // =============================================================
+                const votesReceived = Object.values(votes).filter(v => v !== null && v !== undefined).length;
+                const totalToVote = teamsInExpedition.length;
+                const allVoted = votesReceived === totalToVote && totalToVote > 0;
+                
+                // =============================================================
+                // RENDER - LEADERBOARD
+                // =============================================================
+                if (showLeaderboard) {
+                    const sorted = [...tables].sort((a, b) => 
+                        (definitiveScores[b.id] || 0) - (definitiveScores[a.id] || 0)
+                    );
+                    
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
+                        h('div', { className: 'max-w-4xl mx-auto' },
+                            // Header
+                            h('div', { className: 'flex justify-between items-center mb-6' },
+                                h('h1', { className: 'text-3xl font-black text-white' }, '🏆 Classificação Final'),
+                                h('button', {
+                                    onClick: () => setShowLeaderboard(false),
+                                    className: 'px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30'
+                                }, '✕ Fechar')
+                            ),
+                            
+                            // Botão revelar
+                            h('div', { className: 'text-center mb-6' },
+                                h('button', {
+                                    onClick: revealNextPosition,
+                                    className: 'px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xl shadow-lg'
+                                }, leaderboardRevealPosition === 1 ? '🏆 Vencedor Revelado!' : '👆 Revelar Próximo')
+                            ),
+                            
+                            // Lista
+                            h('div', { className: 'space-y-3' },
+                                sorted.map((table, idx) => {
+                                    const position = idx + 1;
+                                    const isRevealed = leaderboardRevealPosition !== null && position >= leaderboardRevealPosition;
+                                    const score = definitiveScores[table.id] || 0;
+                                    
+                                    return h('div', { 
+                                        key: table.id,
+                                        className: `p-4 rounded-xl transition-all duration-500 ${
+                                            isRevealed 
+                                                ? position === 1 ? 'bg-yellow-400 text-yellow-900 scale-105'
+                                                  : position === 2 ? 'bg-gray-300 text-gray-800'
+                                                  : position === 3 ? 'bg-orange-400 text-orange-900'
+                                                  : 'bg-white/90 text-gray-800'
+                                                : 'bg-white/20 text-white/50'
+                                        }`
+                                    },
+                                        h('div', { className: 'flex justify-between items-center' },
+                                            h('div', { className: 'flex items-center gap-4' },
+                                                h('span', { className: 'text-2xl font-black w-10' }, 
+                                                    isRevealed ? `${position}º` : '?'
+                                                ),
+                                                h('span', { className: 'text-xl font-bold' }, 
+                                                    isRevealed ? (table.name || `Mesa ${table.id}`) : '???'
+                                                )
+                                            ),
+                                            h('span', { className: 'text-3xl font-black' }, 
+                                                isRevealed ? `💎 ${score}` : '???'
+                                            )
+                                        )
+                                    );
+                                })
+                            )
+                        )
+                    );
+                }
+                
+                // =============================================================
+                // RENDER - QR CODE
+                // =============================================================
+                if (showQRCode) {
+                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`${CLIENT_URL}?session=${sessionId}`)}`;
+                    
+                    return h('div', { 
+                        className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex items-center justify-center',
+                        onClick: () => setShowQRCode(false)
+                    },
+                        h('div', { className: 'text-center' },
+                            h('div', { className: 'bg-white p-8 rounded-2xl shadow-2xl mb-6' },
+                                h('img', { src: qrUrl, alt: 'QR Code', className: 'mx-auto' })
+                            ),
+                            h('div', { className: 'text-6xl font-black text-white tracking-wider mb-4' }, sessionId),
+                            h('div', { className: 'text-white/75' }, 'Toca para voltar')
+                        )
+                    );
+                }
+                
+                // =============================================================
+                // RENDER - SETUP
+                // =============================================================
+                if (!setupComplete) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
+                        h('div', { className: 'max-w-lg mx-auto py-8' },
+                            h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
+                                // Header
+                                h('div', { className: 'text-center mb-6' },
+                                    h('div', { className: 'text-5xl mb-2' }, '💎'),
+                                    h('h1', { className: 'text-2xl font-black text-amber-800' }, 'Diamant'),
+                                    h('p', { className: 'text-sm text-gray-500' }, 'Configuração da Sessão')
+                                ),
+                                
+                                h('div', { className: 'space-y-4' },
+                                    // Código da sessão
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 
+                                            'Código da Sessão (opcional)'
+                                        ),
+                                        h('input', { 
+                                            type: 'text', 
+                                            value: customSessionCode, 
+                                            onChange: e => {
+                                                setCustomSessionCode(e.target.value.toUpperCase());
+                                                setCodeError('');
+                                            }, 
+                                            placeholder: 'Deixe vazio para gerar automaticamente',
+                                            maxLength: 10,
+                                            className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none uppercase font-mono' 
+                                        }),
+                                        codeError && h('p', { className: 'text-xs text-red-600 mt-1' }, codeError)
+                                    ),
+                                    
+                                    // Número de mesas
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 
+                                            'Número de Mesas/Equipas (máx: 16)'
+                                        ),
+                                        h('input', { 
+                                            type: 'number', 
+                                            min: 2, 
+                                            max: 16, 
+                                            value: numTables, 
+                                            onChange: e => setNumTables(Math.min(16, Math.max(2, +e.target.value || 2))), 
+                                            className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none' 
+                                        })
+                                    ),
+                                    
+                                    // Timeout padrão
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 
+                                            'Timeout de Votação Padrão (0 = sem limite)'
+                                        ),
+                                        h('input', { 
+                                            type: 'number', 
+                                            min: 0, 
+                                            max: 60, 
+                                            value: votingTimeoutDefault, 
+                                            onChange: e => setVotingTimeoutDefault(Math.max(0, +e.target.value || 0)), 
+                                            className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none' 
+                                        })
+                                    ),
+                                    
+                                    // Nomes das mesas
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 
+                                            'Nomes das Equipas (opcional)'
+                                        ),
+                                        h('div', { className: 'grid grid-cols-2 gap-2 max-h-40 overflow-y-auto' },
+                                            Array.from({ length: numTables }, (_, i) => 
+                                                h('input', {
+                                                    key: i + 1,
+                                                    type: 'text',
+                                                    placeholder: `Mesa ${i + 1}`,
+                                                    value: tempNames[i + 1] || '',
+                                                    onChange: e => setTempNames({ ...tempNames, [i + 1]: e.target.value }),
+                                                    className: 'px-3 py-1 border rounded text-sm'
+                                                })
+                                            )
+                                        )
+                                    ),
+                                    
+                                    // Logos
+                                    availableLogos.length > 0 && h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 
+                                            'Logotipos'
+                                        ),
+                                        h('div', { className: 'flex flex-wrap gap-2' },
+                                            availableLogos.map(logo => h('label', { 
+                                                key: logo,
+                                                className: `flex items-center gap-1 p-2 border rounded cursor-pointer ${
+                                                    selectedLogos.includes(logo) ? 'border-amber-500 bg-amber-50' : ''
+                                                }`
+                                            },
+                                                h('input', {
+                                                    type: 'checkbox',
+                                                    checked: selectedLogos.includes(logo),
+                                                    onChange: (e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedLogos([...selectedLogos, logo]);
+                                                        } else {
+                                                            setSelectedLogos(selectedLogos.filter(l => l !== logo));
+                                                        }
+                                                    },
+                                                    className: 'hidden'
+                                                }),
+                                                h('img', { src: logo, className: 'w-8 h-8 object-contain' })
+                                            ))
+                                        )
+                                    ),
+                                    
+                                    // Botão iniciar
+                                    h('button', {
+                                        onClick: startSession,
+                                        className: 'w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-lg shadow-lg mt-4'
+                                    }, '🚀 Iniciar Sessão')
+                                )
+                            )
+                        )
+                    );
+                }
+                
+                // =============================================================
+                // RENDER - JOGO
+                // =============================================================
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex flex-col' },
+                    // Header
+                    h('div', { className: 'bg-black/30 p-3' },
+                        h('div', { className: 'flex justify-between items-center' },
+                            h('div', { className: 'flex items-center gap-4' },
+                                h('span', { className: 'text-2xl' }, '💎'),
+                                h('span', { className: 'text-white font-bold' }, `Expedição ${expedition}`),
+                                h('span', { className: 'text-amber-300 text-sm' }, 
+                                    phase === 'waiting_start' ? '⏳ À espera de iniciar'
+                                    : phase === 'exploring' ? '⛏️ A explorar'
+                                    : phase === 'voting' ? '🗳️ Votação'
+                                    : phase === 'expedition_end' ? '🏁 Expedição terminada'
+                                    : ''
+                                )
+                            ),
+                            h('div', { className: 'flex items-center gap-2' },
+                                h('button', {
+                                    onClick: () => setShowQRCode(true),
+                                    className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30'
+                                }, '📱 QR'),
+                                h('span', { className: 'text-white font-mono bg-white/20 px-3 py-1 rounded-lg' }, sessionId),
+                                h('button', {
+                                    onClick: copySessionLink,
+                                    className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30'
+                                }, codeCopied ? '✓' : '📋')
+                            )
+                        )
+                    ),
+                    
+                    // Área principal - Grid de mesas
+                    h('div', { className: 'flex-1 p-4 overflow-y-auto' },
+                        h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3' },
+                            tables.map(table => {
+                                const client = connectedClients[table.id];
+                                const isInExpedition = teamsInExpedition.includes(table.id);
+                                const provisional = provisionalScores[table.id] || 0;
+                                const definitive = definitiveScores[table.id] || 0;
+                                const vote = votes[table.id];
+                                const hasVoted = vote !== null && vote !== undefined;
+                                
+                                // Cor baseada no estado
+                                let bgClass = 'bg-white';
+                                let borderClass = 'border-transparent';
+                                
+                                if (lastRevealResult && phase === 'exploring') {
+                                    if (lastRevealResult.leaving?.includes(table.id)) {
+                                        borderClass = 'border-red-400';
+                                        bgClass = 'bg-red-50';
+                                    } else if (lastRevealResult.staying?.includes(table.id)) {
+                                        borderClass = 'border-green-400';
+                                        bgClass = 'bg-green-50';
+                                    }
+                                }
+                                
+                                if (!isInExpedition && phase !== 'waiting_start' && phase !== 'expedition_end') {
+                                    bgClass = 'bg-gray-200';
+                                }
+                                
+                                return h('div', { 
+                                    key: table.id,
+                                    className: `${bgClass} rounded-xl shadow-lg p-3 border-2 ${borderClass} transition-all`
+                                },
+                                    // Header da mesa
+                                    h('div', { className: 'flex justify-between items-center mb-2' },
+                                        h('span', { className: 'text-xs text-gray-500' }, `Mesa ${table.id}`),
+                                        h('div', { className: 'flex items-center gap-1' },
+                                            client && h('span', { className: 'text-xs text-green-600' }, '●'),
+                                            isInExpedition && phase !== 'waiting_start'
+                                                ? h('span', { className: 'text-xs' }, '⛏️')
+                                                : phase !== 'waiting_start' && h('span', { className: 'text-xs' }, '🏕️')
+                                        )
+                                    ),
+                                    
+                                    // Nome
+                                    h('div', { className: 'font-bold text-gray-800 text-sm truncate mb-2' },
+                                        table.name || client?.teamName || `Mesa ${table.id}`
+                                    ),
+                                    
+                                    // Pontuação
+                                    h('div', { className: 'flex justify-between items-center gap-2' },
+                                        showProvisional && isInExpedition && h('div', { className: 'text-center' },
+                                            h('div', { className: 'text-xs text-amber-600' }, 'Prov'),
+                                            h('div', { className: 'text-lg font-bold text-amber-500' }, provisional)
+                                        ),
+                                        h('div', { className: 'text-center flex-1' },
+                                            h('div', { className: 'text-xs text-purple-600' }, 'Def'),
+                                            h('div', { className: 'text-2xl font-black text-purple-600' }, definitive)
+                                        )
+                                    ),
+                                    
+                                    // Status do voto
+                                    phase === 'voting' && isInExpedition && h('div', { className: 'mt-2 text-center' },
+                                        hasVoted 
+                                            ? h('span', { className: 'text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full' }, '✓ Votou')
+                                            : h('span', { className: 'text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full animate-pulse' }, '⏳')
+                                    )
+                                );
+                            })
+                        )
+                    ),
+                    
+                    // Barra de controlos
+                    h('div', { className: 'bg-white border-t-4 border-amber-500 p-3' },
+                        h('div', { className: 'flex flex-wrap gap-2 items-center' },
+                            
+                            // --- À espera de iniciar ---
+                            phase === 'waiting_start' && h('button', {
+                                onClick: startExpedition,
+                                className: 'px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg'
+                            }, '🚀 Iniciar Expedição'),
+                            
+                            // --- Explorando ---
+                            phase === 'exploring' && h('div', { className: 'flex gap-2 items-center' },
+                                h('input', {
+                                    type: 'number',
+                                    min: 1,
+                                    max: 15,
+                                    value: rubyInputValue,
+                                    onChange: e => setRubyInputValue(e.target.value),
+                                    placeholder: '💎',
+                                    className: 'w-20 px-3 py-2 border-2 border-amber-400 rounded-xl text-center font-bold text-xl'
+                                }),
+                                h('button', {
+                                    onClick: drawRubyCard,
+                                    disabled: !rubyInputValue,
+                                    className: `px-4 py-2 rounded-xl font-bold ${
+                                        rubyInputValue 
+                                            ? 'bg-amber-500 hover:bg-amber-600 text-white' 
+                                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                    }`
+                                }, '💎 Rubis'),
+                                
+                                h('div', { className: 'w-px h-10 bg-gray-300 mx-2' }),
+                                
+                                h('button', {
+                                    onClick: drawDangerCard,
+                                    className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold'
+                                }, '☠️ Perigo')
+                            ),
+                            
+                            // --- Votação ---
+                            phase === 'voting' && h('div', { className: 'flex gap-2 items-center flex-wrap' },
+                                // Contagem de votos
+                                h('span', { className: 'text-sm font-semibold bg-blue-100 px-3 py-1 rounded-full' },
+                                    `🗳️ ${votesReceived}/${totalToVote}`
+                                ),
+                                
+                                // Se perigo está à espera de confirmação
+                                lastCard?.type === 'danger' && lastCard?.awaitingConfirmation && h('div', { className: 'flex gap-2 items-center' },
+                                    h('span', { className: 'text-sm font-semibold' }, 'Perigo repetido?'),
+                                    h('button', {
+                                        onClick: () => confirmDanger(false),
+                                        className: 'px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold'
+                                    }, '✓ Não'),
+                                    h('button', {
+                                        onClick: () => confirmDanger(true),
+                                        className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold'
+                                    }, '✗ Sim')
+                                ),
+                                
+                                // Timeout
+                                !(lastCard?.type === 'danger' && lastCard?.awaitingConfirmation) && votingTimeout === 0 && h('button', {
+                                    onClick: () => startVotingTimeout(10),
+                                    className: 'px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm'
+                                }, '⏱️ 10s'),
+                                
+                                votingTimeout > 0 && h('span', { 
+                                    className: 'text-xl font-bold text-orange-600 animate-pulse' 
+                                }, `⏱️ ${votingTimeout}s`),
+                                
+                                // Revelar
+                                !(lastCard?.type === 'danger' && lastCard?.awaitingConfirmation) && votesReceived > 0 && 
+                                h('button', {
+                                    onClick: revealVotes,
+                                    className: 'px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-lg ml-2'
+                                }, '👁️ Revelar')
+                            ),
+                            
+                            // --- Expedição terminou ---
+                            phase === 'expedition_end' && h('button', {
+                                onClick: prepareNewExpedition,
+                                className: 'px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg'
+                            }, '🔄 Nova Expedição'),
+                            
+                            // --- Info reserva (sempre) ---
+                            h('div', { className: 'ml-auto flex items-center gap-3' },
+                                h('div', { className: 'flex items-center gap-2 bg-amber-100 px-4 py-2 rounded-full' },
+                                    h('span', { className: 'text-xl' }, '💎'),
+                                    h('span', { className: 'font-bold text-amber-800' }, `Reserva: ${reserve}`)
+                                ),
+                                
+                                // Toggle provisórios
+                                h('button', {
+                                    onClick: () => setShowProvisional(!showProvisional),
+                                    className: `px-3 py-1 rounded text-sm ${
+                                        showProvisional ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'
+                                    }`
+                                }, showProvisional ? '👁️ Prov' : '🙈 Prov'),
+                                
+                                // Leaderboard
+                                h('button', {
+                                    onClick: showFinalLeaderboard,
+                                    className: 'px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-sm'
+                                }, '🏆')
+                            )
+                        )
+                    )
+                );
+            }
+
+            ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+        });
+    </script>
+</body>
+</html>

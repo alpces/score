@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Diamant - Cliente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Prevenir zoom no iOS */
+        input, textarea, select { font-size: 16px !important; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
+            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
+            projectId: "contador-de-pontos-321ee",
+            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
+            messagingSenderId: "817191889469",
+            appId: "1:817191889469:web:cfb88023612f6b37491854",
+            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { ref, onValue, set, update };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <script>
+        /**
+         * ====================================================================
+         * DIAMANT - CLIENT APP
+         * ====================================================================
+         * 
+         * Interface para jogadores do Diamant
+         * 
+         * FUNCIONALIDADES:
+         * - Ver pontos provisórios e definitivos
+         * - Votar continuar/sair quando solicitado
+         * - Ver estado da expedição
+         * - Persistência de sessão (localStorage)
+         * 
+         * ====================================================================
+         */
+
+        window.addEventListener('firebaseReady', () => {
+            const { useState, useEffect, createElement: h } = React;
+            const { rtdb, fbModules } = window;
+            const { ref, onValue, set, update } = fbModules;
+
+            function App() {
+                // =============================================================
+                // ESTADOS - CONEXÃO
+                // =============================================================
+                const [connected, setConnected] = useState(false);
+                const [sessionCode, setSessionCode] = useState('');
+                const [tableNumber, setTableNumber] = useState('');
+                const [teamName, setTeamName] = useState('');
+                const [emails, setEmails] = useState('');
+                const [connectionError, setConnectionError] = useState('');
+                const [autoReconnecting, setAutoReconnecting] = useState(false);
+                
+                // =============================================================
+                // ESTADOS - JOGO
+                // =============================================================
+                const [gameData, setGameData] = useState(null);
+                const [confirmingLeave, setConfirmingLeave] = useState(false);
+                const [voteSubmitted, setVoteSubmitted] = useState(false);
+                
+                // =============================================================
+                // EFEITO - VERIFICAR URL E LOCALSTORAGE
+                // =============================================================
+                useEffect(() => {
+                    // Verificar parâmetros da URL
+                    const params = new URLSearchParams(window.location.search);
+                    const urlSession = params.get('session');
+                    if (urlSession) {
+                        setSessionCode(urlSession.toUpperCase());
+                    }
+                    
+                    // Verificar localStorage para auto-reconexão
+                    const savedSession = localStorage.getItem('diamant_session');
+                    const savedTable = localStorage.getItem('diamant_table');
+                    const savedTeam = localStorage.getItem('diamant_team');
+                    const savedEmails = localStorage.getItem('diamant_emails');
+                    
+                    if (savedSession && savedTable) {
+                        setSessionCode(savedSession);
+                        setTableNumber(savedTable);
+                        if (savedTeam) setTeamName(savedTeam);
+                        if (savedEmails) setEmails(savedEmails);
+                        
+                        // Tentar auto-reconectar
+                        setAutoReconnecting(true);
+                    }
+                }, []);
+                
+                // =============================================================
+                // EFEITO - AUTO-RECONEXÃO
+                // =============================================================
+                useEffect(() => {
+                    if (autoReconnecting && sessionCode && tableNumber) {
+                        handleConnect(true);
+                    }
+                }, [autoReconnecting, sessionCode, tableNumber]);
+                
+                // =============================================================
+                // EFEITO - LISTENER DO JOGO
+                // =============================================================
+                useEffect(() => {
+                    if (!connected || !sessionCode) return;
+                    
+                    const gameRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
+                    const unsubscribe = onValue(gameRef, (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            // Verificar se mudou de fase de votação
+                            if (data.phase === 'voting' && gameData?.phase !== 'voting') {
+                                // Nova votação, resetar estado
+                                setVoteSubmitted(false);
+                                setConfirmingLeave(false);
+                            }
+                            setGameData(data);
+                        }
+                    });
+                    
+                    // Escutar votos para saber se já votámos
+                    const votesRef = ref(rtdb, `sessions/${sessionCode}/diamantVotes/${tableNumber}`);
+                    const unsubVotes = onValue(votesRef, (snapshot) => {
+                        const vote = snapshot.val();
+                        if (vote !== null) {
+                            setVoteSubmitted(true);
+                        }
+                    });
+                    
+                    return () => {
+                        unsubscribe();
+                        unsubVotes();
+                    };
+                }, [connected, sessionCode, tableNumber, gameData?.phase]);
+                
+                // =============================================================
+                // FUNÇÕES - CONEXÃO
+                // =============================================================
+                const handleConnect = async (isAutoReconnect = false) => {
+                    const code = sessionCode.trim().toUpperCase();
+                    const table = parseInt(tableNumber);
+                    
+                    if (!code || !table) {
+                        setConnectionError('Preenche o código da sessão e número da mesa');
+                        setAutoReconnecting(false);
+                        return;
+                    }
+                    
+                    try {
+                        // Registar no Firebase
+                        await set(ref(rtdb, `sessions/${code}/clients/${table}`), {
+                            tableNumber: table,
+                            teamName: teamName.trim() || `Mesa ${table}`,
+                            emails: emails.trim() ? emails.split(',').map(e => e.trim()) : [],
+                            connectedAt: Date.now(),
+                            lastPing: Date.now()
+                        });
+                        
+                        // Guardar no localStorage
+                        localStorage.setItem('diamant_session', code);
+                        localStorage.setItem('diamant_table', table.toString());
+                        if (teamName) localStorage.setItem('diamant_team', teamName);
+                        if (emails) localStorage.setItem('diamant_emails', emails);
+                        
+                        setConnected(true);
+                        setAutoReconnecting(false);
+                        setConnectionError('');
+                    } catch (e) {
+                        console.error('Erro ao conectar:', e);
+                        setConnectionError('Erro ao conectar. Verifica o código da sessão.');
+                        setAutoReconnecting(false);
+                    }
+                };
+                
+                const handleDisconnect = () => {
+                    if (!confirm('Tens a certeza que queres sair da sessão?')) return;
+                    
+                    // Limpar localStorage
+                    localStorage.removeItem('diamant_session');
+                    localStorage.removeItem('diamant_table');
+                    localStorage.removeItem('diamant_team');
+                    localStorage.removeItem('diamant_emails');
+                    
+                    // Resetar estados
+                    setConnected(false);
+                    setGameData(null);
+                    setVoteSubmitted(false);
+                    setConfirmingLeave(false);
+                };
+                
+                // =============================================================
+                // FUNÇÕES - VOTAÇÃO
+                // =============================================================
+                const castVote = async (vote) => {
+                    if (!sessionCode || !tableNumber) return;
+                    
+                    try {
+                        await set(ref(rtdb, `sessions/${sessionCode}/diamantVotes/${tableNumber}`), vote);
+                        setVoteSubmitted(true);
+                        setConfirmingLeave(false);
+                    } catch (e) {
+                        console.error('Erro ao votar:', e);
+                    }
+                };
+                
+                // =============================================================
+                // DADOS DO JOGO
+                // =============================================================
+                const tableId = parseInt(tableNumber);
+                const phase = gameData?.phase || 'waiting_start';
+                const isInExpedition = gameData?.teamsInExpedition?.includes(tableId);
+                const provisional = gameData?.provisionalScores?.[tableId] || 0;
+                const definitive = gameData?.definitiveScores?.[tableId] || 0;
+                const myVote = gameData?.votes?.[tableId];
+                const votingTimeout = gameData?.votingTimeout || 0;
+                const teamsInExpedition = gameData?.teamsInExpedition || [];
+                const reserve = gameData?.reserve || 0;
+                const lastCard = gameData?.lastCard;
+                const lastRevealResult = gameData?.lastRevealResult;
+                const selectedLogos = gameData?.selectedLogos || [];
+                const mainLogo = selectedLogos.length > 0 ? selectedLogos[0] : null;
+                
+                // =============================================================
+                // RENDER - AUTO-RECONEXÃO
+                // =============================================================
+                if (autoReconnecting) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex items-center justify-center' },
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-5xl mb-4 animate-spin' }, '💎'),
+                            h('div', { className: 'text-xl font-semibold' }, 'A reconectar...'),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'Por favor aguarda')
+                        )
+                    );
+                }
+                
+                // =============================================================
+                // RENDER - CONEXÃO
+                // =============================================================
+                if (!connected) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4 flex items-center justify-center' },
+                        h('div', { className: 'w-full max-w-sm' },
+                            h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
+                                // Header
+                                h('div', { className: 'text-center mb-6' },
+                                    h('div', { className: 'text-5xl mb-2' }, '💎'),
+                                    h('h1', { className: 'text-2xl font-black text-amber-800' }, 'Diamant'),
+                                    h('p', { className: 'text-sm text-gray-500' }, 'Entrar na sessão')
+                                ),
+                                
+                                h('div', { className: 'space-y-4' },
+                                    // Código da sessão
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Código da Sessão'),
+                                        h('input', {
+                                            type: 'text',
+                                            value: sessionCode,
+                                            onChange: e => setSessionCode(e.target.value.toUpperCase()),
+                                            placeholder: 'Ex: ABC123',
+                                            className: 'w-full px-4 py-3 border-2 rounded-xl text-center font-mono text-xl uppercase focus:border-amber-500 outline-none'
+                                        })
+                                    ),
+                                    
+                                    // Número da mesa
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Número da Mesa'),
+                                        h('input', {
+                                            type: 'number',
+                                            min: 1,
+                                            max: 16,
+                                            value: tableNumber,
+                                            onChange: e => setTableNumber(e.target.value),
+                                            placeholder: '1-16',
+                                            className: 'w-full px-4 py-3 border-2 rounded-xl text-center text-xl focus:border-amber-500 outline-none'
+                                        })
+                                    ),
+                                    
+                                    // Nome da equipa
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Nome da Equipa (opcional)'),
+                                        h('input', {
+                                            type: 'text',
+                                            value: teamName,
+                                            onChange: e => setTeamName(e.target.value),
+                                            placeholder: 'Os Exploradores',
+                                            className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none'
+                                        })
+                                    ),
+                                    
+                                    // Emails
+                                    h('div', null,
+                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Emails (opcional, separados por vírgula)'),
+                                        h('input', {
+                                            type: 'text',
+                                            value: emails,
+                                            onChange: e => setEmails(e.target.value),
+                                            placeholder: 'email1@ex.com, email2@ex.com',
+                                            className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none text-sm'
+                                        })
+                                    ),
+                                    
+                                    // Erro
+                                    connectionError && h('p', { className: 'text-red-600 text-sm text-center' }, connectionError),
+                                    
+                                    // Botão
+                                    h('button', {
+                                        onClick: () => handleConnect(false),
+                                        className: 'w-full py-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-lg shadow-lg'
+                                    }, '🚀 Entrar')
+                                )
+                            )
+                        )
+                    );
+                }
+                
+                // =============================================================
+                // RENDER - JOGO
+                // =============================================================
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex flex-col' },
+                    // Header
+                    h('div', { className: 'bg-black/30 p-3' },
+                        h('div', { className: 'flex justify-between items-center' },
+                            // Mesa e equipa
+                            h('div', null,
+                                h('div', { className: 'text-white font-bold' }, `Mesa ${tableNumber}`),
+                                h('div', { className: 'text-white/75 text-sm' }, teamName || 'Equipa')
+                            ),
+                            // Logo
+                            mainLogo && h('img', { 
+                                src: mainLogo, 
+                                className: 'h-10 object-contain' 
+                            }),
+                            // Sessão e sair
+                            h('div', { className: 'flex items-center gap-2' },
+                                h('span', { className: 'text-white/75 text-sm font-mono' }, sessionCode),
+                                h('button', {
+                                    onClick: handleDisconnect,
+                                    className: 'text-white/50 hover:text-white text-xl'
+                                }, '✕')
+                            )
+                        )
+                    ),
+                    
+                    // Conteúdo principal
+                    h('div', { className: 'flex-1 flex flex-col items-center justify-center p-4' },
+                        
+                        // Card de pontuação (sempre visível)
+                        h('div', { className: 'bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mb-6' },
+                            h('div', { className: 'flex justify-around text-center' },
+                                // Provisório
+                                h('div', { className: 'flex-1' },
+                                    h('div', { className: 'text-sm text-amber-600 font-semibold' }, '💎 Provisório'),
+                                    h('div', { className: 'text-5xl font-black text-amber-500' }, provisional)
+                                ),
+                                h('div', { className: 'w-px bg-gray-200' }),
+                                // Definitivo
+                                h('div', { className: 'flex-1' },
+                                    h('div', { className: 'text-sm text-purple-600 font-semibold' }, '🏆 Definitivo'),
+                                    h('div', { className: 'text-5xl font-black text-purple-600' }, definitive)
+                                )
+                            )
+                        ),
+                        
+                        // Info da expedição
+                        h('div', { className: 'text-center text-white mb-6' },
+                            h('div', { className: 'text-sm opacity-75' }, `Expedição ${gameData?.expedition || 1}`),
+                            h('div', { className: 'text-lg' }, 
+                                `${teamsInExpedition.length} explorador${teamsInExpedition.length !== 1 ? 'es' : ''} na gruta`
+                            ),
+                            reserve > 0 && h('div', { className: 'text-amber-300 mt-1' }, 
+                                `💎 ${reserve} rubis na reserva`
+                            )
+                        ),
+                        
+                        // Última carta
+                        lastCard && phase === 'voting' && !voteSubmitted && h('div', { 
+                            className: `text-center p-3 rounded-xl mb-4 ${
+                                lastCard.type === 'ruby' ? 'bg-amber-400 text-amber-900' : 'bg-red-500 text-white'
+                            }`
+                        },
+                            lastCard.type === 'ruby' 
+                                ? h('div', null,
+                                    h('div', { className: 'text-2xl font-bold' }, `💎 ${lastCard.value} rubis`),
+                                    h('div', { className: 'text-sm' }, `${lastCard.perTeam} para cada, +${lastCard.leftover} para reserva`)
+                                )
+                                : h('div', { className: 'text-xl font-bold' }, '☠️ Perigo!')
+                        ),
+                        
+                        // --- Estado: À espera ---
+                        phase === 'waiting_start' && h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-6xl mb-4' }, '⏳'),
+                            h('div', { className: 'text-xl font-semibold' }, 'À espera do início'),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'O master vai começar a expedição')
+                        ),
+                        
+                        // --- Estado: No acampamento ---
+                        !isInExpedition && phase !== 'waiting_start' && phase !== 'expedition_end' && 
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-6xl mb-4' }, '🏕️'),
+                            h('div', { className: 'text-xl font-semibold' }, 'No acampamento'),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'A descansar até ao regresso dos colegas...')
+                        ),
+                        
+                        // --- Estado: Votação (sem voto) ---
+                        phase === 'voting' && isInExpedition && !voteSubmitted && h('div', { className: 'w-full max-w-sm' },
+                            // Timeout
+                            votingTimeout > 0 && h('div', { className: 'text-center mb-4' },
+                                h('span', { className: 'text-3xl font-bold text-orange-400 animate-pulse' }, 
+                                    `⏱️ ${votingTimeout}s`
+                                )
+                            ),
+                            
+                            // Botões de voto
+                            !confirmingLeave 
+                                ? h('div', { className: 'flex gap-4' },
+                                    h('button', {
+                                        onClick: () => castVote('continue'),
+                                        className: 'flex-1 py-8 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform'
+                                    }, h('div', null,
+                                        h('div', { className: 'text-5xl mb-2' }, '💎'),
+                                        h('div', null, 'Continuar')
+                                    )),
+                                    h('button', {
+                                        onClick: () => setConfirmingLeave(true),
+                                        className: 'flex-1 py-8 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform'
+                                    }, h('div', null,
+                                        h('div', { className: 'text-5xl mb-2' }, '🏃'),
+                                        h('div', null, 'Sair')
+                                    ))
+                                )
+                                : h('div', { className: 'bg-white rounded-2xl p-6 shadow-xl' },
+                                    h('div', { className: 'text-center mb-4' },
+                                        h('div', { className: 'text-xl font-bold text-red-800' }, 'Tens a certeza?'),
+                                        h('div', { className: 'text-sm text-gray-600 mt-2' }, 
+                                            `Vais receber ${provisional} provisórios + parte da reserva`
+                                        )
+                                    ),
+                                    h('div', { className: 'flex gap-4' },
+                                        h('button', {
+                                            onClick: () => setConfirmingLeave(false),
+                                            className: 'flex-1 py-4 bg-gray-400 hover:bg-gray-500 text-white rounded-xl font-bold'
+                                        }, '← Voltar'),
+                                        h('button', {
+                                            onClick: () => castVote('leave'),
+                                            className: 'flex-1 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold'
+                                        }, 'Sim, Sair!')
+                                    )
+                                )
+                        ),
+                        
+                        // --- Estado: Já votou ---
+                        phase === 'voting' && isInExpedition && voteSubmitted && h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-6xl mb-4' }, myVote === 'leave' ? '🏃' : '💎'),
+                            h('div', { className: 'text-xl font-semibold' }, 
+                                myVote === 'leave' ? 'Decidiste sair' : 'Decidiste continuar'
+                            ),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'À espera dos outros jogadores...')
+                        ),
+                        
+                        // --- Estado: Explorando (à espera de carta) ---
+                        phase === 'exploring' && isInExpedition && h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-6xl mb-4' }, '⛏️'),
+                            h('div', { className: 'text-xl font-semibold' }, 'A explorar...'),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'À espera da próxima carta')
+                        ),
+                        
+                        // --- Estado: Revelação ---
+                        lastRevealResult && phase === 'exploring' && h('div', { className: 'text-center text-white mt-4' },
+                            lastRevealResult.dangerRepeated
+                                ? h('div', { className: 'bg-red-500/50 rounded-xl p-4' },
+                                    h('div', { className: 'text-2xl font-bold' }, '💀 Perigo Repetido!'),
+                                    h('div', { className: 'text-sm mt-1' }, 'Todos perderam os provisórios')
+                                )
+                                : lastRevealResult.leaving?.length > 0 && h('div', { className: 'bg-white/20 rounded-xl p-4' },
+                                    h('div', null, `🏃 ${lastRevealResult.leaving.length} saíram`),
+                                    h('div', null, `⛏️ ${lastRevealResult.staying.length} ficaram`)
+                                )
+                        ),
+                        
+                        // --- Estado: Fim da expedição ---
+                        phase === 'expedition_end' && h('div', { className: 'text-center text-white' },
+                            lastRevealResult?.dangerRepeated
+                                ? h('div', null,
+                                    h('div', { className: 'text-6xl mb-4' }, '💀'),
+                                    h('div', { className: 'text-xl font-bold text-red-400' }, 'Perigo Repetido!'),
+                                    h('div', { className: 'text-sm opacity-75 mt-2' }, 'Expedição perdida')
+                                )
+                                : h('div', null,
+                                    h('div', { className: 'text-6xl mb-4' }, '🏁'),
+                                    h('div', { className: 'text-xl font-semibold' }, 'Expedição Terminada!'),
+                                    h('div', { className: 'text-sm opacity-75 mt-2' }, 'À espera da próxima expedição...')
+                                )
+                        )
+                    )
+                );
+            }
+
+            ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+        });
+    </script>
+</body>
+</html>
