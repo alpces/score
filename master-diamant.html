@@ -358,6 +358,10 @@
                         // Remover da expedição se estiver em jogo
                         if (teamsInExpedition.indexOf(tableId) >= 0) {
                             setTeamsInExpedition(function(prev) { return prev.filter(function(id) { return id !== tableId; }); });
+                            // Limpar descobertos (perdem-se ao ser desconectado)
+                            setDiscoveredScores(function(prev) { var n = Object.assign({}, prev); n[tableId] = 0; return n; });
+                            // Adicionar aos que saíram
+                            setExitedTeams(function(prev) { return prev.concat([tableId]); });
                         }
                         // Remover votos
                         await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes/' + tableId));
@@ -387,7 +391,7 @@
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     setDiscoveredScores(nd); setReserve(reserve + leftover);
                     setPhase('voting'); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
-                    setLastCard({ type: 'ruby', cardValue: cardVal, effectiveValue: effectiveVal, perTeam: perTeam, leftover: leftover, multiplier: currentMultiplier });
+                    setLastCard({ type: 'ruby', value: effectiveVal, cardValue: cardVal, effectiveValue: effectiveVal, perTeam: perTeam, leftover: leftover, multiplier: currentMultiplier });
                     setRubyInputValue('');
                 };
                 
@@ -653,8 +657,8 @@
                         
                         // Banner rubis
                         lastCard && phase === 'voting' && lastCard.type === 'ruby' && h('div', { className: 'bg-amber-400 text-amber-900 rounded-xl p-3 mb-4 text-center' },
-                            h('div', { className: 'text-2xl font-bold' }, '💎 ' + lastCard.cardValue + (lastCard.multiplier > 1 ? ' × ' + lastCard.multiplier + ' = ' + lastCard.effectiveValue : '') + ' rubis'),
-                            h('div', { className: 'text-sm' }, lastCard.perTeam + ' para cada equipa'),
+                            h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.cardValue || lastCard.value || '?') + (lastCard.multiplier > 1 ? ' × ' + lastCard.multiplier + ' = ' + (lastCard.value || '?') : '') + ' rubis'),
+                            h('div', { className: 'text-sm' }, (lastCard.perTeam || 0) + ' para cada equipa'),
                             lastCard.leftover > 0 && h('div', { className: 'text-sm font-bold mt-1 bg-amber-500 text-white px-3 py-1 rounded-full inline-block' },
                                 '⬇️ ' + lastCard.leftover + ' rubi' + (lastCard.leftover > 1 ? 's' : '') + ' não recolhido' + (lastCard.leftover > 1 ? 's' : '') + ' (colocar na tile)')
                         ),

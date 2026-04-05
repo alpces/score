@@ -314,9 +314,9 @@
                         },
                             lastCard.type === 'ruby'
                                 ? h('div', null,
-                                    h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.effectiveValue || lastCard.cardValue || lastCard.value) + ' rubis'),
-                                    h('div', { className: 'text-sm' }, (lastCard.perTeam || 0) + ' para cada'),
-                                    (lastCard.leftover || 0) > 0 && h('div', { className: 'text-sm font-bold mt-1' }, '⬇️ ' + lastCard.leftover + ' não recolhido' + (lastCard.leftover > 1 ? 's' : ''))
+                                    h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.value || lastCard.effectiveValue || lastCard.cardValue || '?') + ' rubis'),
+                                    h('div', { className: 'text-sm' }, (lastCard.perTeam != null ? lastCard.perTeam : 0) + ' para cada'),
+                                    lastCard.leftover > 0 && h('div', { className: 'text-sm font-bold mt-1' }, '⬇️ ' + lastCard.leftover + ' não recolhido' + (lastCard.leftover > 1 ? 's' : ''))
                                 )
                                 : h('div', null,
                                     h('div', { className: 'text-xl font-bold' }, '☠️ Perigo! (Não repetido)'),
