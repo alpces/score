@@ -36,11 +36,10 @@
     <script>
         /**
          * ====================================================================
-         * DIAMANT - CLIENT APP (v2.2)
+         * DIAMANT - CLIENT APP (v2.3)
          * ====================================================================
-         * v2.2: Multiplicador, prevenção mesa duplicada, lista equipas em jogo,
-         *       sessão perdida deteta-se via active:false/remoção,
-         *       "rubis deixados para trás" / "não recolhidos"
+         * v2.3: Pontuação diferida — discovered congelados até expedição
+         *       terminar. Guardados só atualizam no fim.
          * ====================================================================
          */
 
@@ -314,7 +313,7 @@
                         },
                             lastCard.type === 'ruby'
                                 ? h('div', null,
-                                    h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.value || lastCard.effectiveValue || lastCard.cardValue || '?') + ' rubis'),
+                                    h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.value || lastCard.cardValue || '?') + ' rubis'),
                                     h('div', { className: 'text-sm' }, (lastCard.perTeam != null ? lastCard.perTeam : 0) + ' para cada'),
                                     lastCard.leftover > 0 && h('div', { className: 'text-sm font-bold mt-1' }, '⬇️ ' + lastCard.leftover + ' não recolhido' + (lastCard.leftover > 1 ? 's' : ''))
                                 )
