@@ -37,23 +37,11 @@
     <script>
         /**
          * ====================================================================
-         * DIAMANT - MASTER APP (v2.1)
+         * DIAMANT - MASTER APP (v2.2)
          * ====================================================================
-         * 
-         * ALTERAÇÕES v2.1:
-         * - Fix: clientes não vêm info de perigo durante awaitingConfirmation
-         * - Fix: lastCard só relevante quando em fase de votação confirmada
-         * - Ao arquivar sessão, clientes são desconectados (remove nó clients)
-         * - Cores de revelação mais fortes (verde/vermelho mais carregados)
-         * - Equipas fora da expedição em cinza escuro
-         * 
-         * ALTERAÇÕES v2.0:
-         * - Mesas dinâmicas (registam-se via clientes)
-         * - Botão revelar só quando todos votaram OU timeout expirou
-         * - "Descobertos" / "Guardados"
-         * - Logo1 destaque header, restantes rodapé
-         * - Ranking: 6+ revelados, depois 5º a 1º
-         * - Gestão de sessões completa
+         * v2.2: Multiplicador rubis, desconectar mesas individuais,
+         *       info detalhada de saída (rubis levados/sobras),
+         *       prevenção mesa duplicada, reserva só reseta em Nova Expedição
          * ====================================================================
          */
         
@@ -61,83 +49,81 @@
         const GAME_TYPE = 'diamant';
 
         window.addEventListener('firebaseReady', function() {
-            var useState = React.useState;
-            var useEffect = React.useEffect;
-            var useRef = React.useRef;
-            var h = React.createElement;
-            var db = window.db;
-            var rtdb = window.rtdb;
-            var fm = window.fbModules;
+            var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
+            var rtdb = window.rtdb, fm = window.fbModules;
 
             function App() {
-                // === ESTADOS - SETUP ===
-                var s1 = useState(false); var setupComplete = s1[0]; var setSetupComplete = s1[1];
-                var s2 = useState(null); var sessionId = s2[0]; var setSessionId = s2[1];
-                var s3 = useState(''); var customSessionCode = s3[0]; var setCustomSessionCode = s3[1];
-                var s4 = useState(''); var codeError = s4[0]; var setCodeError = s4[1];
-                var s5 = useState(false); var codeCopied = s5[0]; var setCodeCopied = s5[1];
-                var s6 = useState(0); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
-                var s7 = useState(true); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
+                // === SETUP ===
+                var _s = function(v) { return useState(v); };
+                var s1 = _s(false); var setupComplete = s1[0]; var setSetupComplete = s1[1];
+                var s2 = _s(null); var sessionId = s2[0]; var setSessionId = s2[1];
+                var s3 = _s(''); var customSessionCode = s3[0]; var setCustomSessionCode = s3[1];
+                var s4 = _s(''); var codeError = s4[0]; var setCodeError = s4[1];
+                var s5 = _s(false); var codeCopied = s5[0]; var setCodeCopied = s5[1];
+                var s6 = _s(0); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
+                var s7 = _s(true); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
+                // Multiplicador
+                var s8 = _s(9); var multiplierThreshold = s8[0]; var setMultiplierThreshold = s8[1];
+                var s9 = _s(2); var multiplierValue = s9[0]; var setMultiplierValue = s9[1];
                 
-                // === ESTADOS - JOGO ===
-                var g1 = useState('waiting_start'); var phase = g1[0]; var setPhase = g1[1];
-                var g2 = useState(1); var expedition = g2[0]; var setExpedition = g2[1];
-                var g3 = useState(0); var reserve = g3[0]; var setReserve = g3[1];
-                var g4 = useState([]); var teamsInExpedition = g4[0]; var setTeamsInExpedition = g4[1];
-                var g5 = useState({}); var discoveredScores = g5[0]; var setDiscoveredScores = g5[1];
-                var g6 = useState({}); var savedScores = g6[0]; var setSavedScores = g6[1];
-                var g7 = useState({}); var votes = g7[0]; var setVotes = g7[1];
-                var g8 = useState(0); var votingTimeout = g8[0]; var setVotingTimeout = g8[1];
-                var g9 = useState(false); var votingTimedOut = g9[0]; var setVotingTimedOut = g9[1];
-                var g10 = useState(null); var lastCard = g10[0]; var setLastCard = g10[1];
-                var g11 = useState(null); var lastRevealResult = g11[0]; var setLastRevealResult = g11[1];
-                var g12 = useState(''); var rubyInputValue = g12[0]; var setRubyInputValue = g12[1];
+                // === JOGO ===
+                var g1 = _s('waiting_start'); var phase = g1[0]; var setPhase = g1[1];
+                var g2 = _s(1); var expedition = g2[0]; var setExpedition = g2[1];
+                var g3 = _s(0); var reserve = g3[0]; var setReserve = g3[1];
+                var g4 = _s([]); var teamsInExpedition = g4[0]; var setTeamsInExpedition = g4[1];
+                var g5 = _s({}); var discoveredScores = g5[0]; var setDiscoveredScores = g5[1];
+                var g6 = _s({}); var savedScores = g6[0]; var setSavedScores = g6[1];
+                var g7 = _s({}); var votes = g7[0]; var setVotes = g7[1];
+                var g8 = _s(0); var votingTimeout = g8[0]; var setVotingTimeout = g8[1];
+                var g9 = _s(false); var votingTimedOut = g9[0]; var setVotingTimedOut = g9[1];
+                var g10 = _s(null); var lastCard = g10[0]; var setLastCard = g10[1];
+                var g11 = _s(null); var lastRevealResult = g11[0]; var setLastRevealResult = g11[1];
+                var g12 = _s(''); var rubyInputValue = g12[0]; var setRubyInputValue = g12[1];
+                var g13 = _s([]); var exitedTeams = g13[0]; var setExitedTeams = g13[1];
                 
-                // === ESTADOS - UI ===
-                var u1 = useState([]); var tables = u1[0]; var setTables = u1[1];
-                var u2 = useState({}); var connectedClients = u2[0]; var setConnectedClients = u2[1];
-                var u3 = useState(false); var showQRCode = u3[0]; var setShowQRCode = u3[1];
-                var u4 = useState(false); var showLeaderboard = u4[0]; var setShowLeaderboard = u4[1];
-                var u5 = useState(null); var leaderboardRevealPosition = u5[0]; var setLeaderboardRevealPosition = u5[1];
-                var u6 = useState([]); var availableLogos = u6[0]; var setAvailableLogos = u6[1];
-                var u7 = useState([]); var selectedLogos = u7[0]; var setSelectedLogos = u7[1];
-                var u8 = useState(false); var showHistory = u8[0]; var setShowHistory = u8[1];
-                var u9 = useState([]); var sessionHistory = u9[0]; var setSessionHistory = u9[1];
-                var u10 = useState([]); var activeSessions = u10[0]; var setActiveSessions = u10[1];
-                var u11 = useState(false); var showExistingSessionDialog = u11[0]; var setShowExistingSessionDialog = u11[1];
-                var u12 = useState(null); var existingSessionData = u12[0]; var setExistingSessionData = u12[1];
-                var u13 = useState(false); var showEndSessionModal = u13[0]; var setShowEndSessionModal = u13[1];
-                // Lista de equipas que já saíram em rondas anteriores desta expedição
-                var u14 = useState([]); var exitedTeams = u14[0]; var setExitedTeams = u14[1];
+                // === UI ===
+                var u1 = _s([]); var tables = u1[0]; var setTables = u1[1];
+                var u2 = _s({}); var connectedClients = u2[0]; var setConnectedClients = u2[1];
+                var u3 = _s(false); var showQRCode = u3[0]; var setShowQRCode = u3[1];
+                var u4 = _s(false); var showLeaderboard = u4[0]; var setShowLeaderboard = u4[1];
+                var u5 = _s(null); var leaderboardRevealPosition = u5[0]; var setLeaderboardRevealPosition = u5[1];
+                var u6 = _s([]); var availableLogos = u6[0]; var setAvailableLogos = u6[1];
+                var u7 = _s([]); var selectedLogos = u7[0]; var setSelectedLogos = u7[1];
+                var u8 = _s(false); var showHistory = u8[0]; var setShowHistory = u8[1];
+                var u9 = _s([]); var sessionHistory = u9[0]; var setSessionHistory = u9[1];
+                var u10 = _s([]); var activeSessions = u10[0]; var setActiveSessions = u10[1];
+                var u11 = _s(false); var showExistingSessionDialog = u11[0]; var setShowExistingSessionDialog = u11[1];
+                var u12 = _s(null); var existingSessionData = u12[0]; var setExistingSessionData = u12[1];
+                var u13 = _s(false); var showEndSessionModal = u13[0]; var setShowEndSessionModal = u13[1];
                 
                 var timerRef = useRef(null);
                 
+                // Multiplicador ativo?
+                var multiplierActive = tables.length >= multiplierThreshold;
+                var currentMultiplier = multiplierActive ? multiplierValue : 1;
+                
                 // === LOGOS ===
                 useEffect(function() {
-                    var logos = []; var loaded = 0;
-                    for (var i = 1; i <= 5; i++) {
-                        (function(idx) {
-                            var img = new Image();
-                            var path = 'logo' + idx + '.png';
-                            img.onload = function() { logos.push(path); loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
-                            img.onerror = function() { loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
-                            img.src = path;
-                        })(i);
-                    }
+                    var logos = [], loaded = 0;
+                    for (var i = 1; i <= 5; i++) { (function(idx) {
+                        var img = new Image(), p = 'logo' + idx + '.png';
+                        img.onload = function() { logos.push(p); loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                        img.onerror = function() { loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                        img.src = p;
+                    })(i); }
                 }, []);
                 
-                // === MONITORAR SESSÕES ATIVAS ===
+                // === SESSÕES ATIVAS ===
                 useEffect(function() {
-                    var ref1 = fm.ref(rtdb, 'sessions');
-                    var unsub = fm.onValue(ref1, function(snap) {
+                    var unsub = fm.onValue(fm.ref(rtdb, 'sessions'), function(snap) {
                         var data = snap.val();
                         if (data) {
-                            var active = Object.keys(data).filter(function(code) {
-                                var gs = data[code] && data[code].gameState;
+                            var active = Object.keys(data).filter(function(c) {
+                                var gs = data[c] && data[c].gameState;
                                 return gs && gs.gameType === GAME_TYPE && gs.active !== false;
-                            }).map(function(code) {
-                                return Object.assign({ sessionId: code, timestamp: data[code].gameState.timestamp || Date.now() }, data[code].gameState);
-                            }).sort(function(a, b) { return b.timestamp - a.timestamp; });
+                            }).map(function(c) {
+                                return Object.assign({ sessionId: c }, data[c].gameState);
+                            }).sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
                             setActiveSessions(active);
                         } else setActiveSessions([]);
                     });
@@ -147,14 +133,13 @@
                 // === HISTÓRICO ===
                 useEffect(function() {
                     if (!showHistory) return;
-                    var ref1 = fm.ref(rtdb, 'sessionHistory');
-                    var unsub = fm.onValue(ref1, function(snap) {
+                    var unsub = fm.onValue(fm.ref(rtdb, 'sessionHistory'), function(snap) {
                         var data = snap.val();
                         if (data) {
-                            var entries = Object.entries(data).filter(function(p) { return p[1].gameType === GAME_TYPE; })
+                            var e = Object.entries(data).filter(function(p) { return p[1].gameType === GAME_TYPE; })
                                 .map(function(p) { return Object.assign({ id: p[0] }, p[1]); })
                                 .sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
-                            setSessionHistory(entries);
+                            setSessionHistory(e);
                         } else setSessionHistory([]);
                     });
                     return function() { unsub(); };
@@ -163,7 +148,7 @@
                 // === SYNC FIREBASE ===
                 useEffect(function() {
                     if (!sessionId) return;
-                    var sync = async function() {
+                    (async function() {
                         try {
                             await fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
                                 gameType: GAME_TYPE, active: true, timestamp: Date.now(),
@@ -173,18 +158,18 @@
                                 votes: votes, votingTimeout: votingTimeout, votingTimedOut: votingTimedOut,
                                 lastCard: lastCard, lastRevealResult: lastRevealResult,
                                 tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
-                                selectedLogos: selectedLogos, exitedTeams: exitedTeams
+                                selectedLogos: selectedLogos, exitedTeams: exitedTeams,
+                                multiplierThreshold: multiplierThreshold, multiplierValue: multiplierValue,
+                                multiplierActive: multiplierActive
                             });
-                        } catch (e) { console.error('Sync error:', e); }
-                    };
-                    sync();
-                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams]);
+                        } catch (e) { console.error('Sync:', e); }
+                    })();
+                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, multiplierThreshold, multiplierValue]);
                 
-                // === LISTENERS CLIENTES E VOTOS ===
+                // === LISTENERS ===
                 useEffect(function() {
                     if (!sessionId) return;
-                    var cRef = fm.ref(rtdb, 'sessions/' + sessionId + '/clients');
-                    var unsubC = fm.onValue(cRef, function(snap) {
+                    var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
                         var data = snap.val();
                         setConnectedClients(data || {});
                         if (data) {
@@ -193,9 +178,8 @@
                                 Object.entries(data).forEach(function(e) {
                                     var id = parseInt(e[0]), cd = e[1];
                                     var idx = nt.findIndex(function(t) { return t.id === id; });
-                                    if (idx >= 0) {
-                                        if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName });
-                                    } else {
+                                    if (idx >= 0) { if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName }); }
+                                    else {
                                         nt.push({ id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
                                         setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (!n[id]) n[id] = 0; return n; });
                                         setSavedScores(function(ds) { var n = Object.assign({}, ds); if (!n[id]) n[id] = 0; return n; });
@@ -206,8 +190,7 @@
                             });
                         }
                     });
-                    var vRef = fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes');
-                    var unsubV = fm.onValue(vRef, function(snap) {
+                    var unsubV = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'), function(snap) {
                         var data = snap.val();
                         if (data) setVotes(function(prev) { return Object.assign({}, prev, data); });
                     });
@@ -218,16 +201,13 @@
                 useEffect(function() {
                     if (votingTimeout > 0) {
                         timerRef.current = setTimeout(function() {
-                            setVotingTimeout(function(prev) {
-                                if (prev <= 1) { setVotingTimedOut(true); return 0; }
-                                return prev - 1;
-                            });
+                            setVotingTimeout(function(p) { if (p <= 1) { setVotingTimedOut(true); return 0; } return p - 1; });
                         }, 1000);
                     }
                     return function() { if (timerRef.current) clearTimeout(timerRef.current); };
                 }, [votingTimeout]);
                 
-                // === SESSION MANAGEMENT ===
+                // === SESSION MGMT ===
                 var genCode = function() { var c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', r = ''; for (var i = 0; i < 6; i++) r += c.charAt(Math.floor(Math.random() * c.length)); return r; };
                 
                 var startSession = async function() {
@@ -255,17 +235,17 @@
                             teamsInExpedition: [], discoveredScores: {}, savedScores: {},
                             votes: {}, votingTimeout: 0, votingTimedOut: false,
                             lastCard: null, lastRevealResult: null, tables: [],
-                            selectedLogos: selectedLogos, exitedTeams: []
+                            selectedLogos: selectedLogos, exitedTeams: [],
+                            multiplierThreshold: multiplierThreshold, multiplierValue: multiplierValue,
+                            multiplierActive: false
                         });
-                    } catch (e) { console.error('Erro:', e); }
+                    } catch (e) { console.error(e); }
                 };
                 
                 var handleExistingChoice = async function(choice) {
                     var code = existingSessionData.code, data = existingSessionData.data;
-                    if (choice === 'yes') {
-                        setShowExistingSessionDialog(false);
-                        loadSession(Object.assign({ sessionId: code }, data), true);
-                    } else if (choice === 'no') {
+                    if (choice === 'yes') { setShowExistingSessionDialog(false); loadSession(Object.assign({ sessionId: code }, data), true); }
+                    else if (choice === 'no') {
                         setShowExistingSessionDialog(false);
                         try {
                             await fm.update(fm.ref(rtdb, 'sessions/' + code + '/gameState'), { active: false, closedAt: Date.now() });
@@ -300,31 +280,28 @@
                         var hd = {
                             sessionId: curId, timestamp: Date.now(), gameType: GAME_TYPE,
                             tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
-                            discoveredScores: Object.assign({}, discoveredScores),
-                            savedScores: Object.assign({}, savedScores),
+                            discoveredScores: Object.assign({}, discoveredScores), savedScores: Object.assign({}, savedScores),
                             expedition: expedition, emails: {}, selectedLogos: selectedLogos, archived: true
                         };
                         Object.values(connectedClients).forEach(function(c) { hd.emails[c.tableNumber] = c.emails || []; });
-                        // Marcar inativo e depois remover toda a sessão (incluindo clientes)
+                        // Marcar inativo PRIMEIRO para clientes detectarem
                         await fm.update(fm.ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
-                        await new Promise(function(r) { setTimeout(r, 300); });
+                        // Esperar para clientes processarem
+                        await new Promise(function(r) { setTimeout(r, 500); });
                         var hid = Math.random().toString(36).substring(2, 12);
                         await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), hd);
-                        // Remove TODO o nó da sessão (gameState + clients + diamantVotes)
+                        // Remover TODO o nó (gameState + clients + diamantVotes)
                         await fm.remove(fm.ref(rtdb, 'sessions/' + curId));
                         resetToSetup();
                     } catch (e) { alert('Erro: ' + e.message); }
                 };
-                
                 var endSessionPause = function() { resetToSetup(); };
                 
                 var loadSession = async function(entry, skipConfirm) {
                     if (!skipConfirm && !confirm('Carregar esta sessão?')) return;
                     var code = entry.sessionId;
                     setShowHistory(false);
-                    var lt = entry.tables || [];
-                    var ld = entry.discoveredScores || {};
-                    var ls = entry.savedScores || {};
+                    var lt = entry.tables || [], ld = entry.discoveredScores || {}, ls = entry.savedScores || {};
                     if (Object.keys(ls).length === 0 && lt.length > 0) lt.forEach(function(t) { ls[t.id] = t.score || 0; ld[t.id] = 0; });
                     setTables(lt); setDiscoveredScores(ld); setSavedScores(ls);
                     setExpedition(entry.expedition || 1); setReserve(entry.reserve || 0);
@@ -334,49 +311,57 @@
                     setLastCard(null); setLastRevealResult(null);
                     setSelectedLogos(entry.selectedLogos || []);
                     setExitedTeams(entry.exitedTeams || []);
+                    if (entry.multiplierThreshold) setMultiplierThreshold(entry.multiplierThreshold);
+                    if (entry.multiplierValue) setMultiplierValue(entry.multiplierValue);
                     setConnectedClients({}); setShowLeaderboard(false); setShowQRCode(false);
                     setSessionId(code); setSetupComplete(true);
                     setTimeout(async function() {
-                        try {
-                            await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
-                                gameType: GAME_TYPE, active: true, timestamp: Date.now(),
-                                phase: entry.phase || 'waiting_start', expedition: entry.expedition || 1,
-                                reserve: entry.reserve || 0, teamsInExpedition: entry.teamsInExpedition || [],
-                                discoveredScores: ld, savedScores: ls, votes: {}, votingTimeout: 0, votingTimedOut: false,
-                                lastCard: null, lastRevealResult: null, tables: lt,
-                                selectedLogos: entry.selectedLogos || [], exitedTeams: entry.exitedTeams || []
-                            });
-                        } catch (e) { console.error('Erro:', e); }
+                        try { await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
+                            gameType: GAME_TYPE, active: true, timestamp: Date.now(),
+                            phase: entry.phase || 'waiting_start', expedition: entry.expedition || 1,
+                            reserve: entry.reserve || 0, teamsInExpedition: entry.teamsInExpedition || [],
+                            discoveredScores: ld, savedScores: ls, votes: {}, votingTimeout: 0, votingTimedOut: false,
+                            lastCard: null, lastRevealResult: null, tables: lt,
+                            selectedLogos: entry.selectedLogos || [], exitedTeams: entry.exitedTeams || [],
+                            multiplierThreshold: entry.multiplierThreshold || 9, multiplierValue: entry.multiplierValue || 2,
+                            multiplierActive: lt.length >= (entry.multiplierThreshold || 9)
+                        }); } catch (e) { console.error(e); }
                     }, 100);
                 };
                 
-                var closeActiveSession = async function(sessionCode) {
-                    if (!confirm('Arquivar "' + sessionCode + '"?')) return;
+                var closeActiveSession = async function(sc) {
+                    if (!confirm('Arquivar "' + sc + '"?')) return;
                     try {
-                        var snap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), r, { onlyOnce: true }); });
-                        var sd = snap.val();
-                        if (!sd) { alert('Não encontrada'); return; }
-                        await fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { active: false, closedAt: Date.now() });
-                        await new Promise(function(r) { setTimeout(r, 200); });
-                        var cSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients'), r, { onlyOnce: true }); });
+                        var snap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sc + '/gameState'), r, { onlyOnce: true }); });
+                        var sd = snap.val(); if (!sd) { alert('Não encontrada'); return; }
+                        await fm.update(fm.ref(rtdb, 'sessions/' + sc + '/gameState'), { active: false, closedAt: Date.now() });
+                        await new Promise(function(r) { setTimeout(r, 500); });
+                        var cSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sc + '/clients'), r, { onlyOnce: true }); });
                         var cd = cSnap.val() || {};
-                        var hd = {
-                            sessionId: sessionCode, timestamp: Date.now(), gameType: GAME_TYPE,
-                            tables: sd.tables || [], discoveredScores: sd.discoveredScores || {},
-                            savedScores: sd.savedScores || {}, expedition: sd.expedition || 1,
-                            emails: {}, selectedLogos: sd.selectedLogos || [], archived: true
-                        };
+                        var hd = { sessionId: sc, timestamp: Date.now(), gameType: GAME_TYPE, tables: sd.tables || [],
+                            discoveredScores: sd.discoveredScores || {}, savedScores: sd.savedScores || {},
+                            expedition: sd.expedition || 1, emails: {}, selectedLogos: sd.selectedLogos || [], archived: true };
                         Object.values(cd).forEach(function(c) { hd.emails[c.tableNumber] = c.emails || []; });
                         var hid = Math.random().toString(36).substring(2, 12);
                         await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), hd);
-                        // Remove TODO o nó (desconecta clientes)
-                        await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode));
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + sc));
                     } catch (e) { alert('Erro: ' + e.message); }
                 };
+                var deleteHistoryEntry = async function(id) { if (!confirm('Eliminar?')) return; try { await fm.remove(fm.ref(rtdb, 'sessionHistory/' + id)); } catch(e) {} };
                 
-                var deleteHistoryEntry = async function(id) {
-                    if (!confirm('Eliminar?')) return;
-                    try { await fm.remove(fm.ref(rtdb, 'sessionHistory/' + id)); } catch (e) { console.error(e); }
+                // === DESCONECTAR MESA INDIVIDUAL ===
+                var disconnectTable = async function(tableId) {
+                    if (!confirm('Desconectar Mesa ' + tableId + '?')) return;
+                    try {
+                        // Remover do nó clients
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/clients/' + tableId));
+                        // Remover da expedição se estiver em jogo
+                        if (teamsInExpedition.indexOf(tableId) >= 0) {
+                            setTeamsInExpedition(function(prev) { return prev.filter(function(id) { return id !== tableId; }); });
+                        }
+                        // Remover votos
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes/' + tableId));
+                    } catch (e) { console.error(e); }
                 };
                 
                 // === JOGO ===
@@ -391,40 +376,35 @@
                 };
                 
                 var drawRubyCard = async function() {
-                    var val = parseInt(rubyInputValue);
-                    if (!val || val <= 0 || teamsInExpedition.length === 0) return;
+                    var cardVal = parseInt(rubyInputValue);
+                    if (!cardVal || cardVal <= 0 || teamsInExpedition.length === 0) return;
+                    // Aplicar multiplicador
+                    var effectiveVal = cardVal * currentMultiplier;
                     var tc = teamsInExpedition.length;
-                    var perTeam = Math.floor(val / tc), leftover = val % tc;
+                    var perTeam = Math.floor(effectiveVal / tc), leftover = effectiveVal % tc;
                     var nd = Object.assign({}, discoveredScores);
                     teamsInExpedition.forEach(function(id) { nd[id] = (nd[id] || 0) + perTeam; });
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     setDiscoveredScores(nd); setReserve(reserve + leftover);
                     setPhase('voting'); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
-                    setLastCard({ type: 'ruby', value: val, perTeam: perTeam, leftover: leftover });
+                    setLastCard({ type: 'ruby', cardValue: cardVal, effectiveValue: effectiveVal, perTeam: perTeam, leftover: leftover, multiplier: currentMultiplier });
                     setRubyInputValue('');
                 };
                 
-                // Perigo: coloca awaitingConfirmation = true
-                // Clientes NÃO vêm nada de diferente (ficam a ver "A explorar...")
-                // Só após master confirmar "Não repetido" é que lastCard fica com isRepeated: false
-                // e aí sim os clientes vêm opções de votar
                 var drawDangerCard = async function() {
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
-                    // Manter phase em 'exploring' durante a confirmação!
-                    // Só muda para 'voting' quando o master confirma
                     setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
                     setLastCard({ type: 'danger', awaitingConfirmation: true });
-                    // NÃO mudar phase aqui — fica 'exploring' para os clientes
                 };
                 
                 var confirmDanger = async function(isRepeated) {
                     if (isRepeated) {
-                        setPhase('expedition_end'); setReserve(0); setTeamsInExpedition([]);
+                        // Perigo repetido: perdem descobertos, reserva mantém-se até Nova Expedição
+                        setPhase('expedition_end'); setTeamsInExpedition([]);
                         setDiscoveredScores({}); setVotes({});
                         setLastCard({ type: 'danger', isRepeated: true });
                         setLastRevealResult({ staying: [], leaving: [], dangerRepeated: true });
                     } else {
-                        // Não repetido — AGORA sim muda para voting
                         setPhase('voting');
                         setLastCard({ type: 'danger', isRepeated: false });
                     }
@@ -441,16 +421,15 @@
                     if (leaving.length > 0 && reserve > 0) { rpl = Math.floor(reserve / leaving.length); rlo = reserve % leaving.length; }
                     var nd = Object.assign({}, discoveredScores), ns = Object.assign({}, savedScores);
                     leaving.forEach(function(id) { ns[id] = (ns[id] || 0) + (nd[id] || 0) + rpl; nd[id] = 0; });
-                    var nr = staying.length > 0 ? rlo : 0;
-                    if (leaving.length === 0) nr = reserve;
+                    // Reserva: sobra = rlo (mesmo quando todos saem, só reseta em Nova Expedição)
+                    var nr = (leaving.length === 0) ? reserve : rlo;
                     var ends = staying.length === 0;
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
-                    // Adicionar equipas que saíram à lista de exitedTeams
                     setExitedTeams(function(prev) { return prev.concat(leaving); });
                     setDiscoveredScores(nd); setSavedScores(ns); setReserve(nr);
                     setTeamsInExpedition(staying); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
                     setPhase(ends ? 'expedition_end' : 'exploring');
-                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveLost: ends ? rlo : 0 });
+                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveRemaining: nr });
                 };
                 
                 var prepareNewExpedition = function() {
@@ -466,107 +445,89 @@
                     var sorted = tables.slice().sort(function(a, b) { return (savedScores[b.id] || 0) - (savedScores[a.id] || 0); });
                     setLeaderboardRevealPosition(sorted.length <= 5 ? sorted.length + 1 : 6);
                 };
-                var revealNextPosition = function() {
-                    if (leaderboardRevealPosition && leaderboardRevealPosition > 1) setLeaderboardRevealPosition(leaderboardRevealPosition - 1);
-                };
+                var revealNextPosition = function() { if (leaderboardRevealPosition > 1) setLeaderboardRevealPosition(leaderboardRevealPosition - 1); };
+                var copyLink = function() { navigator.clipboard.writeText(CLIENT_URL + '?session=' + sessionId); setCodeCopied(true); setTimeout(function() { setCodeCopied(false); }, 2000); };
                 
-                var copyLink = function() {
-                    navigator.clipboard.writeText(CLIENT_URL + '?session=' + sessionId);
-                    setCodeCopied(true); setTimeout(function() { setCodeCopied(false); }, 2000);
-                };
-                
-                // === CONTADORES ===
+                // === COMPUTED ===
                 var votesRcvd = Object.values(votes).filter(function(v) { return v != null; }).length;
                 var totalToVote = teamsInExpedition.length;
                 var allVoted = votesRcvd === totalToVote && totalToVote > 0;
                 var mainLogo = selectedLogos.indexOf('logo1.png') >= 0 ? 'logo1.png' : null;
                 var secLogos = selectedLogos.filter(function(l) { return l !== 'logo1.png'; });
                 var fmtDate = function(ts) { var d = new Date(ts); return d.toLocaleDateString('pt-PT') + ' ' + d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }); };
-                // Perigo em fase de confirmação do master (ainda não é voting para clientes)
                 var dangerAwaiting = lastCard && lastCard.type === 'danger' && lastCard.awaitingConfirmation;
                 
-                // === RENDER: MODAIS ===
+                // === MODAIS ===
                 if (showExistingSessionDialog && existingSessionData) {
                     return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
                             h('div', { className: 'text-center mb-6' },
-                                h('div', { className: 'w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-4' }, h('span', { className: 'text-3xl' }, '⚠️')),
-                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, 'Sessão Aberta Encontrada'),
-                                h('p', { className: 'text-gray-600' }, 'Já existe "' + existingSessionData.code + '" aberta.'),
-                                h('p', { className: 'text-gray-600 mt-2' }, 'Carregar a sessão anterior?')
+                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, '⚠️ Sessão Aberta'),
+                                h('p', { className: 'text-gray-600' }, '"' + existingSessionData.code + '" já está aberta.')
                             ),
                             h('div', { className: 'space-y-3' },
-                                h('button', { onClick: function() { handleExistingChoice('yes'); }, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, 'Sim - Carregar Anterior'),
-                                h('button', { onClick: function() { handleExistingChoice('no'); }, className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700' }, 'Não - Arquivar e Criar Nova'),
+                                h('button', { onClick: function() { handleExistingChoice('yes'); }, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, 'Carregar Anterior'),
+                                h('button', { onClick: function() { handleExistingChoice('no'); }, className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700' }, 'Arquivar e Criar Nova'),
                                 h('button', { onClick: function() { handleExistingChoice('cancel'); }, className: 'w-full bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600' }, 'Cancelar')
                             )
                         )
                     );
                 }
-                
                 if (showEndSessionModal) {
                     return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
                             h('div', { className: 'text-center mb-6' },
-                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, '🏁 Terminar Sessão'),
-                                h('p', { className: 'text-gray-600' }, sessionId + ' · ' + tables.length + ' equipa(s) · Exp. ' + expedition)
+                                h('h2', { className: 'text-2xl font-bold mb-2' }, '🏁 Terminar Sessão'),
+                                h('p', { className: 'text-gray-600' }, sessionId + ' · ' + tables.length + ' eq · Exp. ' + expedition)
                             ),
                             h('div', { className: 'space-y-3' },
                                 h('button', { onClick: endSessionArchive, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, '📦 Arquivar e Fechar'),
-                                h('p', { className: 'text-xs text-gray-500 text-center -mt-1 mb-2' }, 'Guarda no histórico, desconecta clientes'),
-                                h('button', { onClick: endSessionPause, className: 'w-full bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600' }, '⏸️ Pausar (deixar aberta)'),
-                                h('button', { onClick: function() { setShowEndSessionModal(false); }, className: 'w-full bg-gray-400 text-white py-3 rounded-lg font-bold hover:bg-gray-500 mt-2' }, '❌ Cancelar')
+                                h('button', { onClick: endSessionPause, className: 'w-full bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600' }, '⏸️ Pausar'),
+                                h('button', { onClick: function() { setShowEndSessionModal(false); }, className: 'w-full bg-gray-400 text-white py-3 rounded-lg font-bold hover:bg-gray-500' }, '❌ Cancelar')
                             )
                         )
                     );
                 }
                 
-                // === RENDER: LEADERBOARD ===
+                // === LEADERBOARD ===
                 if (showLeaderboard) {
                     var sorted = tables.slice().sort(function(a, b) { return (savedScores[b.id] || 0) - (savedScores[a.id] || 0); });
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
                         h('div', { className: 'max-w-4xl mx-auto' },
                             h('div', { className: 'flex justify-between items-center mb-6' },
                                 h('h1', { className: 'text-3xl font-black text-white' }, '🏆 Classificação'),
-                                h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30' }, '✕ Fechar')
+                                h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30' }, '✕')
                             ),
                             leaderboardRevealPosition > 1 && h('div', { className: 'text-center mb-6' },
                                 h('button', { onClick: revealNextPosition, className: 'px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xl shadow-lg' },
-                                    leaderboardRevealPosition === 2 ? '🥇 Revelar 1º Lugar!' : '👆 Revelar ' + (leaderboardRevealPosition - 1) + 'º'
-                                )
+                                    leaderboardRevealPosition === 2 ? '🥇 Revelar 1º!' : '👆 Revelar ' + (leaderboardRevealPosition - 1) + 'º')
                             ),
-                            h('div', { className: 'space-y-3' },
-                                sorted.map(function(t, idx) {
-                                    var pos = idx + 1, vis = leaderboardRevealPosition !== null && pos >= leaderboardRevealPosition;
-                                    var sc = savedScores[t.id] || 0;
-                                    return h('div', { key: t.id, className: 'p-4 rounded-xl transition-all duration-500 ' + (vis ? (pos === 1 ? 'bg-yellow-400 text-yellow-900 scale-105' : pos === 2 ? 'bg-gray-300 text-gray-800' : pos === 3 ? 'bg-orange-400 text-orange-900' : 'bg-white/90 text-gray-800') : 'bg-white/20 text-white/50') },
-                                        h('div', { className: 'flex justify-between items-center' },
-                                            h('div', { className: 'flex items-center gap-4' },
-                                                h('span', { className: 'text-2xl font-black w-10' }, vis ? pos + 'º' : '?'),
-                                                h('span', { className: 'text-xl font-bold' }, vis ? (t.name || 'Mesa ' + t.id) : '???')
-                                            ),
-                                            h('span', { className: 'text-3xl font-black' }, vis ? '💎 ' + sc : '???')
-                                        )
-                                    );
-                                })
-                            )
+                            h('div', { className: 'space-y-3' }, sorted.map(function(t, idx) {
+                                var pos = idx + 1, vis = leaderboardRevealPosition !== null && pos >= leaderboardRevealPosition;
+                                return h('div', { key: t.id, className: 'p-4 rounded-xl transition-all duration-500 ' + (vis ? (pos === 1 ? 'bg-yellow-400 text-yellow-900 scale-105' : pos === 2 ? 'bg-gray-300 text-gray-800' : pos === 3 ? 'bg-orange-400 text-orange-900' : 'bg-white/90 text-gray-800') : 'bg-white/20 text-white/50') },
+                                    h('div', { className: 'flex justify-between items-center' },
+                                        h('div', { className: 'flex items-center gap-4' },
+                                            h('span', { className: 'text-2xl font-black w-10' }, vis ? pos + 'º' : '?'),
+                                            h('span', { className: 'text-xl font-bold' }, vis ? (t.name || 'Mesa ' + t.id) : '???')
+                                        ),
+                                        h('span', { className: 'text-3xl font-black' }, vis ? '💎 ' + (savedScores[t.id] || 0) : '???')
+                                    )
+                                );
+                            }))
                         )
                     );
                 }
-                
-                // === RENDER: QR ===
+                // === QR ===
                 if (showQRCode) {
-                    var qr = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId);
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex items-center justify-center', onClick: function() { setShowQRCode(false); } },
                         h('div', { className: 'text-center' },
-                            h('div', { className: 'bg-white p-8 rounded-2xl shadow-2xl mb-6' }, h('img', { src: qr, alt: 'QR', className: 'mx-auto' })),
+                            h('div', { className: 'bg-white p-8 rounded-2xl shadow-2xl mb-6' }, h('img', { src: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId), className: 'mx-auto' })),
                             h('div', { className: 'text-6xl font-black text-white tracking-wider mb-4' }, sessionId),
                             h('div', { className: 'text-white/75' }, 'Toca para voltar')
                         )
                     );
                 }
-                
-                // === RENDER: GESTÃO SESSÕES ===
+                // === GESTÃO SESSÕES ===
                 if (showHistory) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-3' },
                         h('div', { className: 'max-w-5xl mx-auto pt-4' },
@@ -576,36 +537,28 @@
                                     h('button', { onClick: function() { setShowHistory(false); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                 ),
                                 h('div', { className: 'mb-6' },
-                                    h('h3', { className: 'text-lg font-bold text-green-700 mb-3 flex items-center gap-2' },
-                                        h('span', { className: 'inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse' }), 'Abertas (' + activeSessions.length + ')'
-                                    ),
+                                    h('h3', { className: 'text-lg font-bold text-green-700 mb-3' }, '🟢 Abertas (' + activeSessions.length + ')'),
                                     activeSessions.length === 0 ? h('p', { className: 'text-gray-500 text-sm italic pl-5' }, 'Nenhuma')
                                     : h('div', { className: 'space-y-2' }, activeSessions.map(function(s) {
                                         return h('div', { key: s.sessionId, className: 'flex justify-between items-center bg-green-50 border-2 border-green-200 p-3 rounded-lg' },
-                                            h('div', { className: 'flex-1' },
-                                                h('div', { className: 'font-bold text-lg' }, s.sessionId),
-                                                h('div', { className: 'text-sm text-gray-600' }, (s.tables ? s.tables.length : 0) + ' eq · Exp. ' + (s.expedition || 1) + ' · ' + fmtDate(s.timestamp))
-                                            ),
+                                            h('div', { className: 'flex-1' }, h('div', { className: 'font-bold text-lg' }, s.sessionId), h('div', { className: 'text-sm text-gray-600' }, (s.tables ? s.tables.length : 0) + ' eq · Exp. ' + (s.expedition || 1) + ' · ' + fmtDate(s.timestamp))),
                                             h('div', { className: 'flex gap-2' },
-                                                h('button', { onClick: function() { loadSession(Object.assign({ sessionId: s.sessionId }, s), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 font-semibold' }, '🔄 Abrir'),
-                                                h('button', { onClick: function() { closeActiveSession(s.sessionId); }, className: 'px-4 py-2 bg-orange-600 text-white text-sm rounded hover:bg-orange-700 font-semibold' }, '📦 Arquivar')
+                                                h('button', { onClick: function() { loadSession(Object.assign({ sessionId: s.sessionId }, s), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded font-semibold' }, '🔄 Abrir'),
+                                                h('button', { onClick: function() { closeActiveSession(s.sessionId); }, className: 'px-4 py-2 bg-orange-600 text-white text-sm rounded font-semibold' }, '📦')
                                             )
                                         );
                                     }))
                                 ),
-                                h('div', { className: 'border-t-2 border-gray-200 my-6' }),
+                                h('hr', { className: 'my-4' }),
                                 h('div', null,
-                                    h('h3', { className: 'text-lg font-bold text-gray-700 mb-3' }, 'Arquivadas (' + sessionHistory.length + ')'),
+                                    h('h3', { className: 'text-lg font-bold text-gray-700 mb-3' }, '📦 Arquivadas (' + sessionHistory.length + ')'),
                                     sessionHistory.length === 0 ? h('p', { className: 'text-gray-500 text-sm italic' }, 'Nenhuma')
                                     : h('div', { className: 'space-y-2' }, sessionHistory.map(function(e) {
                                         return h('div', { key: e.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
-                                            h('div', { className: 'flex-1' },
-                                                h('div', { className: 'font-semibold' }, e.sessionId),
-                                                h('div', { className: 'text-sm text-gray-600' }, (e.tables ? e.tables.length : 0) + ' eq · Exp. ' + (e.expedition || '?') + ' · ' + fmtDate(e.timestamp))
-                                            ),
+                                            h('div', { className: 'flex-1' }, h('div', { className: 'font-semibold' }, e.sessionId), h('div', { className: 'text-sm text-gray-600' }, (e.tables ? e.tables.length : 0) + ' eq · ' + fmtDate(e.timestamp))),
                                             h('div', { className: 'flex gap-2' },
-                                                h('button', { onClick: function() { loadSession(e); }, className: 'px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 font-semibold' }, 'Carregar'),
-                                                h('button', { onClick: function() { deleteHistoryEntry(e.id); }, className: 'px-3 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600' }, '✕')
+                                                h('button', { onClick: function() { loadSession(e); }, className: 'px-3 py-1.5 bg-green-600 text-white text-sm rounded font-semibold' }, 'Carregar'),
+                                                h('button', { onClick: function() { deleteHistoryEntry(e.id); }, className: 'px-3 py-1.5 bg-red-500 text-white text-sm rounded' }, '✕')
                                             )
                                         );
                                     }))
@@ -614,17 +567,14 @@
                         )
                     );
                 }
-                
-                // === RENDER: SETUP ===
+                // === SETUP ===
                 if (!setupComplete) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
                         h('div', { className: 'max-w-lg mx-auto py-8' },
                             h('button', { onClick: function() { setShowHistory(true); }, className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4' }, '📋 Gestão de Sessões'),
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
                                 h('div', { className: 'text-center mb-6' },
-                                    h('div', { className: 'text-5xl mb-2' }, '💎'),
-                                    h('h1', { className: 'text-2xl font-black text-amber-800' }, 'Diamant'),
-                                    h('p', { className: 'text-sm text-gray-500' }, 'Configuração')
+                                    h('div', { className: 'text-5xl mb-2' }, '💎'), h('h1', { className: 'text-2xl font-black text-amber-800' }, 'Diamant')
                                 ),
                                 h('div', { className: 'space-y-4' },
                                     h('div', null,
@@ -639,12 +589,28 @@
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Timeout Votação (0 = sem limite)'),
                                         h('input', { type: 'number', min: 0, max: 60, value: votingTimeoutDefault, onChange: function(e) { setVotingTimeoutDefault(Math.max(0, +e.target.value || 0)); }, className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none' })
                                     ),
+                                    // Multiplicador
+                                    h('div', { className: 'bg-blue-50 p-3 rounded-lg border border-blue-200' },
+                                        h('label', { className: 'block text-sm font-semibold mb-2 text-blue-900' }, '✖️ Multiplicador de Rubis'),
+                                        h('div', { className: 'flex gap-3' },
+                                            h('div', { className: 'flex-1' },
+                                                h('label', { className: 'block text-xs text-blue-700 mb-1' }, 'A partir de (nº equipas)'),
+                                                h('input', { type: 'number', min: 2, max: 30, value: multiplierThreshold, onChange: function(e) { setMultiplierThreshold(Math.max(2, +e.target.value || 9)); }, className: 'w-full px-3 py-2 border-2 rounded-lg text-center font-bold' })
+                                            ),
+                                            h('div', { className: 'flex-1' },
+                                                h('label', { className: 'block text-xs text-blue-700 mb-1' }, 'Fator multiplicativo'),
+                                                h('input', { type: 'number', min: 1, max: 10, value: multiplierValue, onChange: function(e) { setMultiplierValue(Math.max(1, +e.target.value || 2)); }, className: 'w-full px-3 py-2 border-2 rounded-lg text-center font-bold' })
+                                            )
+                                        ),
+                                        h('p', { className: 'text-xs text-blue-600 mt-2' }, 'Com ' + multiplierThreshold + '+ equipas, cada carta de rubis vale ' + multiplierValue + 'x o valor impresso.')
+                                    ),
+                                    // Logos com fundo escuro
                                     availableLogos.length > 0 && h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Logotipos'),
-                                        h('div', { className: 'flex flex-wrap gap-2' }, availableLogos.map(function(l) {
-                                            return h('label', { key: l, className: 'flex items-center p-2 border rounded cursor-pointer ' + (selectedLogos.indexOf(l) >= 0 ? 'border-amber-500 bg-amber-50' : '') },
+                                        h('div', { className: 'flex flex-wrap gap-2 bg-gray-800 p-3 rounded-lg' }, availableLogos.map(function(l) {
+                                            return h('label', { key: l, className: 'flex items-center p-2 border-2 rounded cursor-pointer ' + (selectedLogos.indexOf(l) >= 0 ? 'border-amber-400 bg-gray-700' : 'border-gray-600 bg-gray-700') },
                                                 h('input', { type: 'checkbox', checked: selectedLogos.indexOf(l) >= 0, onChange: function(e) { if (e.target.checked) setSelectedLogos(selectedLogos.concat([l])); else setSelectedLogos(selectedLogos.filter(function(x) { return x !== l; })); }, className: 'hidden' }),
-                                                h('img', { src: l, className: 'w-8 h-8 object-contain' })
+                                                h('img', { src: l, className: 'w-10 h-10 object-contain' })
                                             );
                                         }))
                                     ),
@@ -655,24 +621,25 @@
                     );
                 }
                 
-                // === RENDER: JOGO ===
+                // === JOGO PRINCIPAL ===
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex flex-col' },
                     // Header
                     h('div', { className: 'bg-black/30 p-3 relative' },
                         h('div', { className: 'flex justify-between items-center' },
                             h('div', { className: 'flex items-center gap-4' },
                                 h('span', { className: 'text-2xl' }, '💎'),
-                                h('span', { className: 'text-white font-bold' }, 'Expedição ' + expedition),
+                                h('span', { className: 'text-white font-bold' }, 'Exp. ' + expedition),
                                 h('span', { className: 'text-amber-300 text-sm' },
-                                    phase === 'waiting_start' ? '⏳ À espera' : phase === 'exploring' ? (dangerAwaiting ? '☠️ Perigo — confirmar' : '⛏️ A explorar') : phase === 'voting' ? '🗳️ Votação' : phase === 'expedition_end' ? '🏁 Terminada' : ''
-                                )
+                                    phase === 'waiting_start' ? '⏳ À espera' : phase === 'exploring' ? (dangerAwaiting ? '☠️ Confirmar' : '⛏️ Explorar') : phase === 'voting' ? '🗳️ Votação' : '🏁 Fim'
+                                ),
+                                multiplierActive && h('span', { className: 'text-xs bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full font-bold' }, currentMultiplier + 'x')
                             ),
                             mainLogo && h('img', { src: mainLogo, className: 'h-12 object-contain', style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } }),
                             h('div', { className: 'flex items-center gap-2' },
-                                h('button', { onClick: function() { setShowQRCode(true); }, className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30' }, '📱 QR'),
-                                h('span', { className: 'text-white font-mono bg-white/20 px-3 py-1 rounded-lg' }, sessionId),
-                                h('button', { onClick: copyLink, className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30' }, codeCopied ? '✓' : '📋'),
-                                h('button', { onClick: function() { setShowEndSessionModal(true); }, className: 'px-3 py-1 bg-red-600/60 text-white rounded-lg text-sm hover:bg-red-600/80' }, '🏁')
+                                h('button', { onClick: function() { setShowQRCode(true); }, className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm' }, '📱'),
+                                h('span', { className: 'text-white font-mono bg-white/20 px-3 py-1 rounded-lg text-sm' }, sessionId),
+                                h('button', { onClick: copyLink, className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm' }, codeCopied ? '✓' : '📋'),
+                                h('button', { onClick: function() { setShowEndSessionModal(true); }, className: 'px-3 py-1 bg-red-600/60 text-white rounded-lg text-sm' }, '🏁')
                             )
                         )
                     ),
@@ -681,72 +648,77 @@
                     h('div', { className: 'flex-1 p-4 overflow-y-auto' },
                         tables.length === 0 && phase === 'waiting_start' && h('div', { className: 'text-center text-white py-12' },
                             h('div', { className: 'text-6xl mb-4' }, '📱'),
-                            h('div', { className: 'text-xl font-semibold' }, 'À espera de equipas...'),
-                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'Abrir o link ou QR code no telemóvel')
+                            h('div', { className: 'text-xl font-semibold' }, 'À espera de equipas...')
                         ),
                         
-                        // Info carta rubis (com reserva/tile)
+                        // Banner rubis
                         lastCard && phase === 'voting' && lastCard.type === 'ruby' && h('div', { className: 'bg-amber-400 text-amber-900 rounded-xl p-3 mb-4 text-center' },
-                            h('div', { className: 'text-2xl font-bold' }, '💎 ' + lastCard.value + ' rubis revelados'),
+                            h('div', { className: 'text-2xl font-bold' }, '💎 ' + lastCard.cardValue + (lastCard.multiplier > 1 ? ' × ' + lastCard.multiplier + ' = ' + lastCard.effectiveValue : '') + ' rubis'),
                             h('div', { className: 'text-sm' }, lastCard.perTeam + ' para cada equipa'),
                             lastCard.leftover > 0 && h('div', { className: 'text-sm font-bold mt-1 bg-amber-500 text-white px-3 py-1 rounded-full inline-block' },
-                                '⬇️ ' + lastCard.leftover + ' rubi' + (lastCard.leftover > 1 ? 's' : '') + ' para a reserva (colocar na tile)'
-                            )
+                                '⬇️ ' + lastCard.leftover + ' rubi' + (lastCard.leftover > 1 ? 's' : '') + ' não recolhido' + (lastCard.leftover > 1 ? 's' : '') + ' (colocar na tile)')
                         ),
-                        // Info carta perigo (só após confirmação, não durante awaitingConfirmation)
+                        // Banner perigo confirmado
                         lastCard && phase === 'voting' && lastCard.type === 'danger' && !lastCard.awaitingConfirmation && h('div', { className: 'bg-red-500 text-white rounded-xl p-3 mb-4 text-center' },
-                            h('div', { className: 'text-2xl font-bold' }, '☠️ Perigo! (Não repetido)'),
-                            h('div', { className: 'text-sm' }, 'Votação aberta — continuar ou sair?')
+                            h('div', { className: 'text-2xl font-bold' }, '☠️ Perigo! (Não repetido)')
                         ),
                         
-                        // Grid de mesas com cores melhoradas
+                        // Banner revelação (quem saiu, rubis distribuídos, sobras)
+                        lastRevealResult && !lastRevealResult.dangerRepeated && lastRevealResult.leaving && lastRevealResult.leaving.length > 0 && (phase === 'exploring' || phase === 'expedition_end') && h('div', { className: 'bg-white/90 text-gray-800 rounded-xl p-3 mb-4 text-center' },
+                            h('div', { className: 'text-lg font-bold' }, '🏃 ' + lastRevealResult.leaving.length + ' saíram · ⛏️ ' + (lastRevealResult.staying ? lastRevealResult.staying.length : 0) + ' ficaram'),
+                            lastRevealResult.reserveDistributed > 0 && h('div', { className: 'text-sm mt-1' },
+                                'Cada um levou ' + lastRevealResult.reserveDistributed + ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás'),
+                            lastRevealResult.reserveRemaining > 0 && h('div', { className: 'text-sm font-bold text-amber-700 mt-1' },
+                                '⬇️ Sobram ' + lastRevealResult.reserveRemaining + ' (deixar no caminho)')
+                        ),
+                        lastRevealResult && lastRevealResult.dangerRepeated && phase === 'expedition_end' && h('div', { className: 'bg-red-500/80 text-white rounded-xl p-3 mb-4 text-center' },
+                            h('div', { className: 'text-xl font-bold' }, '💀 Perigo Repetido! Expedição perdida.')
+                        ),
+                        
+                        // Grid mesas
                         h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3' },
                             tables.map(function(table) {
                                 var client = connectedClients[table.id];
                                 var isInExp = teamsInExpedition.indexOf(table.id) >= 0;
                                 var disc = discoveredScores[table.id] || 0;
                                 var saved = savedScores[table.id] || 0;
-                                var vote = votes[table.id];
-                                var hasVoted = vote != null;
+                                var hasVoted = votes[table.id] != null;
                                 var isExited = exitedTeams.indexOf(table.id) >= 0;
+                                // Acabou de sair NESTA revelação
+                                var justLeft = lastRevealResult && lastRevealResult.leaving && lastRevealResult.leaving.indexOf(table.id) >= 0 && (phase === 'exploring' || phase === 'expedition_end');
                                 
-                                var bgClass = 'bg-white', borderClass = 'border-transparent';
-                                
-                                // Cores na revelação (mais carregadas)
-                                if (lastRevealResult && phase === 'exploring') {
-                                    if (lastRevealResult.leaving && lastRevealResult.leaving.indexOf(table.id) >= 0) {
-                                        borderClass = 'border-red-600'; bgClass = 'bg-red-100';
-                                    } else if (lastRevealResult.staying && lastRevealResult.staying.indexOf(table.id) >= 0) {
-                                        borderClass = 'border-green-600'; bgClass = 'bg-green-100';
-                                    }
-                                }
-                                
-                                // Equipas que já saíram anteriormente: cinza escuro
-                                if (isExited && !isInExp && phase !== 'waiting_start' && phase !== 'expedition_end') {
-                                    bgClass = 'bg-gray-400'; borderClass = 'border-gray-500';
-                                } else if (!isInExp && !isExited && phase !== 'waiting_start' && phase !== 'expedition_end') {
+                                var bgClass = 'bg-white', borderClass = 'border-transparent', textDim = '';
+                                if (justLeft) {
+                                    // Vermelho forte para quem acabou de sair
+                                    bgClass = 'bg-red-200'; borderClass = 'border-red-600';
+                                } else if (lastRevealResult && lastRevealResult.staying && lastRevealResult.staying.indexOf(table.id) >= 0 && phase === 'exploring') {
+                                    // Verde forte para quem ficou
+                                    bgClass = 'bg-green-200'; borderClass = 'border-green-600';
+                                } else if (isExited && !isInExp && phase !== 'waiting_start' && phase !== 'expedition_end') {
+                                    // Cinza escuro para já saíram antes
+                                    bgClass = 'bg-gray-500'; borderClass = 'border-gray-600'; textDim = ' text-gray-300';
+                                } else if (!isInExp && phase !== 'waiting_start' && phase !== 'expedition_end') {
                                     bgClass = 'bg-gray-200';
                                 }
                                 
                                 return h('div', { key: table.id, className: bgClass + ' rounded-xl shadow-lg p-3 border-2 ' + borderClass + ' transition-all' },
-                                    h('div', { className: 'flex justify-between items-center mb-2' },
-                                        h('span', { className: 'text-xs ' + (isExited && !isInExp ? 'text-gray-200' : 'text-gray-500') }, 'Mesa ' + table.id),
+                                    h('div', { className: 'flex justify-between items-center mb-1' },
+                                        h('span', { className: 'text-xs' + (textDim || ' text-gray-500') }, 'Mesa ' + table.id),
                                         h('div', { className: 'flex items-center gap-1' },
                                             client && h('span', { className: 'text-xs text-green-600' }, '●'),
-                                            isInExp && phase !== 'waiting_start' ? h('span', { className: 'text-xs' }, '⛏️')
-                                            : isExited ? h('span', { className: 'text-xs' }, '🏕️')
-                                            : phase !== 'waiting_start' && h('span', { className: 'text-xs' }, '🏕️')
+                                            // Botão desconectar
+                                            client && h('button', { onClick: function() { disconnectTable(table.id); }, className: 'text-xs text-red-400 hover:text-red-600 ml-1', title: 'Desconectar' }, '✕')
                                         )
                                     ),
-                                    h('div', { className: 'font-bold text-sm truncate mb-2 ' + (isExited && !isInExp ? 'text-gray-200' : 'text-gray-800') }, table.name || (client && client.teamName) || ('Mesa ' + table.id)),
+                                    h('div', { className: 'font-bold text-sm truncate mb-2' + (textDim || ' text-gray-800') }, table.name || 'Mesa ' + table.id),
                                     h('div', { className: 'flex justify-between items-center gap-2' },
                                         showDiscovered && isInExp && h('div', { className: 'text-center' },
                                             h('div', { className: 'text-xs text-amber-600' }, 'Desc'),
                                             h('div', { className: 'text-lg font-bold text-amber-500' }, disc)
                                         ),
                                         h('div', { className: 'text-center flex-1' },
-                                            h('div', { className: 'text-xs ' + (isExited && !isInExp ? 'text-gray-300' : 'text-purple-600') }, 'Guard'),
-                                            h('div', { className: 'text-2xl font-black ' + (isExited && !isInExp ? 'text-gray-300' : 'text-purple-600') }, saved)
+                                            h('div', { className: 'text-xs' + (textDim || ' text-purple-600') }, 'Guard'),
+                                            h('div', { className: 'text-2xl font-black' + (textDim || ' text-purple-600') }, saved)
                                         )
                                     ),
                                     phase === 'voting' && isInExp && h('div', { className: 'mt-2 text-center' },
@@ -767,31 +739,29 @@
                     h('div', { className: 'bg-white border-t-4 border-amber-500 p-3' },
                         h('div', { className: 'flex flex-wrap gap-2 items-center' },
                             phase === 'waiting_start' && h('button', { onClick: startExpedition, disabled: tables.length === 0,
-                                className: 'px-6 py-3 rounded-xl font-bold shadow-lg ' + (tables.length > 0 ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed')
-                            }, '🚀 Iniciar (' + tables.length + ' equipas)'),
+                                className: 'px-6 py-3 rounded-xl font-bold shadow-lg ' + (tables.length > 0 ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 text-gray-500')
+                            }, '🚀 Iniciar (' + tables.length + ' eq)'),
                             
-                            // Explorando (inclui quando perigo está a aguardar confirmação)
                             (phase === 'exploring' && !dangerAwaiting) && h('div', { className: 'flex gap-2 items-center' },
                                 h('input', { type: 'number', min: 1, max: 15, value: rubyInputValue, onChange: function(e) { setRubyInputValue(e.target.value); }, placeholder: '💎', className: 'w-20 px-3 py-2 border-2 border-amber-400 rounded-xl text-center font-bold text-xl' }),
-                                h('button', { onClick: drawRubyCard, disabled: !rubyInputValue, className: 'px-4 py-2 rounded-xl font-bold ' + (rubyInputValue ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed') }, '💎 Rubis'),
+                                multiplierActive && h('span', { className: 'text-xs font-bold text-amber-700' }, '×' + currentMultiplier),
+                                h('button', { onClick: drawRubyCard, disabled: !rubyInputValue, className: 'px-4 py-2 rounded-xl font-bold ' + (rubyInputValue ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500') }, '💎 Rubis'),
                                 h('div', { className: 'w-px h-10 bg-gray-300 mx-2' }),
                                 h('button', { onClick: drawDangerCard, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold' }, '☠️ Perigo')
                             ),
                             
-                            // Perigo a aguardar confirmação (master-only, phase ainda é 'exploring')
                             dangerAwaiting && h('div', { className: 'flex gap-2 items-center' },
-                                h('span', { className: 'text-sm font-semibold bg-red-100 text-red-800 px-3 py-1 rounded-full' }, '☠️ Perigo revelado!'),
+                                h('span', { className: 'text-sm font-semibold bg-red-100 text-red-800 px-3 py-1 rounded-full' }, '☠️ Perigo!'),
                                 h('span', { className: 'text-sm font-semibold' }, 'Repetido?'),
                                 h('button', { onClick: function() { confirmDanger(false); }, className: 'px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold' }, '✓ Não'),
                                 h('button', { onClick: function() { confirmDanger(true); }, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold' }, '✗ Sim!')
                             ),
                             
-                            // Votação (após rubis ou perigo confirmado não-repetido)
                             phase === 'voting' && h('div', { className: 'flex gap-2 items-center flex-wrap' },
                                 h('span', { className: 'text-sm font-semibold bg-blue-100 px-3 py-1 rounded-full' }, '🗳️ ' + votesRcvd + '/' + totalToVote),
                                 votingTimeout === 0 && !votingTimedOut && h('button', { onClick: function() { startVotingTimeout(10); }, className: 'px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm' }, '⏱️ 10s'),
                                 votingTimeout > 0 && h('span', { className: 'text-xl font-bold text-orange-600 animate-pulse' }, '⏱️ ' + votingTimeout + 's'),
-                                votingTimedOut && h('span', { className: 'text-sm font-semibold text-orange-600' }, '⏱️ Tempo esgotado!'),
+                                votingTimedOut && h('span', { className: 'text-sm font-semibold text-orange-600' }, '⏱️ Esgotado!'),
                                 (allVoted || votingTimedOut) && h('button', { onClick: revealVotes, className: 'px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '👁️ Revelar')
                             ),
                             
@@ -800,9 +770,9 @@
                             h('div', { className: 'ml-auto flex items-center gap-3' },
                                 h('div', { className: 'flex items-center gap-2 bg-amber-100 px-4 py-2 rounded-full' },
                                     h('span', { className: 'text-xl' }, '💎'),
-                                    h('span', { className: 'font-bold text-amber-800' }, 'Reserva: ' + reserve)
+                                    h('span', { className: 'font-bold text-amber-800 text-sm' }, 'Deixados: ' + reserve)
                                 ),
-                                h('button', { onClick: function() { setShowDiscovered(!showDiscovered); }, className: 'px-3 py-1 rounded text-sm ' + (showDiscovered ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600') }, showDiscovered ? '👁️ Desc' : '🙈 Desc'),
+                                h('button', { onClick: function() { setShowDiscovered(!showDiscovered); }, className: 'px-3 py-1 rounded text-sm ' + (showDiscovered ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600') }, showDiscovered ? '👁️' : '🙈'),
                                 h('button', { onClick: showFinalLeaderboard, className: 'px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-sm' }, '🏆')
                             )
                         )

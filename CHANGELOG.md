@@ -4,6 +4,29 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Diamant v2.2] - 2026-04-05
+
+### Módulo Diamant - Funcionalidades e Correções
+
+### Adicionado
+- **Multiplicador de rubis**: Quando o nº de equipas atinge um limiar (por defeito ≥9), o valor de cada carta de rubis é automaticamente multiplicado (por defeito ×2). Configurável no setup (limiar e fator). No cliente aparece nota divertida sobre a "mega-expedição"
+- **Desconectar mesa individual**: Botão ✕ em cada card de mesa no master para desconectar e remover da expedição
+- **Prevenção de mesa duplicada**: Cliente não consegue conectar-se com o mesmo nº de mesa já ocupado
+- **Lista de equipas em jogo (cliente)**: Botão "ver" ao lado de "X exploradores na gruta" mostra popup com equipas em jogo e as que já saíram
+- **Info detalhada de saída**: Banner no master mostra quantos rubis cada equipa que saiu levou dos deixados para trás, e quantos sobram (para o master saber o que deixar no caminho)
+- **Reserva mantém-se até Nova Expedição**: Quando todos saem, a reserva (rubis deixados para trás) só é resetada quando o master inicia nova expedição
+
+### Alterado
+- **Terminologia master**: "Reserva" → "Rubis deixados para trás" / "Deixados"
+- **Cores revelação**: Vermelho forte (bg-red-200 border-red-600) para quem acabou de sair nesta ronda; verde forte para quem ficou; cinza escuro (bg-gray-500) para quem já saiu em rondas anteriores
+- **Logotipos no setup**: Fundo cinza escuro (bg-gray-800) para logos legíveis com letras brancas
+- **Arquivar sessão**: Marca active:false com 500ms de espera antes de remover, para clientes detectarem e desconectarem graciosamente
+
+### Corrigido
+- **Desconexão ao arquivar**: Verificado que o fluxo marca active:false → espera → remove todo o nó sessions/, fazendo com que os clientes detectem e mostrem "Sessão Terminada"
+
+---
+
 ## [Diamant v2.1] - 2026-04-05
 
 ### Módulo Diamant - Correções e Melhorias
