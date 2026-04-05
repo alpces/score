@@ -4,6 +4,32 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Diamant v2.1] - 2026-04-05
+
+### Módulo Diamant - Correções e Melhorias
+
+### Corrigido
+- **Perigo não mostra info prematura**: Clientes não vêm qualquer informação sobre perigo até o master confirmar que não é repetido (mesmo fluxo que rubis — só após confirmação é que a fase muda para votação)
+- **Clientes desconectam ao arquivar**: Quando o master arquiva uma sessão, os clientes conectados são automaticamente desconectados e vêm mensagem "Sessão Terminada"
+- **Validação de sessão ativa**: Clientes não conseguem conectar-se a sessões inexistentes ou inativas
+- **Cores de revelação mais visíveis**: Verde e vermelho mais carregados (border-green-600/red-600, bg-green-100/red-100) para distinguir melhor quem ficou e quem saiu
+
+### Alterado
+- **Terminologia**: "Provisório" → "Descobertos", "Definitivo" → "Guardados" em ambas as apps
+- **Terminologia reserva (cliente)**: "rubis na reserva" → "rubis deixados para trás"; sobras da divisão → "não recolhidos"
+- **Equipas que já saíram**: Mesas que desistiram em rondas anteriores aparecem em cinza escuro (bg-gray-400) em vez do cinza claro normal
+
+### Adicionado
+- **Mesas dinâmicas**: Sem necessidade de definir nº de mesas no setup — equipas registam-se automaticamente quando os clientes se conectam
+- **Botão revelar condicionado**: Só aparece quando todos os jogadores votaram OU quando o timeout expira
+- **Timeout expirado**: No master mostra "Tempo esgotado!" + botão revelar; nos clientes a opção de votar desaparece (continuam por defeito)
+- **Info da reserva na tile**: Quando há sobras na divisão de rubis, mostra explicitamente quantos rubis devem ser colocados na tile revelada
+- **Logotipos**: Logo1 em destaque ao centro do header; restantes logos no rodapé (ambas apps)
+- **Ranking progressivo**: Ao abrir, posições do 6º para baixo aparecem logo; depois revela do 5º ao 1º por clique
+- **Gestão de sessões completa**: Restaurar/arquivar sessões, diálogo de sessão existente, modal de terminar sessão (Arquivar/Pausar/Cancelar)
+
+---
+
 ## [3.0.0] - 2026-04-04
 
 ### 🏗️ Arquitetura Modular

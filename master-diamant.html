@@ -37,237 +37,189 @@
     <script>
         /**
          * ====================================================================
-         * DIAMANT - MASTER APP (v2)
+         * DIAMANT - MASTER APP (v2.1)
          * ====================================================================
          * 
-         * ALTERAÇÕES v2:
-         * - Mesas dinâmicas (registam-se via clientes, sem definir nº no setup)
-         * - Botão revelar só aparece quando todos votaram OU timeout expirou
-         * - Timeout: ao fim, mostra botão revelar; clientes perdem opção de votar
-         * - Divisão de rubis mostra quanto vai para reserva (tile)
-         * - "Descobertos" e "Guardados" em vez de provisório/definitivo
-         * - Logo1 em destaque no header, restantes no rodapé
-         * - Perigo: clientes só votam após master confirmar NÃO repetido
-         * - Ranking: 6+ revelados de imediato, depois 5º a 1º por clique
-         * - Gestão de sessões: restaurar/arquivar como master genérico
+         * ALTERAÇÕES v2.1:
+         * - Fix: clientes não vêm info de perigo durante awaitingConfirmation
+         * - Fix: lastCard só relevante quando em fase de votação confirmada
+         * - Ao arquivar sessão, clientes são desconectados (remove nó clients)
+         * - Cores de revelação mais fortes (verde/vermelho mais carregados)
+         * - Equipas fora da expedição em cinza escuro
          * 
+         * ALTERAÇÕES v2.0:
+         * - Mesas dinâmicas (registam-se via clientes)
+         * - Botão revelar só quando todos votaram OU timeout expirou
+         * - "Descobertos" / "Guardados"
+         * - Logo1 destaque header, restantes rodapé
+         * - Ranking: 6+ revelados, depois 5º a 1º
+         * - Gestão de sessões completa
          * ====================================================================
          */
         
         const CLIENT_URL = 'https://alpces.github.io/score/client-diamant.html';
         const GAME_TYPE = 'diamant';
 
-        window.addEventListener('firebaseReady', () => {
-            const { useState, useEffect, useRef, createElement: h } = React;
-            const { db, rtdb, fbModules } = window;
-            const { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update } = fbModules;
+        window.addEventListener('firebaseReady', function() {
+            var useState = React.useState;
+            var useEffect = React.useEffect;
+            var useRef = React.useRef;
+            var h = React.createElement;
+            var db = window.db;
+            var rtdb = window.rtdb;
+            var fm = window.fbModules;
 
             function App() {
-                // =============================================================
-                // ESTADOS - SETUP
-                // =============================================================
-                const [setupComplete, setSetupComplete] = useState(false);
-                const [sessionId, setSessionId] = useState(null);
-                const [customSessionCode, setCustomSessionCode] = useState('');
-                const [codeError, setCodeError] = useState('');
-                const [codeCopied, setCodeCopied] = useState(false);
+                // === ESTADOS - SETUP ===
+                var s1 = useState(false); var setupComplete = s1[0]; var setSetupComplete = s1[1];
+                var s2 = useState(null); var sessionId = s2[0]; var setSessionId = s2[1];
+                var s3 = useState(''); var customSessionCode = s3[0]; var setCustomSessionCode = s3[1];
+                var s4 = useState(''); var codeError = s4[0]; var setCodeError = s4[1];
+                var s5 = useState(false); var codeCopied = s5[0]; var setCodeCopied = s5[1];
+                var s6 = useState(0); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
+                var s7 = useState(true); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
                 
-                // Config do jogo
-                const [votingTimeoutDefault, setVotingTimeoutDefault] = useState(0);
-                const [showDiscovered, setShowDiscovered] = useState(true);
+                // === ESTADOS - JOGO ===
+                var g1 = useState('waiting_start'); var phase = g1[0]; var setPhase = g1[1];
+                var g2 = useState(1); var expedition = g2[0]; var setExpedition = g2[1];
+                var g3 = useState(0); var reserve = g3[0]; var setReserve = g3[1];
+                var g4 = useState([]); var teamsInExpedition = g4[0]; var setTeamsInExpedition = g4[1];
+                var g5 = useState({}); var discoveredScores = g5[0]; var setDiscoveredScores = g5[1];
+                var g6 = useState({}); var savedScores = g6[0]; var setSavedScores = g6[1];
+                var g7 = useState({}); var votes = g7[0]; var setVotes = g7[1];
+                var g8 = useState(0); var votingTimeout = g8[0]; var setVotingTimeout = g8[1];
+                var g9 = useState(false); var votingTimedOut = g9[0]; var setVotingTimedOut = g9[1];
+                var g10 = useState(null); var lastCard = g10[0]; var setLastCard = g10[1];
+                var g11 = useState(null); var lastRevealResult = g11[0]; var setLastRevealResult = g11[1];
+                var g12 = useState(''); var rubyInputValue = g12[0]; var setRubyInputValue = g12[1];
                 
-                // =============================================================
-                // ESTADOS - JOGO DIAMANT
-                // =============================================================
-                const [phase, setPhase] = useState('waiting_start');
-                const [expedition, setExpedition] = useState(1);
-                const [reserve, setReserve] = useState(0);
-                const [teamsInExpedition, setTeamsInExpedition] = useState([]);
-                const [discoveredScores, setDiscoveredScores] = useState({});
-                const [savedScores, setSavedScores] = useState({});
-                const [votes, setVotes] = useState({});
-                const [votingTimeout, setVotingTimeout] = useState(0);
-                const [votingTimedOut, setVotingTimedOut] = useState(false);
-                const [lastCard, setLastCard] = useState(null);
-                const [lastRevealResult, setLastRevealResult] = useState(null);
-                const [rubyInputValue, setRubyInputValue] = useState('');
+                // === ESTADOS - UI ===
+                var u1 = useState([]); var tables = u1[0]; var setTables = u1[1];
+                var u2 = useState({}); var connectedClients = u2[0]; var setConnectedClients = u2[1];
+                var u3 = useState(false); var showQRCode = u3[0]; var setShowQRCode = u3[1];
+                var u4 = useState(false); var showLeaderboard = u4[0]; var setShowLeaderboard = u4[1];
+                var u5 = useState(null); var leaderboardRevealPosition = u5[0]; var setLeaderboardRevealPosition = u5[1];
+                var u6 = useState([]); var availableLogos = u6[0]; var setAvailableLogos = u6[1];
+                var u7 = useState([]); var selectedLogos = u7[0]; var setSelectedLogos = u7[1];
+                var u8 = useState(false); var showHistory = u8[0]; var setShowHistory = u8[1];
+                var u9 = useState([]); var sessionHistory = u9[0]; var setSessionHistory = u9[1];
+                var u10 = useState([]); var activeSessions = u10[0]; var setActiveSessions = u10[1];
+                var u11 = useState(false); var showExistingSessionDialog = u11[0]; var setShowExistingSessionDialog = u11[1];
+                var u12 = useState(null); var existingSessionData = u12[0]; var setExistingSessionData = u12[1];
+                var u13 = useState(false); var showEndSessionModal = u13[0]; var setShowEndSessionModal = u13[1];
+                // Lista de equipas que já saíram em rondas anteriores desta expedição
+                var u14 = useState([]); var exitedTeams = u14[0]; var setExitedTeams = u14[1];
                 
-                // =============================================================
-                // ESTADOS - UI
-                // =============================================================
-                const [tables, setTables] = useState([]);
-                const [connectedClients, setConnectedClients] = useState({});
-                const [showQRCode, setShowQRCode] = useState(false);
-                const [showLeaderboard, setShowLeaderboard] = useState(false);
-                const [leaderboardRevealPosition, setLeaderboardRevealPosition] = useState(null);
-                const [availableLogos, setAvailableLogos] = useState([]);
-                const [selectedLogos, setSelectedLogos] = useState([]);
+                var timerRef = useRef(null);
                 
-                // Session management
-                const [showHistory, setShowHistory] = useState(false);
-                const [sessionHistory, setSessionHistory] = useState([]);
-                const [activeSessions, setActiveSessions] = useState([]);
-                const [showExistingSessionDialog, setShowExistingSessionDialog] = useState(false);
-                const [existingSessionData, setExistingSessionData] = useState(null);
-                const [showEndSessionModal, setShowEndSessionModal] = useState(false);
-                
-                // Timer ref
-                const timerRef = useRef(null);
-                
-                // =============================================================
-                // EFEITOS - LOGOS
-                // =============================================================
-                useEffect(() => {
-                    const logos = [];
-                    let loadedCount = 0;
-                    const totalToCheck = 5;
-                    for (let i = 1; i <= totalToCheck; i++) {
-                        const img = new Image();
-                        const logoPath = 'logo' + i + '.png';
-                        img.onload = () => { logos.push(logoPath); loadedCount++; if (loadedCount === totalToCheck) setAvailableLogos(logos.sort()); };
-                        img.onerror = () => { loadedCount++; if (loadedCount === totalToCheck) setAvailableLogos(logos.sort()); };
-                        img.src = logoPath;
+                // === LOGOS ===
+                useEffect(function() {
+                    var logos = []; var loaded = 0;
+                    for (var i = 1; i <= 5; i++) {
+                        (function(idx) {
+                            var img = new Image();
+                            var path = 'logo' + idx + '.png';
+                            img.onload = function() { logos.push(path); loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                            img.onerror = function() { loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                            img.src = path;
+                        })(i);
                     }
                 }, []);
                 
-                // =============================================================
-                // EFEITOS - MONITORAR SESSÕES ATIVAS (sempre)
-                // =============================================================
-                useEffect(() => {
-                    const sessionsRef = ref(rtdb, 'sessions');
-                    const unsub = onValue(sessionsRef, (snapshot) => {
-                        const data = snapshot.val();
+                // === MONITORAR SESSÕES ATIVAS ===
+                useEffect(function() {
+                    var ref1 = fm.ref(rtdb, 'sessions');
+                    var unsub = fm.onValue(ref1, function(snap) {
+                        var data = snap.val();
                         if (data) {
-                            const active = Object.keys(data)
-                                .filter(code => {
-                                    const gs = data[code] && data[code].gameState;
-                                    if (!gs) return false;
-                                    if (gs.gameType !== GAME_TYPE) return false;
-                                    return gs.active !== false;
-                                })
-                                .map(code => ({
-                                    sessionId: code,
-                                    timestamp: data[code].gameState.timestamp || Date.now(),
-                                    ...data[code].gameState
-                                }))
-                                .sort((a, b) => b.timestamp - a.timestamp);
+                            var active = Object.keys(data).filter(function(code) {
+                                var gs = data[code] && data[code].gameState;
+                                return gs && gs.gameType === GAME_TYPE && gs.active !== false;
+                            }).map(function(code) {
+                                return Object.assign({ sessionId: code, timestamp: data[code].gameState.timestamp || Date.now() }, data[code].gameState);
+                            }).sort(function(a, b) { return b.timestamp - a.timestamp; });
                             setActiveSessions(active);
-                        } else {
-                            setActiveSessions([]);
-                        }
+                        } else setActiveSessions([]);
                     });
-                    return () => unsub();
+                    return function() { unsub(); };
                 }, []);
                 
-                // =============================================================
-                // EFEITOS - MONITORAR HISTÓRICO (quando visível)
-                // =============================================================
-                useEffect(() => {
+                // === HISTÓRICO ===
+                useEffect(function() {
                     if (!showHistory) return;
-                    const historyRef = ref(rtdb, 'sessionHistory');
-                    const unsub = onValue(historyRef, (snapshot) => {
-                        const data = snapshot.val();
+                    var ref1 = fm.ref(rtdb, 'sessionHistory');
+                    var unsub = fm.onValue(ref1, function(snap) {
+                        var data = snap.val();
                         if (data) {
-                            const entries = Object.entries(data)
-                                .filter(function(pair) { return pair[1].gameType === GAME_TYPE; })
-                                .map(function(pair) { return Object.assign({ id: pair[0] }, pair[1]); })
-                                .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                            var entries = Object.entries(data).filter(function(p) { return p[1].gameType === GAME_TYPE; })
+                                .map(function(p) { return Object.assign({ id: p[0] }, p[1]); })
+                                .sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
                             setSessionHistory(entries);
-                        } else {
-                            setSessionHistory([]);
-                        }
+                        } else setSessionHistory([]);
                     });
-                    return () => unsub();
+                    return function() { unsub(); };
                 }, [showHistory]);
                 
-                // =============================================================
-                // EFEITOS - SINCRONIZAÇÃO COM FIREBASE
-                // =============================================================
-                useEffect(() => {
+                // === SYNC FIREBASE ===
+                useEffect(function() {
                     if (!sessionId) return;
-                    const syncGame = async () => {
+                    var sync = async function() {
                         try {
-                            await set(ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
-                                gameType: GAME_TYPE,
-                                active: true,
-                                timestamp: Date.now(),
-                                phase: phase,
-                                expedition: expedition,
-                                reserve: reserve,
+                            await fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
+                                gameType: GAME_TYPE, active: true, timestamp: Date.now(),
+                                phase: phase, expedition: expedition, reserve: reserve,
                                 teamsInExpedition: teamsInExpedition,
-                                discoveredScores: discoveredScores,
-                                savedScores: savedScores,
-                                votes: votes,
-                                votingTimeout: votingTimeout,
-                                votingTimedOut: votingTimedOut,
-                                lastCard: lastCard,
-                                lastRevealResult: lastRevealResult,
+                                discoveredScores: discoveredScores, savedScores: savedScores,
+                                votes: votes, votingTimeout: votingTimeout, votingTimedOut: votingTimedOut,
+                                lastCard: lastCard, lastRevealResult: lastRevealResult,
                                 tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
-                                selectedLogos: selectedLogos
+                                selectedLogos: selectedLogos, exitedTeams: exitedTeams
                             });
-                        } catch (e) { console.error('Erro ao sincronizar:', e); }
+                        } catch (e) { console.error('Sync error:', e); }
                     };
-                    syncGame();
-                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, 
-                    savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos]);
+                    sync();
+                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams]);
                 
-                // =============================================================
-                // EFEITOS - LISTENERS FIREBASE (clientes e votos)
-                // =============================================================
-                useEffect(() => {
+                // === LISTENERS CLIENTES E VOTOS ===
+                useEffect(function() {
                     if (!sessionId) return;
-                    
-                    // Escutar clientes conectados — criar mesas dinamicamente
-                    var clientsRef = ref(rtdb, 'sessions/' + sessionId + '/clients');
-                    var unsubClients = onValue(clientsRef, function(snapshot) {
-                        var data = snapshot.val();
+                    var cRef = fm.ref(rtdb, 'sessions/' + sessionId + '/clients');
+                    var unsubC = fm.onValue(cRef, function(snap) {
+                        var data = snap.val();
                         setConnectedClients(data || {});
                         if (data) {
                             setTables(function(prev) {
-                                var newTables = prev.slice();
-                                Object.entries(data).forEach(function(entry) {
-                                    var tableId = entry[0], clientData = entry[1];
-                                    var id = parseInt(tableId);
-                                    var existingIdx = newTables.findIndex(function(t) { return t.id === id; });
-                                    if (existingIdx >= 0) {
-                                        if (clientData.teamName) {
-                                            newTables[existingIdx] = Object.assign({}, newTables[existingIdx], { name: clientData.teamName });
-                                        }
+                                var nt = prev.slice();
+                                Object.entries(data).forEach(function(e) {
+                                    var id = parseInt(e[0]), cd = e[1];
+                                    var idx = nt.findIndex(function(t) { return t.id === id; });
+                                    if (idx >= 0) {
+                                        if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName });
                                     } else {
-                                        newTables.push({ id: id, name: clientData.teamName || ('Mesa ' + id), score: 0 });
+                                        nt.push({ id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
                                         setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (!n[id]) n[id] = 0; return n; });
                                         setSavedScores(function(ds) { var n = Object.assign({}, ds); if (!n[id]) n[id] = 0; return n; });
                                     }
                                 });
-                                newTables.sort(function(a, b) { return a.id - b.id; });
-                                return newTables;
+                                nt.sort(function(a, b) { return a.id - b.id; });
+                                return nt;
                             });
                         }
                     });
-                    
-                    // Escutar votos
-                    var votesRef = ref(rtdb, 'sessions/' + sessionId + '/diamantVotes');
-                    var unsubVotes = onValue(votesRef, function(snapshot) {
-                        var data = snapshot.val();
-                        if (data) {
-                            setVotes(function(prev) { return Object.assign({}, prev, data); });
-                        }
+                    var vRef = fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes');
+                    var unsubV = fm.onValue(vRef, function(snap) {
+                        var data = snap.val();
+                        if (data) setVotes(function(prev) { return Object.assign({}, prev, data); });
                     });
-                    
-                    return function() { unsubClients(); unsubVotes(); };
+                    return function() { unsubC(); unsubV(); };
                 }, [sessionId]);
                 
-                // =============================================================
-                // EFEITOS - TIMER DE VOTAÇÃO
-                // =============================================================
-                useEffect(() => {
+                // === TIMER ===
+                useEffect(function() {
                     if (votingTimeout > 0) {
                         timerRef.current = setTimeout(function() {
                             setVotingTimeout(function(prev) {
-                                if (prev <= 1) {
-                                    setVotingTimedOut(true);
-                                    return 0;
-                                }
+                                if (prev <= 1) { setVotingTimedOut(true); return 0; }
                                 return prev - 1;
                             });
                         }, 1000);
@@ -275,97 +227,60 @@
                     return function() { if (timerRef.current) clearTimeout(timerRef.current); };
                 }, [votingTimeout]);
                 
-                // =============================================================
-                // FUNÇÕES - SETUP / SESSION MANAGEMENT
-                // =============================================================
-                var generateSessionCode = function() {
-                    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-                    var code = '';
-                    for (var i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-                    return code;
-                };
+                // === SESSION MANAGEMENT ===
+                var genCode = function() { var c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', r = ''; for (var i = 0; i < 6; i++) r += c.charAt(Math.floor(Math.random() * c.length)); return r; };
                 
                 var startSession = async function() {
-                    var finalCode = customSessionCode.trim().toUpperCase();
-                    
-                    if (finalCode) {
-                        if (!/^[A-Z0-9]+$/.test(finalCode)) { setCodeError('Apenas letras e números'); return; }
-                        if (finalCode.length > 10) { setCodeError('Máximo 10 caracteres'); return; }
-                        
-                        // Verificar sessão ativa existente
-                        var checkRef = ref(rtdb, 'sessions/' + finalCode + '/gameState');
-                        var checkSnap = await new Promise(function(resolve) { onValue(checkRef, resolve, { onlyOnce: true }); });
-                        var activeData = checkSnap.val();
-                        
-                        if (activeData && activeData.active) {
-                            setExistingSessionData({ code: finalCode, isOpen: true, data: activeData });
-                            setShowExistingSessionDialog(true);
-                            return;
-                        }
-                    } else {
-                        finalCode = generateSessionCode();
-                    }
-                    
-                    await proceedWithSessionCreation(finalCode);
+                    var fc = customSessionCode.trim().toUpperCase();
+                    if (fc) {
+                        if (!/^[A-Z0-9]+$/.test(fc)) { setCodeError('Apenas letras e números'); return; }
+                        if (fc.length > 10) { setCodeError('Máximo 10 caracteres'); return; }
+                        var snap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + fc + '/gameState'), r, { onlyOnce: true }); });
+                        var ad = snap.val();
+                        if (ad && ad.active) { setExistingSessionData({ code: fc, data: ad }); setShowExistingSessionDialog(true); return; }
+                    } else fc = genCode();
+                    await proceedCreate(fc);
                 };
                 
-                var proceedWithSessionCreation = async function(finalCode) {
-                    setTables([]);
-                    setDiscoveredScores({});
-                    setSavedScores({});
-                    setSessionId(finalCode);
-                    setSetupComplete(true);
-                    setPhase('waiting_start');
-                    setExpedition(1);
-                    setReserve(0);
-                    setTeamsInExpedition([]);
-                    setVotes({});
-                    setLastCard(null);
-                    setLastRevealResult(null);
-                    setVotingTimeout(0);
-                    setVotingTimedOut(false);
-                    
+                var proceedCreate = async function(code) {
+                    setTables([]); setDiscoveredScores({}); setSavedScores({});
+                    setSessionId(code); setSetupComplete(true); setPhase('waiting_start');
+                    setExpedition(1); setReserve(0); setTeamsInExpedition([]);
+                    setVotes({}); setLastCard(null); setLastRevealResult(null);
+                    setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
                     try {
-                        await set(ref(rtdb, 'sessions/' + finalCode + '/gameState'), {
+                        await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
                             gameType: GAME_TYPE, active: true, timestamp: Date.now(),
                             phase: 'waiting_start', expedition: 1, reserve: 0,
                             teamsInExpedition: [], discoveredScores: {}, savedScores: {},
                             votes: {}, votingTimeout: 0, votingTimedOut: false,
                             lastCard: null, lastRevealResult: null, tables: [],
-                            selectedLogos: selectedLogos
+                            selectedLogos: selectedLogos, exitedTeams: []
                         });
-                        console.log('Sessão Diamant ' + finalCode + ' criada');
-                    } catch (e) { console.error('Erro ao criar sessão:', e); }
+                    } catch (e) { console.error('Erro:', e); }
                 };
                 
-                var handleExistingSessionChoice = async function(choice) {
-                    var code = existingSessionData.code;
-                    var data = existingSessionData.data;
-                    
+                var handleExistingChoice = async function(choice) {
+                    var code = existingSessionData.code, data = existingSessionData.data;
                     if (choice === 'yes') {
                         setShowExistingSessionDialog(false);
                         loadSession(Object.assign({ sessionId: code }, data), true);
                     } else if (choice === 'no') {
                         setShowExistingSessionDialog(false);
                         try {
-                            await update(ref(rtdb, 'sessions/' + code + '/gameState'), { active: false, closedAt: Date.now() });
+                            await fm.update(fm.ref(rtdb, 'sessions/' + code + '/gameState'), { active: false, closedAt: Date.now() });
                             await new Promise(function(r) { setTimeout(r, 200); });
-                            var historyData = {
+                            var hid = Math.random().toString(36).substring(2, 12);
+                            await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), {
                                 sessionId: code, timestamp: Date.now(), gameType: GAME_TYPE,
                                 tables: data.tables || [], discoveredScores: data.discoveredScores || {},
-                                savedScores: data.savedScores || {}, expedition: data.expedition || 1,
-                                archived: true
-                            };
-                            var historyId = Math.random().toString(36).substring(2, 12);
-                            await set(ref(rtdb, 'sessionHistory/' + historyId), historyData);
-                            await remove(ref(rtdb, 'sessions/' + code));
+                                savedScores: data.savedScores || {}, expedition: data.expedition || 1, archived: true
+                            });
+                            await fm.remove(fm.ref(rtdb, 'sessions/' + code));
                             await new Promise(function(r) { setTimeout(r, 200); });
-                            await proceedWithSessionCreation(code);
-                        } catch (e) { console.error('Erro:', e); alert('Erro ao arquivar: ' + e.message); }
-                    } else {
-                        setShowExistingSessionDialog(false);
-                        setExistingSessionData(null);
-                    }
+                            await proceedCreate(code);
+                        } catch (e) { alert('Erro: ' + e.message); }
+                    } else { setShowExistingSessionDialog(false); setExistingSessionData(null); }
                 };
                 
                 var resetToSetup = function() {
@@ -374,7 +289,7 @@
                     setDiscoveredScores({}); setSavedScores({}); setVotes({});
                     setVotingTimeout(0); setVotingTimedOut(false);
                     setLastCard(null); setLastRevealResult(null);
-                    setTables([]); setConnectedClients({});
+                    setTables([]); setConnectedClients({}); setExitedTeams([]);
                     setShowLeaderboard(false); setShowQRCode(false); setShowEndSessionModal(false);
                 };
                 
@@ -382,71 +297,68 @@
                     if (!sessionId) return;
                     try {
                         var curId = sessionId;
-                        var historyData = {
+                        var hd = {
                             sessionId: curId, timestamp: Date.now(), gameType: GAME_TYPE,
                             tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
                             discoveredScores: Object.assign({}, discoveredScores),
                             savedScores: Object.assign({}, savedScores),
                             expedition: expedition, emails: {}, selectedLogos: selectedLogos, archived: true
                         };
-                        Object.values(connectedClients).forEach(function(c) { historyData.emails[c.tableNumber] = c.emails || []; });
-                        await update(ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
-                        await new Promise(function(r) { setTimeout(r, 200); });
+                        Object.values(connectedClients).forEach(function(c) { hd.emails[c.tableNumber] = c.emails || []; });
+                        // Marcar inativo e depois remover toda a sessão (incluindo clientes)
+                        await fm.update(fm.ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
+                        await new Promise(function(r) { setTimeout(r, 300); });
                         var hid = Math.random().toString(36).substring(2, 12);
-                        await set(ref(rtdb, 'sessionHistory/' + hid), historyData);
-                        await remove(ref(rtdb, 'sessions/' + curId));
+                        await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), hd);
+                        // Remove TODO o nó da sessão (gameState + clients + diamantVotes)
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + curId));
                         resetToSetup();
-                    } catch (e) { console.error('Erro:', e); alert('Erro: ' + e.message); }
+                    } catch (e) { alert('Erro: ' + e.message); }
                 };
                 
                 var endSessionPause = function() { resetToSetup(); };
                 
                 var loadSession = async function(entry, skipConfirm) {
-                    if (!skipConfirm && !confirm('Deseja carregar esta sessão?')) return;
+                    if (!skipConfirm && !confirm('Carregar esta sessão?')) return;
                     var code = entry.sessionId;
                     setShowHistory(false);
-                    var loadedTables = entry.tables || [];
-                    var loadedDisc = entry.discoveredScores || {};
-                    var loadedSaved = entry.savedScores || {};
-                    if (Object.keys(loadedSaved).length === 0 && loadedTables.length > 0) {
-                        loadedTables.forEach(function(t) { loadedSaved[t.id] = t.score || 0; loadedDisc[t.id] = 0; });
-                    }
-                    setTables(loadedTables); setDiscoveredScores(loadedDisc); setSavedScores(loadedSaved);
+                    var lt = entry.tables || [];
+                    var ld = entry.discoveredScores || {};
+                    var ls = entry.savedScores || {};
+                    if (Object.keys(ls).length === 0 && lt.length > 0) lt.forEach(function(t) { ls[t.id] = t.score || 0; ld[t.id] = 0; });
+                    setTables(lt); setDiscoveredScores(ld); setSavedScores(ls);
                     setExpedition(entry.expedition || 1); setReserve(entry.reserve || 0);
                     setTeamsInExpedition(entry.teamsInExpedition || []);
                     setPhase(entry.phase || 'waiting_start');
                     setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
                     setLastCard(null); setLastRevealResult(null);
                     setSelectedLogos(entry.selectedLogos || []);
+                    setExitedTeams(entry.exitedTeams || []);
                     setConnectedClients({}); setShowLeaderboard(false); setShowQRCode(false);
                     setSessionId(code); setSetupComplete(true);
-                    
                     setTimeout(async function() {
                         try {
-                            await set(ref(rtdb, 'sessions/' + code + '/gameState'), {
+                            await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
                                 gameType: GAME_TYPE, active: true, timestamp: Date.now(),
                                 phase: entry.phase || 'waiting_start', expedition: entry.expedition || 1,
                                 reserve: entry.reserve || 0, teamsInExpedition: entry.teamsInExpedition || [],
-                                discoveredScores: loadedDisc, savedScores: loadedSaved,
-                                votes: {}, votingTimeout: 0, votingTimedOut: false,
-                                lastCard: null, lastRevealResult: null, tables: loadedTables,
-                                selectedLogos: entry.selectedLogos || []
+                                discoveredScores: ld, savedScores: ls, votes: {}, votingTimeout: 0, votingTimedOut: false,
+                                lastCard: null, lastRevealResult: null, tables: lt,
+                                selectedLogos: entry.selectedLogos || [], exitedTeams: entry.exitedTeams || []
                             });
-                        } catch (e) { console.error('Erro ao restaurar:', e); }
+                        } catch (e) { console.error('Erro:', e); }
                     }, 100);
                 };
                 
                 var closeActiveSession = async function(sessionCode) {
-                    if (!confirm('Arquivar a sessão "' + sessionCode + '"?')) return;
+                    if (!confirm('Arquivar "' + sessionCode + '"?')) return;
                     try {
-                        var sRef = ref(rtdb, 'sessions/' + sessionCode + '/gameState');
-                        var snap = await new Promise(function(r) { onValue(sRef, r, { onlyOnce: true }); });
+                        var snap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), r, { onlyOnce: true }); });
                         var sd = snap.val();
-                        if (!sd) { alert('Sessão não encontrada'); return; }
-                        await update(ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { active: false, closedAt: Date.now() });
+                        if (!sd) { alert('Não encontrada'); return; }
+                        await fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { active: false, closedAt: Date.now() });
                         await new Promise(function(r) { setTimeout(r, 200); });
-                        var cRef = ref(rtdb, 'sessions/' + sessionCode + '/clients');
-                        var cSnap = await new Promise(function(r) { onValue(cRef, r, { onlyOnce: true }); });
+                        var cSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients'), r, { onlyOnce: true }); });
                         var cd = cSnap.val() || {};
                         var hd = {
                             sessionId: sessionCode, timestamp: Date.now(), gameType: GAME_TYPE,
@@ -456,50 +368,53 @@
                         };
                         Object.values(cd).forEach(function(c) { hd.emails[c.tableNumber] = c.emails || []; });
                         var hid = Math.random().toString(36).substring(2, 12);
-                        await set(ref(rtdb, 'sessionHistory/' + hid), hd);
-                        await remove(ref(rtdb, 'sessions/' + sessionCode));
-                    } catch (e) { console.error('Erro:', e); alert('Erro: ' + e.message); }
+                        await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), hd);
+                        // Remove TODO o nó (desconecta clientes)
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode));
+                    } catch (e) { alert('Erro: ' + e.message); }
                 };
                 
-                var deleteHistoryEntry = async function(entryId) {
-                    if (!confirm('Eliminar este registo?')) return;
-                    try { await remove(ref(rtdb, 'sessionHistory/' + entryId)); } catch (e) { console.error(e); }
+                var deleteHistoryEntry = async function(id) {
+                    if (!confirm('Eliminar?')) return;
+                    try { await fm.remove(fm.ref(rtdb, 'sessionHistory/' + id)); } catch (e) { console.error(e); }
                 };
                 
-                // =============================================================
-                // FUNÇÕES - JOGO DIAMANT
-                // =============================================================
+                // === JOGO ===
                 var startExpedition = async function() {
                     if (tables.length === 0) { alert('Nenhuma equipa registada.'); return; }
                     var allIds = tables.map(function(t) { return t.id; });
-                    var newDisc = {};
-                    allIds.forEach(function(id) { newDisc[id] = 0; });
-                    await remove(ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    var nd = {}; allIds.forEach(function(id) { nd[id] = 0; });
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     setPhase('exploring'); setReserve(0); setTeamsInExpedition(allIds);
-                    setDiscoveredScores(newDisc); setVotes({}); setLastCard(null);
-                    setLastRevealResult(null); setVotingTimedOut(false);
+                    setDiscoveredScores(nd); setVotes({}); setLastCard(null);
+                    setLastRevealResult(null); setVotingTimedOut(false); setExitedTeams([]);
                 };
                 
                 var drawRubyCard = async function() {
-                    var value = parseInt(rubyInputValue);
-                    if (!value || value <= 0) return;
-                    var teamsCount = teamsInExpedition.length;
-                    if (teamsCount === 0) return;
-                    var perTeam = Math.floor(value / teamsCount);
-                    var leftover = value % teamsCount;
-                    var newDisc = Object.assign({}, discoveredScores);
-                    teamsInExpedition.forEach(function(id) { newDisc[id] = (newDisc[id] || 0) + perTeam; });
-                    await remove(ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
-                    setDiscoveredScores(newDisc); setReserve(reserve + leftover);
+                    var val = parseInt(rubyInputValue);
+                    if (!val || val <= 0 || teamsInExpedition.length === 0) return;
+                    var tc = teamsInExpedition.length;
+                    var perTeam = Math.floor(val / tc), leftover = val % tc;
+                    var nd = Object.assign({}, discoveredScores);
+                    teamsInExpedition.forEach(function(id) { nd[id] = (nd[id] || 0) + perTeam; });
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    setDiscoveredScores(nd); setReserve(reserve + leftover);
                     setPhase('voting'); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
-                    setLastCard({ type: 'ruby', value: value, perTeam: perTeam, leftover: leftover });
+                    setLastCard({ type: 'ruby', value: val, perTeam: perTeam, leftover: leftover });
                     setRubyInputValue('');
                 };
                 
+                // Perigo: coloca awaitingConfirmation = true
+                // Clientes NÃO vêm nada de diferente (ficam a ver "A explorar...")
+                // Só após master confirmar "Não repetido" é que lastCard fica com isRepeated: false
+                // e aí sim os clientes vêm opções de votar
                 var drawDangerCard = async function() {
-                    await remove(ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
-                    setPhase('voting'); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    // Manter phase em 'exploring' durante a confirmação!
+                    // Só muda para 'voting' quando o master confirma
+                    setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
                     setLastCard({ type: 'danger', awaitingConfirmation: true });
+                    // NÃO mudar phase aqui — fica 'exploring' para os clientes
                 };
                 
                 var confirmDanger = async function(isRepeated) {
@@ -509,158 +424,106 @@
                         setLastCard({ type: 'danger', isRepeated: true });
                         setLastRevealResult({ staying: [], leaving: [], dangerRepeated: true });
                     } else {
-                        // Não repetido — agora clientes vêm botões de voto
+                        // Não repetido — AGORA sim muda para voting
+                        setPhase('voting');
                         setLastCard({ type: 'danger', isRepeated: false });
                     }
                 };
                 
-                var startVotingTimeout = function(seconds) {
-                    setVotingTimeout(seconds || 10);
-                    setVotingTimedOut(false);
-                };
+                var startVotingTimeout = function(s) { setVotingTimeout(s || 10); setVotingTimedOut(false); };
                 
                 var revealVotes = async function() {
-                    var finalVotes = Object.assign({}, votes);
-                    teamsInExpedition.forEach(function(id) {
-                        if (finalVotes[id] === null || finalVotes[id] === undefined) finalVotes[id] = 'continue';
-                    });
-                    var leaving = teamsInExpedition.filter(function(id) { return finalVotes[id] === 'leave'; });
-                    var staying = teamsInExpedition.filter(function(id) { return finalVotes[id] !== 'leave'; });
-                    var reservePerLeaver = 0, reserveLeftover = 0;
-                    if (leaving.length > 0 && reserve > 0) {
-                        reservePerLeaver = Math.floor(reserve / leaving.length);
-                        reserveLeftover = reserve % leaving.length;
-                    }
-                    var newDisc = Object.assign({}, discoveredScores);
-                    var newSaved = Object.assign({}, savedScores);
-                    leaving.forEach(function(id) {
-                        var disc = newDisc[id] || 0;
-                        newSaved[id] = (newSaved[id] || 0) + disc + reservePerLeaver;
-                        newDisc[id] = 0;
-                    });
-                    var newReserve = staying.length > 0 ? reserveLeftover : 0;
-                    if (leaving.length === 0) newReserve = reserve;
-                    var expeditionEnds = staying.length === 0;
-                    await remove(ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
-                    setDiscoveredScores(newDisc); setSavedScores(newSaved);
-                    setReserve(newReserve); setTeamsInExpedition(staying);
-                    setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
-                    setPhase(expeditionEnds ? 'expedition_end' : 'exploring');
-                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: reservePerLeaver, reserveLost: expeditionEnds ? reserveLeftover : 0 });
+                    var fv = Object.assign({}, votes);
+                    teamsInExpedition.forEach(function(id) { if (fv[id] == null) fv[id] = 'continue'; });
+                    var leaving = teamsInExpedition.filter(function(id) { return fv[id] === 'leave'; });
+                    var staying = teamsInExpedition.filter(function(id) { return fv[id] !== 'leave'; });
+                    var rpl = 0, rlo = 0;
+                    if (leaving.length > 0 && reserve > 0) { rpl = Math.floor(reserve / leaving.length); rlo = reserve % leaving.length; }
+                    var nd = Object.assign({}, discoveredScores), ns = Object.assign({}, savedScores);
+                    leaving.forEach(function(id) { ns[id] = (ns[id] || 0) + (nd[id] || 0) + rpl; nd[id] = 0; });
+                    var nr = staying.length > 0 ? rlo : 0;
+                    if (leaving.length === 0) nr = reserve;
+                    var ends = staying.length === 0;
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    // Adicionar equipas que saíram à lista de exitedTeams
+                    setExitedTeams(function(prev) { return prev.concat(leaving); });
+                    setDiscoveredScores(nd); setSavedScores(ns); setReserve(nr);
+                    setTeamsInExpedition(staying); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    setPhase(ends ? 'expedition_end' : 'exploring');
+                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveLost: ends ? rlo : 0 });
                 };
                 
                 var prepareNewExpedition = function() {
                     setPhase('waiting_start'); setExpedition(expedition + 1);
                     setReserve(0); setTeamsInExpedition([]); setDiscoveredScores({});
                     setVotes({}); setLastCard(null); setLastRevealResult(null);
-                    setVotingTimeout(0); setVotingTimedOut(false);
+                    setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
                 };
                 
-                // =============================================================
-                // FUNÇÕES - LEADERBOARD
-                // Ao abrir: revelar do 6º para baixo de uma vez
-                // Depois cada clique revela do 5º ao 1º
-                // =============================================================
+                // === LEADERBOARD ===
                 var showFinalLeaderboard = function() {
                     setShowLeaderboard(true);
                     var sorted = tables.slice().sort(function(a, b) { return (savedScores[b.id] || 0) - (savedScores[a.id] || 0); });
-                    // Revelar do 6º para baixo imediatamente
-                    if (sorted.length <= 5) {
-                        // Menos de 6 equipas: esconder tudo, revelar 1 a 1
-                        setLeaderboardRevealPosition(sorted.length + 1);
-                    } else {
-                        // 6 ou mais: mostrar 6º+ logo
-                        setLeaderboardRevealPosition(6);
-                    }
+                    setLeaderboardRevealPosition(sorted.length <= 5 ? sorted.length + 1 : 6);
                 };
-                
                 var revealNextPosition = function() {
-                    if (leaderboardRevealPosition && leaderboardRevealPosition > 1) {
-                        setLeaderboardRevealPosition(leaderboardRevealPosition - 1);
-                    }
+                    if (leaderboardRevealPosition && leaderboardRevealPosition > 1) setLeaderboardRevealPosition(leaderboardRevealPosition - 1);
                 };
                 
-                // =============================================================
-                // FUNÇÕES - QR CODE
-                // =============================================================
-                var copySessionLink = function() {
-                    var link = CLIENT_URL + '?session=' + sessionId;
-                    navigator.clipboard.writeText(link);
-                    setCodeCopied(true);
-                    setTimeout(function() { setCodeCopied(false); }, 2000);
+                var copyLink = function() {
+                    navigator.clipboard.writeText(CLIENT_URL + '?session=' + sessionId);
+                    setCodeCopied(true); setTimeout(function() { setCodeCopied(false); }, 2000);
                 };
                 
-                // =============================================================
-                // CONTADORES
-                // =============================================================
-                var votesReceived = Object.values(votes).filter(function(v) { return v !== null && v !== undefined; }).length;
+                // === CONTADORES ===
+                var votesRcvd = Object.values(votes).filter(function(v) { return v != null; }).length;
                 var totalToVote = teamsInExpedition.length;
-                var allVoted = votesReceived === totalToVote && totalToVote > 0;
-                
-                // Logos
+                var allVoted = votesRcvd === totalToVote && totalToVote > 0;
                 var mainLogo = selectedLogos.indexOf('logo1.png') >= 0 ? 'logo1.png' : null;
-                var secondaryLogos = selectedLogos.filter(function(l) { return l !== 'logo1.png'; });
+                var secLogos = selectedLogos.filter(function(l) { return l !== 'logo1.png'; });
+                var fmtDate = function(ts) { var d = new Date(ts); return d.toLocaleDateString('pt-PT') + ' ' + d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }); };
+                // Perigo em fase de confirmação do master (ainda não é voting para clientes)
+                var dangerAwaiting = lastCard && lastCard.type === 'danger' && lastCard.awaitingConfirmation;
                 
-                var formatDate = function(timestamp) {
-                    var d = new Date(timestamp);
-                    return d.toLocaleDateString('pt-PT') + ' ' + d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
-                };
-                
-                // =============================================================
-                // RENDER - MODAL: Sessão Existente
-                // =============================================================
+                // === RENDER: MODAIS ===
                 if (showExistingSessionDialog && existingSessionData) {
                     return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
                             h('div', { className: 'text-center mb-6' },
-                                h('div', { className: 'w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-4' },
-                                    h('span', { className: 'text-3xl' }, '⚠️')
-                                ),
+                                h('div', { className: 'w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-4' }, h('span', { className: 'text-3xl' }, '⚠️')),
                                 h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, 'Sessão Aberta Encontrada'),
-                                h('p', { className: 'text-gray-600' }, 'Já existe uma sessão aberta com o código "' + existingSessionData.code + '".'),
-                                h('p', { className: 'text-gray-600 mt-2' }, 'Deseja carregar a sessão anterior?')
+                                h('p', { className: 'text-gray-600' }, 'Já existe "' + existingSessionData.code + '" aberta.'),
+                                h('p', { className: 'text-gray-600 mt-2' }, 'Carregar a sessão anterior?')
                             ),
                             h('div', { className: 'space-y-3' },
-                                h('button', { onClick: function() { handleExistingSessionChoice('yes'); }, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, 'Sim - Carregar Sessão Anterior'),
-                                h('button', { onClick: function() { handleExistingSessionChoice('no'); }, className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700' }, 'Não - Arquivar e Criar Nova'),
-                                h('button', { onClick: function() { handleExistingSessionChoice('cancel'); }, className: 'w-full bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600' }, 'Cancelar')
-                            ),
-                            h('p', { className: 'text-xs text-gray-500 mt-4 text-center' }, 'Escolhendo "Não", a sessão anterior será arquivada e uma nova será criada com o mesmo código.')
-                        )
-                    );
-                }
-                
-                // =============================================================
-                // RENDER - MODAL: Terminar Sessão
-                // =============================================================
-                if (showEndSessionModal) {
-                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
-                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
-                            h('div', { className: 'text-center mb-6' },
-                                h('div', { className: 'w-16 h-16 bg-amber-600 rounded-full flex items-center justify-center mx-auto mb-4' },
-                                    h('span', { className: 'text-3xl' }, '🏁')
-                                ),
-                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, 'Terminar Sessão'),
-                                h('p', { className: 'text-gray-600' }, 'Sessão: ' + sessionId),
-                                h('p', { className: 'text-gray-600 mt-1' }, tables.length + ' equipa(s) · Expedição ' + expedition)
-                            ),
-                            h('div', { className: 'space-y-3' },
-                                h('button', { onClick: endSessionArchive, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, '📦 Arquivar e Fechar'),
-                                h('p', { className: 'text-xs text-gray-500 text-center -mt-1 mb-2' }, 'Guarda no histórico e termina'),
-                                h('button', { onClick: endSessionPause, className: 'w-full bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600' }, '⏸️ Pausar (deixar aberta)'),
-                                h('p', { className: 'text-xs text-gray-500 text-center -mt-1 mb-2' }, 'Pode retomar em "Gestão de Sessões"'),
-                                h('button', { onClick: function() { setShowEndSessionModal(false); }, className: 'w-full bg-gray-400 text-white py-3 rounded-lg font-bold hover:bg-gray-500' }, '❌ Cancelar')
+                                h('button', { onClick: function() { handleExistingChoice('yes'); }, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, 'Sim - Carregar Anterior'),
+                                h('button', { onClick: function() { handleExistingChoice('no'); }, className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700' }, 'Não - Arquivar e Criar Nova'),
+                                h('button', { onClick: function() { handleExistingChoice('cancel'); }, className: 'w-full bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600' }, 'Cancelar')
                             )
                         )
                     );
                 }
                 
-                // =============================================================
-                // RENDER - LEADERBOARD
-                // =============================================================
+                if (showEndSessionModal) {
+                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
+                            h('div', { className: 'text-center mb-6' },
+                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, '🏁 Terminar Sessão'),
+                                h('p', { className: 'text-gray-600' }, sessionId + ' · ' + tables.length + ' equipa(s) · Exp. ' + expedition)
+                            ),
+                            h('div', { className: 'space-y-3' },
+                                h('button', { onClick: endSessionArchive, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, '📦 Arquivar e Fechar'),
+                                h('p', { className: 'text-xs text-gray-500 text-center -mt-1 mb-2' }, 'Guarda no histórico, desconecta clientes'),
+                                h('button', { onClick: endSessionPause, className: 'w-full bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600' }, '⏸️ Pausar (deixar aberta)'),
+                                h('button', { onClick: function() { setShowEndSessionModal(false); }, className: 'w-full bg-gray-400 text-white py-3 rounded-lg font-bold hover:bg-gray-500 mt-2' }, '❌ Cancelar')
+                            )
+                        )
+                    );
+                }
+                
+                // === RENDER: LEADERBOARD ===
                 if (showLeaderboard) {
                     var sorted = tables.slice().sort(function(a, b) { return (savedScores[b.id] || 0) - (savedScores[a.id] || 0); });
-                    
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
                         h('div', { className: 'max-w-4xl mx-auto' },
                             h('div', { className: 'flex justify-between items-center mb-6' },
@@ -669,21 +532,20 @@
                             ),
                             leaderboardRevealPosition > 1 && h('div', { className: 'text-center mb-6' },
                                 h('button', { onClick: revealNextPosition, className: 'px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xl shadow-lg' },
-                                    leaderboardRevealPosition === 2 ? '🥇 Revelar 1º Lugar!' : '👆 Revelar ' + (leaderboardRevealPosition - 1) + 'º Lugar'
+                                    leaderboardRevealPosition === 2 ? '🥇 Revelar 1º Lugar!' : '👆 Revelar ' + (leaderboardRevealPosition - 1) + 'º'
                                 )
                             ),
                             h('div', { className: 'space-y-3' },
-                                sorted.map(function(table, idx) {
-                                    var position = idx + 1;
-                                    var isRevealed = leaderboardRevealPosition !== null && position >= leaderboardRevealPosition;
-                                    var score = savedScores[table.id] || 0;
-                                    return h('div', { key: table.id, className: 'p-4 rounded-xl transition-all duration-500 ' + (isRevealed ? (position === 1 ? 'bg-yellow-400 text-yellow-900 scale-105' : position === 2 ? 'bg-gray-300 text-gray-800' : position === 3 ? 'bg-orange-400 text-orange-900' : 'bg-white/90 text-gray-800') : 'bg-white/20 text-white/50') },
+                                sorted.map(function(t, idx) {
+                                    var pos = idx + 1, vis = leaderboardRevealPosition !== null && pos >= leaderboardRevealPosition;
+                                    var sc = savedScores[t.id] || 0;
+                                    return h('div', { key: t.id, className: 'p-4 rounded-xl transition-all duration-500 ' + (vis ? (pos === 1 ? 'bg-yellow-400 text-yellow-900 scale-105' : pos === 2 ? 'bg-gray-300 text-gray-800' : pos === 3 ? 'bg-orange-400 text-orange-900' : 'bg-white/90 text-gray-800') : 'bg-white/20 text-white/50') },
                                         h('div', { className: 'flex justify-between items-center' },
                                             h('div', { className: 'flex items-center gap-4' },
-                                                h('span', { className: 'text-2xl font-black w-10' }, isRevealed ? position + 'º' : '?'),
-                                                h('span', { className: 'text-xl font-bold' }, isRevealed ? (table.name || 'Mesa ' + table.id) : '???')
+                                                h('span', { className: 'text-2xl font-black w-10' }, vis ? pos + 'º' : '?'),
+                                                h('span', { className: 'text-xl font-bold' }, vis ? (t.name || 'Mesa ' + t.id) : '???')
                                             ),
-                                            h('span', { className: 'text-3xl font-black' }, isRevealed ? '💎 ' + score : '???')
+                                            h('span', { className: 'text-3xl font-black' }, vis ? '💎 ' + sc : '???')
                                         )
                                     );
                                 })
@@ -692,121 +554,99 @@
                     );
                 }
                 
-                // =============================================================
-                // RENDER - QR CODE
-                // =============================================================
+                // === RENDER: QR ===
                 if (showQRCode) {
-                    var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId);
+                    var qr = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId);
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex items-center justify-center', onClick: function() { setShowQRCode(false); } },
                         h('div', { className: 'text-center' },
-                            h('div', { className: 'bg-white p-8 rounded-2xl shadow-2xl mb-6' },
-                                h('img', { src: qrUrl, alt: 'QR Code', className: 'mx-auto' })
-                            ),
+                            h('div', { className: 'bg-white p-8 rounded-2xl shadow-2xl mb-6' }, h('img', { src: qr, alt: 'QR', className: 'mx-auto' })),
                             h('div', { className: 'text-6xl font-black text-white tracking-wider mb-4' }, sessionId),
                             h('div', { className: 'text-white/75' }, 'Toca para voltar')
                         )
                     );
                 }
                 
-                // =============================================================
-                // RENDER - GESTÃO DE SESSÕES
-                // =============================================================
+                // === RENDER: GESTÃO SESSÕES ===
                 if (showHistory) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-3' },
                         h('div', { className: 'max-w-5xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
                                 h('div', { className: 'flex justify-between mb-4' },
-                                    h('h2', { className: 'text-xl font-bold' }, '💎 Gestão de Sessões Diamant'),
+                                    h('h2', { className: 'text-xl font-bold' }, '💎 Gestão de Sessões'),
                                     h('button', { onClick: function() { setShowHistory(false); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                 ),
-                                // Sessões Abertas
                                 h('div', { className: 'mb-6' },
                                     h('h3', { className: 'text-lg font-bold text-green-700 mb-3 flex items-center gap-2' },
-                                        h('span', { className: 'inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse' }),
-                                        'Sessões Abertas (' + activeSessions.length + ')'
+                                        h('span', { className: 'inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse' }), 'Abertas (' + activeSessions.length + ')'
                                     ),
-                                    activeSessions.length === 0
-                                        ? h('p', { className: 'text-gray-500 text-sm italic pl-5' }, 'Nenhuma sessão aberta')
-                                        : h('div', { className: 'space-y-2' },
-                                            activeSessions.map(function(session) {
-                                                return h('div', { key: session.sessionId, className: 'flex justify-between items-center bg-green-50 border-2 border-green-200 p-3 rounded-lg' },
-                                                    h('div', { className: 'flex-1' },
-                                                        h('div', { className: 'font-bold text-lg text-gray-800' }, session.sessionId),
-                                                        h('div', { className: 'text-sm text-gray-600' }, (session.tables ? session.tables.length : 0) + ' equipa(s) · Exp. ' + (session.expedition || 1) + ' · ' + formatDate(session.timestamp))
-                                                    ),
-                                                    h('div', { className: 'flex gap-2' },
-                                                        h('button', { onClick: function() { loadSession(Object.assign({ sessionId: session.sessionId }, session), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 font-semibold' }, '🔄 Abrir'),
-                                                        h('button', { onClick: function() { closeActiveSession(session.sessionId); }, className: 'px-4 py-2 bg-orange-600 text-white text-sm rounded hover:bg-orange-700 font-semibold' }, '📦 Arquivar')
-                                                    )
-                                                );
-                                            })
-                                        )
+                                    activeSessions.length === 0 ? h('p', { className: 'text-gray-500 text-sm italic pl-5' }, 'Nenhuma')
+                                    : h('div', { className: 'space-y-2' }, activeSessions.map(function(s) {
+                                        return h('div', { key: s.sessionId, className: 'flex justify-between items-center bg-green-50 border-2 border-green-200 p-3 rounded-lg' },
+                                            h('div', { className: 'flex-1' },
+                                                h('div', { className: 'font-bold text-lg' }, s.sessionId),
+                                                h('div', { className: 'text-sm text-gray-600' }, (s.tables ? s.tables.length : 0) + ' eq · Exp. ' + (s.expedition || 1) + ' · ' + fmtDate(s.timestamp))
+                                            ),
+                                            h('div', { className: 'flex gap-2' },
+                                                h('button', { onClick: function() { loadSession(Object.assign({ sessionId: s.sessionId }, s), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 font-semibold' }, '🔄 Abrir'),
+                                                h('button', { onClick: function() { closeActiveSession(s.sessionId); }, className: 'px-4 py-2 bg-orange-600 text-white text-sm rounded hover:bg-orange-700 font-semibold' }, '📦 Arquivar')
+                                            )
+                                        );
+                                    }))
                                 ),
                                 h('div', { className: 'border-t-2 border-gray-200 my-6' }),
-                                // Sessões Arquivadas
                                 h('div', null,
-                                    h('h3', { className: 'text-lg font-bold text-gray-700 mb-3 flex items-center gap-2' },
-                                        h('span', { className: 'inline-block w-3 h-3 bg-gray-400 rounded-full' }),
-                                        'Sessões Arquivadas (' + sessionHistory.length + ')'
-                                    ),
-                                    sessionHistory.length === 0
-                                        ? h('p', { className: 'text-gray-500 text-sm italic pl-5' }, 'Nenhuma sessão arquivada')
-                                        : h('div', { className: 'space-y-2' },
-                                            sessionHistory.map(function(entry) {
-                                                return h('div', { key: entry.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
-                                                    h('div', { className: 'flex-1' },
-                                                        h('div', { className: 'font-semibold text-gray-800' }, entry.sessionId),
-                                                        h('div', { className: 'text-sm text-gray-600' }, (entry.tables ? entry.tables.length : 0) + ' equipa(s) · Exp. ' + (entry.expedition || '?') + ' · ' + formatDate(entry.timestamp))
-                                                    ),
-                                                    h('div', { className: 'flex gap-2' },
-                                                        h('button', { onClick: function() { loadSession(entry); }, className: 'px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 font-semibold' }, 'Carregar'),
-                                                        h('button', { onClick: function() { deleteHistoryEntry(entry.id); }, className: 'px-3 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600' }, '✕')
-                                                    )
-                                                );
-                                            })
-                                        )
+                                    h('h3', { className: 'text-lg font-bold text-gray-700 mb-3' }, 'Arquivadas (' + sessionHistory.length + ')'),
+                                    sessionHistory.length === 0 ? h('p', { className: 'text-gray-500 text-sm italic' }, 'Nenhuma')
+                                    : h('div', { className: 'space-y-2' }, sessionHistory.map(function(e) {
+                                        return h('div', { key: e.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
+                                            h('div', { className: 'flex-1' },
+                                                h('div', { className: 'font-semibold' }, e.sessionId),
+                                                h('div', { className: 'text-sm text-gray-600' }, (e.tables ? e.tables.length : 0) + ' eq · Exp. ' + (e.expedition || '?') + ' · ' + fmtDate(e.timestamp))
+                                            ),
+                                            h('div', { className: 'flex gap-2' },
+                                                h('button', { onClick: function() { loadSession(e); }, className: 'px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 font-semibold' }, 'Carregar'),
+                                                h('button', { onClick: function() { deleteHistoryEntry(e.id); }, className: 'px-3 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600' }, '✕')
+                                            )
+                                        );
+                                    }))
                                 )
                             )
                         )
                     );
                 }
                 
-                // =============================================================
-                // RENDER - SETUP
-                // =============================================================
+                // === RENDER: SETUP ===
                 if (!setupComplete) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
                         h('div', { className: 'max-w-lg mx-auto py-8' },
-                            h('button', { onClick: function() { setShowHistory(true); }, className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4' }, '📋 Gestão de Sessões (Abertas + Arquivadas)'),
+                            h('button', { onClick: function() { setShowHistory(true); }, className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4' }, '📋 Gestão de Sessões'),
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
                                 h('div', { className: 'text-center mb-6' },
                                     h('div', { className: 'text-5xl mb-2' }, '💎'),
                                     h('h1', { className: 'text-2xl font-black text-amber-800' }, 'Diamant'),
-                                    h('p', { className: 'text-sm text-gray-500' }, 'Configuração da Sessão')
+                                    h('p', { className: 'text-sm text-gray-500' }, 'Configuração')
                                 ),
                                 h('div', { className: 'space-y-4' },
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Código da Sessão (opcional)'),
-                                        h('input', { type: 'text', value: customSessionCode, onChange: function(e) { setCustomSessionCode(e.target.value.toUpperCase()); setCodeError(''); }, placeholder: 'Deixe vazio para gerar automaticamente', maxLength: 10, className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none uppercase font-mono' }),
+                                        h('input', { type: 'text', value: customSessionCode, onChange: function(e) { setCustomSessionCode(e.target.value.toUpperCase()); setCodeError(''); }, placeholder: 'Auto se vazio', maxLength: 10, className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none uppercase font-mono' }),
                                         codeError && h('p', { className: 'text-xs text-red-600 mt-1' }, codeError)
                                     ),
                                     h('div', { className: 'bg-amber-50 p-3 rounded-lg border border-amber-200' },
-                                        h('p', { className: 'text-sm text-amber-800' }, '📱 As equipas registam-se automaticamente quando os clientes se conectam.')
+                                        h('p', { className: 'text-sm text-amber-800' }, '📱 Equipas registam-se quando os clientes se conectam.')
                                     ),
                                     h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Timeout de Votação Padrão (0 = sem limite)'),
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Timeout Votação (0 = sem limite)'),
                                         h('input', { type: 'number', min: 0, max: 60, value: votingTimeoutDefault, onChange: function(e) { setVotingTimeoutDefault(Math.max(0, +e.target.value || 0)); }, className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none' })
                                     ),
                                     availableLogos.length > 0 && h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-2' }, 'Logotipos'),
-                                        h('div', { className: 'flex flex-wrap gap-2' },
-                                            availableLogos.map(function(logo) {
-                                                return h('label', { key: logo, className: 'flex items-center gap-1 p-2 border rounded cursor-pointer ' + (selectedLogos.indexOf(logo) >= 0 ? 'border-amber-500 bg-amber-50' : '') },
-                                                    h('input', { type: 'checkbox', checked: selectedLogos.indexOf(logo) >= 0, onChange: function(e) { if (e.target.checked) { setSelectedLogos(selectedLogos.concat([logo])); } else { setSelectedLogos(selectedLogos.filter(function(l) { return l !== logo; })); } }, className: 'hidden' }),
-                                                    h('img', { src: logo, className: 'w-8 h-8 object-contain' })
-                                                );
-                                            })
-                                        )
+                                        h('div', { className: 'flex flex-wrap gap-2' }, availableLogos.map(function(l) {
+                                            return h('label', { key: l, className: 'flex items-center p-2 border rounded cursor-pointer ' + (selectedLogos.indexOf(l) >= 0 ? 'border-amber-500 bg-amber-50' : '') },
+                                                h('input', { type: 'checkbox', checked: selectedLogos.indexOf(l) >= 0, onChange: function(e) { if (e.target.checked) setSelectedLogos(selectedLogos.concat([l])); else setSelectedLogos(selectedLogos.filter(function(x) { return x !== l; })); }, className: 'hidden' }),
+                                                h('img', { src: l, className: 'w-8 h-8 object-contain' })
+                                            );
+                                        }))
                                     ),
                                     h('button', { onClick: startSession, className: 'w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-lg shadow-lg mt-4' }, '🚀 Iniciar Sessão')
                                 )
@@ -815,9 +655,7 @@
                     );
                 }
                 
-                // =============================================================
-                // RENDER - JOGO PRINCIPAL
-                // =============================================================
+                // === RENDER: JOGO ===
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex flex-col' },
                     // Header
                     h('div', { className: 'bg-black/30 p-3 relative' },
@@ -826,15 +664,14 @@
                                 h('span', { className: 'text-2xl' }, '💎'),
                                 h('span', { className: 'text-white font-bold' }, 'Expedição ' + expedition),
                                 h('span', { className: 'text-amber-300 text-sm' },
-                                    phase === 'waiting_start' ? '⏳ À espera' : phase === 'exploring' ? '⛏️ A explorar' : phase === 'voting' ? '🗳️ Votação' : phase === 'expedition_end' ? '🏁 Terminada' : ''
+                                    phase === 'waiting_start' ? '⏳ À espera' : phase === 'exploring' ? (dangerAwaiting ? '☠️ Perigo — confirmar' : '⛏️ A explorar') : phase === 'voting' ? '🗳️ Votação' : phase === 'expedition_end' ? '🏁 Terminada' : ''
                                 )
                             ),
-                            // Logo1 ao centro do header
                             mainLogo && h('img', { src: mainLogo, className: 'h-12 object-contain', style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } }),
                             h('div', { className: 'flex items-center gap-2' },
                                 h('button', { onClick: function() { setShowQRCode(true); }, className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30' }, '📱 QR'),
                                 h('span', { className: 'text-white font-mono bg-white/20 px-3 py-1 rounded-lg' }, sessionId),
-                                h('button', { onClick: copySessionLink, className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30' }, codeCopied ? '✓' : '📋'),
+                                h('button', { onClick: copyLink, className: 'px-3 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30' }, codeCopied ? '✓' : '📋'),
                                 h('button', { onClick: function() { setShowEndSessionModal(true); }, className: 'px-3 py-1 bg-red-600/60 text-white rounded-lg text-sm hover:bg-red-600/80' }, '🏁')
                             )
                         )
@@ -842,14 +679,13 @@
                     
                     // Área principal
                     h('div', { className: 'flex-1 p-4 overflow-y-auto' },
-                        // Sem equipas
                         tables.length === 0 && phase === 'waiting_start' && h('div', { className: 'text-center text-white py-12' },
                             h('div', { className: 'text-6xl mb-4' }, '📱'),
-                            h('div', { className: 'text-xl font-semibold' }, 'À espera que as equipas se registem...'),
-                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'Os jogadores devem abrir o link ou QR code no telemóvel')
+                            h('div', { className: 'text-xl font-semibold' }, 'À espera de equipas...'),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'Abrir o link ou QR code no telemóvel')
                         ),
                         
-                        // Info da última carta (rubis com info da reserva/tile)
+                        // Info carta rubis (com reserva/tile)
                         lastCard && phase === 'voting' && lastCard.type === 'ruby' && h('div', { className: 'bg-amber-400 text-amber-900 rounded-xl p-3 mb-4 text-center' },
                             h('div', { className: 'text-2xl font-bold' }, '💎 ' + lastCard.value + ' rubis revelados'),
                             h('div', { className: 'text-sm' }, lastCard.perTeam + ' para cada equipa'),
@@ -857,14 +693,13 @@
                                 '⬇️ ' + lastCard.leftover + ' rubi' + (lastCard.leftover > 1 ? 's' : '') + ' para a reserva (colocar na tile)'
                             )
                         ),
-                        
-                        lastCard && phase === 'voting' && lastCard.type === 'danger' && h('div', { className: 'bg-red-500 text-white rounded-xl p-3 mb-4 text-center' },
-                            h('div', { className: 'text-2xl font-bold' }, '☠️ Perigo!'),
-                            lastCard.awaitingConfirmation && h('div', { className: 'text-sm animate-pulse' }, 'A confirmar se é repetido...'),
-                            lastCard.isRepeated === false && h('div', { className: 'text-sm' }, '✓ Não é repetido — votação aberta')
+                        // Info carta perigo (só após confirmação, não durante awaitingConfirmation)
+                        lastCard && phase === 'voting' && lastCard.type === 'danger' && !lastCard.awaitingConfirmation && h('div', { className: 'bg-red-500 text-white rounded-xl p-3 mb-4 text-center' },
+                            h('div', { className: 'text-2xl font-bold' }, '☠️ Perigo! (Não repetido)'),
+                            h('div', { className: 'text-sm' }, 'Votação aberta — continuar ou sair?')
                         ),
                         
-                        // Grid de mesas
+                        // Grid de mesas com cores melhoradas
                         h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3' },
                             tables.map(function(table) {
                                 var client = connectedClients[table.id];
@@ -872,85 +707,96 @@
                                 var disc = discoveredScores[table.id] || 0;
                                 var saved = savedScores[table.id] || 0;
                                 var vote = votes[table.id];
-                                var hasVoted = vote !== null && vote !== undefined;
+                                var hasVoted = vote != null;
+                                var isExited = exitedTeams.indexOf(table.id) >= 0;
+                                
                                 var bgClass = 'bg-white', borderClass = 'border-transparent';
+                                
+                                // Cores na revelação (mais carregadas)
                                 if (lastRevealResult && phase === 'exploring') {
-                                    if (lastRevealResult.leaving && lastRevealResult.leaving.indexOf(table.id) >= 0) { borderClass = 'border-red-400'; bgClass = 'bg-red-50'; }
-                                    else if (lastRevealResult.staying && lastRevealResult.staying.indexOf(table.id) >= 0) { borderClass = 'border-green-400'; bgClass = 'bg-green-50'; }
+                                    if (lastRevealResult.leaving && lastRevealResult.leaving.indexOf(table.id) >= 0) {
+                                        borderClass = 'border-red-600'; bgClass = 'bg-red-100';
+                                    } else if (lastRevealResult.staying && lastRevealResult.staying.indexOf(table.id) >= 0) {
+                                        borderClass = 'border-green-600'; bgClass = 'bg-green-100';
+                                    }
                                 }
-                                if (!isInExp && phase !== 'waiting_start' && phase !== 'expedition_end') bgClass = 'bg-gray-200';
+                                
+                                // Equipas que já saíram anteriormente: cinza escuro
+                                if (isExited && !isInExp && phase !== 'waiting_start' && phase !== 'expedition_end') {
+                                    bgClass = 'bg-gray-400'; borderClass = 'border-gray-500';
+                                } else if (!isInExp && !isExited && phase !== 'waiting_start' && phase !== 'expedition_end') {
+                                    bgClass = 'bg-gray-200';
+                                }
                                 
                                 return h('div', { key: table.id, className: bgClass + ' rounded-xl shadow-lg p-3 border-2 ' + borderClass + ' transition-all' },
                                     h('div', { className: 'flex justify-between items-center mb-2' },
-                                        h('span', { className: 'text-xs text-gray-500' }, 'Mesa ' + table.id),
+                                        h('span', { className: 'text-xs ' + (isExited && !isInExp ? 'text-gray-200' : 'text-gray-500') }, 'Mesa ' + table.id),
                                         h('div', { className: 'flex items-center gap-1' },
                                             client && h('span', { className: 'text-xs text-green-600' }, '●'),
-                                            isInExp && phase !== 'waiting_start' ? h('span', { className: 'text-xs' }, '⛏️') : phase !== 'waiting_start' && h('span', { className: 'text-xs' }, '🏕️')
+                                            isInExp && phase !== 'waiting_start' ? h('span', { className: 'text-xs' }, '⛏️')
+                                            : isExited ? h('span', { className: 'text-xs' }, '🏕️')
+                                            : phase !== 'waiting_start' && h('span', { className: 'text-xs' }, '🏕️')
                                         )
                                     ),
-                                    h('div', { className: 'font-bold text-gray-800 text-sm truncate mb-2' }, table.name || (client && client.teamName) || ('Mesa ' + table.id)),
+                                    h('div', { className: 'font-bold text-sm truncate mb-2 ' + (isExited && !isInExp ? 'text-gray-200' : 'text-gray-800') }, table.name || (client && client.teamName) || ('Mesa ' + table.id)),
                                     h('div', { className: 'flex justify-between items-center gap-2' },
                                         showDiscovered && isInExp && h('div', { className: 'text-center' },
                                             h('div', { className: 'text-xs text-amber-600' }, 'Desc'),
                                             h('div', { className: 'text-lg font-bold text-amber-500' }, disc)
                                         ),
                                         h('div', { className: 'text-center flex-1' },
-                                            h('div', { className: 'text-xs text-purple-600' }, 'Guard'),
-                                            h('div', { className: 'text-2xl font-black text-purple-600' }, saved)
+                                            h('div', { className: 'text-xs ' + (isExited && !isInExp ? 'text-gray-300' : 'text-purple-600') }, 'Guard'),
+                                            h('div', { className: 'text-2xl font-black ' + (isExited && !isInExp ? 'text-gray-300' : 'text-purple-600') }, saved)
                                         )
                                     ),
                                     phase === 'voting' && isInExp && h('div', { className: 'mt-2 text-center' },
-                                        hasVoted ? h('span', { className: 'text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full' }, '✓ Votou') : h('span', { className: 'text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full animate-pulse' }, '⏳')
+                                        hasVoted ? h('span', { className: 'text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full' }, '✓ Votou')
+                                        : h('span', { className: 'text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full animate-pulse' }, '⏳')
                                     )
                                 );
                             })
                         )
                     ),
                     
-                    // Logos secundários no rodapé
-                    secondaryLogos.length > 0 && h('div', { className: 'bg-black/20 py-2 flex justify-center items-center gap-4' },
-                        secondaryLogos.map(function(logo) { return h('img', { key: logo, src: logo, className: 'h-8 object-contain opacity-80' }); })
+                    // Logos secundários
+                    secLogos.length > 0 && h('div', { className: 'bg-black/20 py-2 flex justify-center items-center gap-4' },
+                        secLogos.map(function(l) { return h('img', { key: l, src: l, className: 'h-8 object-contain opacity-80' }); })
                     ),
                     
                     // Barra de controlos
                     h('div', { className: 'bg-white border-t-4 border-amber-500 p-3' },
                         h('div', { className: 'flex flex-wrap gap-2 items-center' },
-                            // À espera de iniciar
-                            phase === 'waiting_start' && h('button', {
-                                onClick: startExpedition,
-                                disabled: tables.length === 0,
+                            phase === 'waiting_start' && h('button', { onClick: startExpedition, disabled: tables.length === 0,
                                 className: 'px-6 py-3 rounded-xl font-bold shadow-lg ' + (tables.length > 0 ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed')
-                            }, '🚀 Iniciar Expedição (' + tables.length + ' equipas)'),
+                            }, '🚀 Iniciar (' + tables.length + ' equipas)'),
                             
-                            // Explorando
-                            phase === 'exploring' && h('div', { className: 'flex gap-2 items-center' },
+                            // Explorando (inclui quando perigo está a aguardar confirmação)
+                            (phase === 'exploring' && !dangerAwaiting) && h('div', { className: 'flex gap-2 items-center' },
                                 h('input', { type: 'number', min: 1, max: 15, value: rubyInputValue, onChange: function(e) { setRubyInputValue(e.target.value); }, placeholder: '💎', className: 'w-20 px-3 py-2 border-2 border-amber-400 rounded-xl text-center font-bold text-xl' }),
                                 h('button', { onClick: drawRubyCard, disabled: !rubyInputValue, className: 'px-4 py-2 rounded-xl font-bold ' + (rubyInputValue ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed') }, '💎 Rubis'),
                                 h('div', { className: 'w-px h-10 bg-gray-300 mx-2' }),
                                 h('button', { onClick: drawDangerCard, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold' }, '☠️ Perigo')
                             ),
                             
-                            // Votação
-                            phase === 'voting' && h('div', { className: 'flex gap-2 items-center flex-wrap' },
-                                h('span', { className: 'text-sm font-semibold bg-blue-100 px-3 py-1 rounded-full' }, '🗳️ ' + votesReceived + '/' + totalToVote),
-                                // Confirmação de perigo
-                                lastCard && lastCard.type === 'danger' && lastCard.awaitingConfirmation && h('div', { className: 'flex gap-2 items-center' },
-                                    h('span', { className: 'text-sm font-semibold' }, 'Perigo repetido?'),
-                                    h('button', { onClick: function() { confirmDanger(false); }, className: 'px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold' }, '✓ Não'),
-                                    h('button', { onClick: function() { confirmDanger(true); }, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold' }, '✗ Sim, Repetido!')
-                                ),
-                                // Timeout (não aparece durante confirmação de perigo)
-                                !(lastCard && lastCard.type === 'danger' && lastCard.awaitingConfirmation) && votingTimeout === 0 && !votingTimedOut && h('button', { onClick: function() { startVotingTimeout(10); }, className: 'px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm' }, '⏱️ 10s'),
-                                votingTimeout > 0 && h('span', { className: 'text-xl font-bold text-orange-600 animate-pulse' }, '⏱️ ' + votingTimeout + 's'),
-                                votingTimedOut && h('span', { className: 'text-sm font-semibold text-orange-600' }, '⏱️ Tempo esgotado!'),
-                                // Revelar — só quando TODOS votaram OU timeout expirou
-                                !(lastCard && lastCard.type === 'danger' && lastCard.awaitingConfirmation) && (allVoted || votingTimedOut) && h('button', { onClick: revealVotes, className: 'px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '👁️ Revelar')
+                            // Perigo a aguardar confirmação (master-only, phase ainda é 'exploring')
+                            dangerAwaiting && h('div', { className: 'flex gap-2 items-center' },
+                                h('span', { className: 'text-sm font-semibold bg-red-100 text-red-800 px-3 py-1 rounded-full' }, '☠️ Perigo revelado!'),
+                                h('span', { className: 'text-sm font-semibold' }, 'Repetido?'),
+                                h('button', { onClick: function() { confirmDanger(false); }, className: 'px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold' }, '✓ Não'),
+                                h('button', { onClick: function() { confirmDanger(true); }, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold' }, '✗ Sim!')
                             ),
                             
-                            // Expedição terminou
+                            // Votação (após rubis ou perigo confirmado não-repetido)
+                            phase === 'voting' && h('div', { className: 'flex gap-2 items-center flex-wrap' },
+                                h('span', { className: 'text-sm font-semibold bg-blue-100 px-3 py-1 rounded-full' }, '🗳️ ' + votesRcvd + '/' + totalToVote),
+                                votingTimeout === 0 && !votingTimedOut && h('button', { onClick: function() { startVotingTimeout(10); }, className: 'px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm' }, '⏱️ 10s'),
+                                votingTimeout > 0 && h('span', { className: 'text-xl font-bold text-orange-600 animate-pulse' }, '⏱️ ' + votingTimeout + 's'),
+                                votingTimedOut && h('span', { className: 'text-sm font-semibold text-orange-600' }, '⏱️ Tempo esgotado!'),
+                                (allVoted || votingTimedOut) && h('button', { onClick: revealVotes, className: 'px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '👁️ Revelar')
+                            ),
+                            
                             phase === 'expedition_end' && h('button', { onClick: prepareNewExpedition, className: 'px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg' }, '🔄 Nova Expedição'),
                             
-                            // Info reserva + controles
                             h('div', { className: 'ml-auto flex items-center gap-3' },
                                 h('div', { className: 'flex items-center gap-2 bg-amber-100 px-4 py-2 rounded-full' },
                                     h('span', { className: 'text-xl' }, '💎'),
@@ -963,7 +809,6 @@
                     )
                 );
             }
-
             ReactDOM.createRoot(document.getElementById('root')).render(h(App));
         });
     </script>
