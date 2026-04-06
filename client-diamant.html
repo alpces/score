@@ -271,11 +271,11 @@
                                     ),
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-1' }, 'Nome da Equipa *'),
-                                        h('input', { type: 'text', value: teamName, onChange: function(e) { setTeamName(e.target.value); }, placeholder: 'Os Exploradores', className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none' })
+                                        h('input', { type: 'text', value: teamName, onChange: function(e) { setTeamName(e.target.value); }, className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none' })
                                     ),
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-1' }, 'Email *'),
-                                        h('input', { type: 'text', value: emails, onChange: function(e) { setEmails(e.target.value); }, placeholder: 'email1@ex.com', className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none text-sm' })
+                                        h('input', { type: 'text', value: emails, onChange: function(e) { setEmails(e.target.value); }, className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none text-sm' })
                                     ),
                                     connectionError && h('p', { className: 'text-red-600 text-sm text-center font-semibold' }, connectionError),
                                     h('button', { onClick: function() { handleConnect(false); }, className: 'w-full py-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-lg shadow-lg' }, '🚀 Entrar')
@@ -293,7 +293,7 @@
                             h('div', { className: 'space-y-3 text-sm text-gray-700' },
                                 h('div', { className: 'bg-amber-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-amber-800 mb-1' }, '💎 Rubis'),
-                                    h('div', null, 'Cada carta de rubis é dividida igualmente pelas equipas na gruta. Os rubis que sobram da divisão ficam para trás na tile revelada.')
+                                    h('div', null, 'Em cada carta de rubis revelada, estes são divididos igualmente pelas equipas na gruta. Os rubis que sobram da divisão ficam para trás nesta carta.')
                                 ),
                                 h('div', { className: 'bg-amber-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-amber-800 mb-1' }, '🏃 Sair da Expedição'),
@@ -309,7 +309,7 @@
                                 ),
                                 h('div', { className: 'bg-indigo-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-indigo-800 mb-1' }, '🎲 Apostas'),
-                                    h('div', null, 'Depois de saíres da gruta, podes apostar 1 rubi em cada ronda: escolhe uma equipa e prevê se "Fica" ou "Sai". Acertar "Sai" dá +2 rubis, acertar "Fica" dá +1. Errar custa 1 rubi.')
+                                    h('div', null, 'Depois de estares fora da expedição, podes fazer apostas nas rondas seguintes, gastando 1 dos rubis descobertos por cada aposta: escolhe uma equipa e prevê se "Fica" ou "Sai". Acertar em "Sai" dá +3 rubis, acertar "Fica" dá +2.')
                                 ),
                                 h('div', { className: 'bg-purple-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-purple-800 mb-1' }, '🏆 Pontuação'),
@@ -402,8 +402,8 @@
                         lastCard && phase === 'voting' && !voteSubmitted && lastCard.type === 'ruby' && h('div', {
                             className: 'text-center p-3 rounded-xl mb-4 w-full max-w-sm bg-amber-400 text-amber-900'
                         },
-                            h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.value || lastCard.cardValue || '?') + ' rubis'),
-                            h('div', { className: 'text-sm' }, (lastCard.perTeam != null ? lastCard.perTeam : 0) + ' para cada'),
+                            h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.value || lastCard.cardValue || '?') + ' rubis descobertos'),
+                            h('div', { className: 'text-sm' }, (lastCard.perTeam != null ? lastCard.perTeam : 0) + ' para cada equipa'),
                             lastCard.leftover > 0 && h('div', { className: 'text-sm font-bold mt-1' }, '⬇️ ' + lastCard.leftover + ' não recolhido' + (lastCard.leftover > 1 ? 's' : ''))
                         ),
                         lastCard && phase === 'voting' && !voteSubmitted && lastCard.type === 'danger' && h('div', {
@@ -436,7 +436,7 @@
                         canBet && h('div', { className: 'w-full max-w-sm' },
                             h('div', { className: 'text-center text-white mb-3' },
                                 h('div', { className: 'text-lg font-semibold' }, '🎲 Aposta da Ronda'),
-                                h('div', { className: 'text-xs opacity-75' }, 'Custa 1 rubi · Acertar "Sai" = +2 · Acertar "Fica" = +1')
+                                h('div', { className: 'text-xs opacity-75' }, 'Custa 1 rubi · Acertar "Sai" = +3 · Acertar "Fica" = +2')
                             ),
                             !betSubmitted
                                 ? h('div', { className: 'bg-white/10 rounded-xl p-4' },

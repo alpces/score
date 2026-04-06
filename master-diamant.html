@@ -61,7 +61,7 @@
                 var s4 = _s(''); var codeError = s4[0]; var setCodeError = s4[1];
                 var s5 = _s(false); var codeCopied = s5[0]; var setCodeCopied = s5[1];
                 var s6 = _s(0); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
-                var s7 = _s(true); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
+                var s7 = _s(false); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
                 // Multiplicador
                 var s8 = _s(9); var multiplierThreshold = s8[0]; var setMultiplierThreshold = s8[1];
                 var s9 = _s(2); var multiplierValue = s9[0]; var setMultiplierValue = s9[1];
@@ -498,7 +498,7 @@
                         if (!bet || !bet.target || !bet.prediction) return;
                         var targetLeft = !!leavingSet[bet.target];
                         var correct = (bet.prediction === 'leave' && targetLeft) || (bet.prediction === 'stay' && !targetLeft);
-                        var gain = correct ? (bet.prediction === 'leave' ? 2 : 1) : -1;
+                        var gain = correct ? (bet.prediction === 'leave' ? 3 : 2) : -1;
                         nd[bettorId] = (nd[bettorId] || 0) + gain;
                         betOutcomes.push({ teamId: bettorId, target: bet.target, prediction: bet.prediction, correct: correct, gain: gain });
                     });
@@ -513,7 +513,7 @@
                     setReserve(nr);
                     setTeamsInExpedition(staying);
                     setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false);
-                    setRevealStep(0);
+                    setRevealStep(2);
                     setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveRemaining: nr, artifactCollected: artifactCollected, artifactCollectorId: artifactCollectorId, betOutcomes: betOutcomes });
                     
                     if (artifactCollected > 0 || ends) setArtifactValue(0);
@@ -537,6 +537,10 @@
                     setVotes({}); setBets({}); setLastCard(null); setLastRevealResult(null);
                     setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
                     setArtifactValue(0); setRevealStep(0);
+                };
+                
+                var closeRevealPopup = function() {
+                    setRevealStep(0);
                 };
                 
                 // === LEADERBOARD ===
@@ -769,78 +773,7 @@
                             h('div', { className: 'text-xs opacity-75 mt-1' }, 'Só recolhido por quem sair sozinho')
                         ),
                         
-                        // Painel de apostas (revealStep === 1)
-                        phase === 'voting' && revealStep === 1 && h('div', { className: 'bg-indigo-100 text-gray-800 rounded-xl p-4 mb-4' },
-                            h('div', { className: 'text-lg font-bold text-indigo-800 mb-3 text-center' }, '🎲 Apostas da Ronda'),
-                            Object.keys(bets).length === 0
-                                ? h('div', { className: 'text-center text-gray-500 italic text-sm' }, 'Nenhuma aposta nesta ronda')
-                                : h('div', { className: 'space-y-2' },
-                                    Object.entries(bets).map(function(entry) {
-                                        var bettorId = parseInt(entry[0]); var bet = entry[1];
-                                        if (!bet || !bet.target) return null;
-                                        var bettorTable = tables.find(function(t) { return t.id === bettorId; });
-                                        var targetTable = tables.find(function(t) { return t.id === bet.target; });
-                                        var bettorName = bettorTable ? (bettorTable.name || 'Mesa ' + bettorId) : 'Mesa ' + bettorId;
-                                        var targetName = targetTable ? (targetTable.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target;
-                                        return h('div', { key: bettorId, className: 'flex items-center gap-2 bg-white p-2 rounded-lg text-sm' },
-                                            h('span', { className: 'font-bold' }, bettorName),
-                                            h('span', { className: 'text-gray-400' }, '→'),
-                                            h('span', { className: 'font-semibold' }, targetName),
-                                            h('span', { className: 'px-2 py-0.5 rounded-full text-xs font-bold ' + (bet.prediction === 'leave' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800') },
-                                                bet.prediction === 'leave' ? '🏃 SAI' : '💎 FICA'
-                                            )
-                                        );
-                                    })
-                                )
-                        ),
-                        
-                        // Banner revelação com duas colunas + resultados apostas
-                        lastRevealResult && !lastRevealResult.dangerRepeated && lastRevealResult.leaving && lastRevealResult.leaving.length > 0 && (phase === 'exploring' || phase === 'expedition_end') && h('div', { className: 'bg-white/90 text-gray-800 rounded-xl p-4 mb-4' },
-                            // Apostas com resultados (✅/❌)
-                            lastRevealResult.betOutcomes && lastRevealResult.betOutcomes.length > 0 && h('div', { className: 'mb-3' },
-                                h('div', { className: 'text-sm font-bold text-indigo-800 mb-2' }, '🎲 Apostas:'),
-                                h('div', { className: 'space-y-1' },
-                                    lastRevealResult.betOutcomes.map(function(bo, idx) {
-                                        var bettorTable = tables.find(function(t) { return t.id === bo.teamId; });
-                                        var targetTable = tables.find(function(t) { return t.id === bo.target; });
-                                        var bettorName = bettorTable ? (bettorTable.name || 'Mesa ' + bo.teamId) : 'Mesa ' + bo.teamId;
-                                        var targetName = targetTable ? (targetTable.name || 'Mesa ' + bo.target) : 'Mesa ' + bo.target;
-                                        return h('div', { key: idx, className: 'flex items-center gap-2 text-sm' },
-                                            h('span', { className: 'text-lg' }, bo.correct ? '✅' : '❌'),
-                                            h('span', { className: 'font-semibold' }, bettorName),
-                                            h('span', { className: 'text-gray-400' }, '→'),
-                                            h('span', null, targetName + ' ' + (bo.prediction === 'leave' ? 'SAI' : 'FICA')),
-                                            h('span', { className: 'font-bold ' + (bo.gain > 0 ? 'text-green-600' : 'text-red-600') }, (bo.gain > 0 ? '+' : '') + bo.gain + '💎')
-                                        );
-                                    })
-                                ),
-                                h('hr', { className: 'my-2' })
-                            ),
-                            // Duas colunas: Ficaram | Saíram
-                            h('div', { className: 'grid grid-cols-2 gap-4' },
-                                h('div', null,
-                                    h('div', { className: 'text-sm font-bold text-green-700 mb-2 text-center' }, '⛏️ Ficaram (' + (lastRevealResult.staying ? lastRevealResult.staying.length : 0) + ')'),
-                                    (lastRevealResult.staying || []).map(function(id) {
-                                        var t = tables.find(function(tb) { return tb.id === id; });
-                                        return h('div', { key: id, className: 'text-sm text-center py-0.5' }, t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id);
-                                    })
-                                ),
-                                h('div', null,
-                                    h('div', { className: 'text-sm font-bold text-red-700 mb-2 text-center' }, '🏃 Saíram (' + lastRevealResult.leaving.length + ')'),
-                                    lastRevealResult.leaving.map(function(id) {
-                                        var t = tables.find(function(tb) { return tb.id === id; });
-                                        return h('div', { key: id, className: 'text-sm text-center py-0.5' }, t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id);
-                                    })
-                                )
-                            ),
-                            // Info rubis distribuídos
-                            lastRevealResult.reserveDistributed > 0 && h('div', { className: 'text-sm mt-2 text-center' },
-                                'Cada saída levou ' + lastRevealResult.reserveDistributed + ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás'),
-                            lastRevealResult.reserveRemaining > 0 && h('div', { className: 'text-sm font-bold text-amber-700 mt-1 text-center' },
-                                '⬇️ Sobram ' + lastRevealResult.reserveRemaining + ' (deixar no caminho)'),
-                            lastRevealResult.artifactCollected > 0 && h('div', { className: 'text-sm font-bold text-teal-700 mt-1 text-center' },
-                                '🏺 Recolheu ' + lastRevealResult.artifactCollected + ' pontos de artefactos!')
-                        ),
+                        // Perigo repetido banner (stays inline, not part of popup)
                         lastRevealResult && lastRevealResult.dangerRepeated && phase === 'expedition_end' && h('div', { className: 'bg-red-500/80 text-white rounded-xl p-3 mb-4 text-center' },
                             h('div', { className: 'text-xl font-bold' }, '💀 Perigo Repetido! Expedição perdida.')
                         ),
@@ -945,12 +878,6 @@
                                 (allVoted || votingTimedOut) && h('button', { onClick: revealBets, className: 'px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '👁️ Revelar')
                             ),
                             
-                            // Passo 2: apostas reveladas — mostrar botão resultado
-                            phase === 'voting' && revealStep === 1 && h('div', { className: 'flex gap-2 items-center' },
-                                h('span', { className: 'text-sm font-semibold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full' }, '🎲 Apostas reveladas'),
-                                h('button', { onClick: revealResult, className: 'px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '🎯 Revelar Resultado')
-                            ),
-                            
                             phase === 'expedition_end' && h('button', { onClick: prepareNewExpedition, className: 'px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg' }, '🔄 Nova Expedição'),
                             
                             h('div', { className: 'ml-auto flex items-center gap-3' },
@@ -964,6 +891,100 @@
                                 ),
                                 h('button', { onClick: function() { setShowDiscovered(!showDiscovered); }, className: 'px-3 py-1 rounded text-sm ' + (showDiscovered ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600') }, showDiscovered ? '👁️' : '🙈'),
                                 h('button', { onClick: showFinalLeaderboard, className: 'px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-sm' }, '🏆')
+                            )
+                        )
+                    ),
+                    
+                    // === POPUP DE REVELAÇÃO ===
+                    revealStep >= 1 && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto' },
+                            h('h2', { className: 'text-xl font-black text-gray-800 text-center mb-4' }, '🎲 Revelação'),
+                            
+                            // Apostas
+                            h('div', { className: 'mb-4' },
+                                h('h3', { className: 'text-sm font-bold text-indigo-700 mb-2' }, 'APOSTAS'),
+                                (function() {
+                                    var betEntries = Object.entries(bets).concat(
+                                        revealStep === 2 && lastRevealResult && lastRevealResult.betOutcomes ? [] : []
+                                    );
+                                    // Use betOutcomes for step 2 (bets already cleared from state)
+                                    var items = revealStep === 2 && lastRevealResult && lastRevealResult.betOutcomes 
+                                        ? lastRevealResult.betOutcomes 
+                                        : Object.entries(bets).map(function(e) { return { teamId: parseInt(e[0]), target: e[1] && e[1].target, prediction: e[1] && e[1].prediction }; }).filter(function(b) { return b.target; });
+                                    
+                                    if (items.length === 0) return h('div', { className: 'text-gray-400 italic text-sm text-center py-2' }, 'Não houve apostas nesta ronda');
+                                    
+                                    return h('div', { className: 'space-y-2' }, items.map(function(item, idx) {
+                                        var bettorT = tables.find(function(t) { return t.id === item.teamId; });
+                                        var targetT = tables.find(function(t) { return t.id === item.target; });
+                                        var bName = bettorT ? (bettorT.name || 'Mesa ' + item.teamId) : 'Mesa ' + item.teamId;
+                                        var tName = targetT ? (targetT.name || 'Mesa ' + item.target) : 'Mesa ' + item.target;
+                                        var hasResult = item.correct !== undefined;
+                                        
+                                        var bgColor = hasResult ? (item.correct ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400') : 'bg-gray-50 border-gray-200';
+                                        
+                                        return h('div', { key: idx, className: 'flex items-center justify-between p-2 rounded-lg border ' + bgColor },
+                                            h('div', { className: 'flex items-center gap-2' },
+                                                hasResult && h('span', { className: 'text-lg' }, item.correct ? '✅' : '❌'),
+                                                h('span', { className: 'font-bold text-sm text-gray-800' }, bName),
+                                                h('span', { className: 'text-gray-400 text-xs' }, '(Mesa ' + item.teamId + ')')
+                                            ),
+                                            h('div', { className: 'flex items-center gap-2' },
+                                                h('span', { className: 'text-gray-400 text-sm' }, '→'),
+                                                h('span', { className: 'font-semibold text-sm' }, tName),
+                                                h('span', { className: 'px-2 py-0.5 rounded-full text-xs font-bold ' + (item.prediction === 'leave' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800') },
+                                                    item.prediction === 'leave' ? '🏃 SAI' : '💎 FICA'
+                                                ),
+                                                hasResult && h('span', { className: 'font-bold text-sm ml-1 ' + (item.gain > 0 ? 'text-green-600' : 'text-red-600') }, 
+                                                    (item.gain > 0 ? '+' : '') + item.gain + '💎'
+                                                )
+                                            )
+                                        );
+                                    }));
+                                })()
+                            ),
+                            
+                            // Decisões (step 2)
+                            revealStep === 2 && lastRevealResult && !lastRevealResult.dangerRepeated && h('div', { className: 'mb-4' },
+                                h('hr', { className: 'my-3' }),
+                                h('div', { className: 'grid grid-cols-2 gap-4' },
+                                    h('div', { className: 'bg-green-50 rounded-xl p-3' },
+                                        h('h4', { className: 'font-bold text-green-800 text-center mb-2' }, '⛏️ Ficaram (' + (lastRevealResult.staying ? lastRevealResult.staying.length : 0) + ')'),
+                                        (lastRevealResult.staying && lastRevealResult.staying.length > 0)
+                                            ? (lastRevealResult.staying || []).map(function(id) {
+                                                var t = tables.find(function(tb) { return tb.id === id; });
+                                                return h('div', { key: id, className: 'text-sm text-center py-1 font-semibold text-green-800' }, 
+                                                    (t ? t.name : 'Mesa ' + id) + ' (Mesa ' + id + ')'
+                                                );
+                                            })
+                                            : h('div', { className: 'text-sm text-center text-gray-400 italic' }, 'Ninguém')
+                                    ),
+                                    h('div', { className: 'bg-red-50 rounded-xl p-3' },
+                                        h('h4', { className: 'font-bold text-red-800 text-center mb-2' }, '🏃 Saíram (' + (lastRevealResult.leaving ? lastRevealResult.leaving.length : 0) + ')'),
+                                        (lastRevealResult.leaving && lastRevealResult.leaving.length > 0)
+                                            ? (lastRevealResult.leaving || []).map(function(id) {
+                                                var t = tables.find(function(tb) { return tb.id === id; });
+                                                return h('div', { key: id, className: 'text-sm text-center py-1 font-semibold text-red-800' }, 
+                                                    (t ? t.name : 'Mesa ' + id) + ' (Mesa ' + id + ')'
+                                                );
+                                            })
+                                            : h('div', { className: 'text-sm text-center text-gray-400 italic' }, 'Ninguém')
+                                    )
+                                ),
+                                // Info extra
+                                lastRevealResult.reserveDistributed > 0 && h('div', { className: 'text-sm mt-3 text-center text-gray-700' },
+                                    'Cada saída levou ' + lastRevealResult.reserveDistributed + ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás'),
+                                lastRevealResult.reserveRemaining > 0 && h('div', { className: 'text-sm font-bold text-amber-700 mt-1 text-center' },
+                                    '⬇️ Sobram ' + lastRevealResult.reserveRemaining + ' (deixar no caminho)'),
+                                lastRevealResult.artifactCollected > 0 && h('div', { className: 'text-sm font-bold text-teal-700 mt-1 text-center' },
+                                    '🏺 Recolheu ' + lastRevealResult.artifactCollected + ' pontos de artefactos!')
+                            ),
+                            
+                            // Botão
+                            h('div', { className: 'text-center mt-4' },
+                                revealStep === 1 
+                                    ? h('button', { onClick: revealResult, className: 'px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-lg shadow-lg' }, '🎯 Revelar Decisões')
+                                    : h('button', { onClick: closeRevealPopup, className: 'px-8 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-xl font-bold text-lg shadow-lg' }, '✕ Fechar')
                             )
                         )
                     )

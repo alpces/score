@@ -4,22 +4,24 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
-## [Diamant v2.5] - 2026-04-06
+## [Diamant v2.5] - 2026-04-07
 
-### Módulo Diamant - Sistema de Apostas
+### Módulo Diamant - Sistema de Apostas e Melhorias UX
 
 ### Adicionado
 - **Apostas para equipas que já saíram**: Durante a votação, equipas no acampamento podem apostar 1 rubi numa equipa em jogo, prevendo se "Fica" ou "Sai"
-- **Payoff**: Acertar "Sai" = +2 rubis, acertar "Fica" = +1 rubi, errar = -1 rubi (adicionado/subtraído dos Descobertos)
+- **Payoff**: Acertar "Sai" = +3 rubis, acertar "Fica" = +2 rubis, errar = -1 rubi
 - **Alterar aposta**: Possível alterar enquanto o master não revelar
-- **Revelação em dois tempos**: Master carrega em "Revelar" → mostra painel de apostas; depois "Revelar Resultado" → mostra duas colunas (Ficaram/Saíram) com ✅/❌ nas apostas e ganhos/perdas
+- **Revelação em popup**: Dois tempos — 1) mostra apostas, 2) botão revela decisões com colunas Ficaram/Saíram e apostas coloridas (verde/vermelho) com ganhos
 - **Apostas secretas**: Clientes não vêm apostas uns dos outros até à revelação
-- **revealStep sincronizado**: Clientes reagem ao passo de revelação (0=votação, 1=apostas reveladas)
-- **Regras de apostas no player aid (?)**
+- **Regras de apostas no player aid (?)** 
 
 ### Alterado
-- **Botão Revelar agora é passo 1**: Mostra apostas primeiro, depois resultado
-- **Bets limpos**: diamantBets é limpo em cada nova carta (ruby/danger/artifact) e em cada nova expedição
+- **Pontos descobertos ocultos por defeito** no master
+- **Textos de ajuda**: Rubis ("ficam para trás nesta carta"), apostas ("fora da expedição, gastando 1 dos rubis descobertos")
+- **Texto rubis no cliente**: "X rubis descobertos" / "X para cada equipa" / "X não recolhidos"
+- **Campos sem placeholder**: Nome da equipa e email sem texto de exemplo
+- **Popup de revelação profissional**: Apostas na parte superior com nome+mesa, decisões em duas colunas coloridas, info de rubis/artefactos
 
 ---
 
