@@ -61,9 +61,13 @@
                 var c10 = _s(false); var sessionLost = c10[0]; var setSessionLost = c10[1];
                 var c11 = _s(false); var showTeamsList = c11[0]; var setShowTeamsList = c11[1];
                 var c12 = _s(false); var showRules = c12[0]; var setShowRules = c12[1];
-                // Timer local — o cliente corre a sua própria contagem decrescente
+                // Timer local
                 var c13 = _s(0); var localTimer = c13[0]; var setLocalTimer = c13[1];
                 var timerRef = React.useRef(null);
+                // Apostas
+                var c14 = _s(null); var betTarget = c14[0]; var setBetTarget = c14[1];
+                var c15 = _s(null); var betPrediction = c15[0]; var setBetPrediction = c15[1];
+                var c16 = _s(false); var betSubmitted = c16[0]; var setBetSubmitted = c16[1];
                 
                 // URL + localStorage
                 useEffect(function() {
@@ -97,6 +101,7 @@
                         }
                         if (data.phase === 'voting' && gameData && gameData.phase !== 'voting') {
                             setVoteSubmitted(false);
+                            setBetTarget(null); setBetPrediction(null); setBetSubmitted(false);
                         }
                         setGameData(data);
                     });
@@ -176,6 +181,24 @@
                         setVoteSubmitted(true); } catch (e) {}
                 };
                 
+                var placeBet = async function(targetId, prediction) {
+                    if (!sessionCode || !tableNumber) return;
+                    try {
+                        await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber), {
+                            target: targetId, prediction: prediction
+                        });
+                        setBetTarget(targetId); setBetPrediction(prediction); setBetSubmitted(true);
+                    } catch (e) { console.error('Erro aposta:', e); }
+                };
+                
+                var clearBet = async function() {
+                    if (!sessionCode || !tableNumber) return;
+                    try {
+                        await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber), null);
+                        setBetTarget(null); setBetPrediction(null); setBetSubmitted(false);
+                    } catch (e) {}
+                };
+                
                 // === DADOS ===
                 var tableId = parseInt(tableNumber);
                 var phase = gameData ? gameData.phase || 'waiting_start' : 'waiting_start';
@@ -194,9 +217,12 @@
                 var multiplierActive = gameData ? gameData.multiplierActive || false : false;
                 var multiplierVal = gameData ? gameData.multiplierValue || 2 : 2;
                 var artifactVal = gameData ? gameData.artifactValue || 0 : 0;
+                var revealStep = gameData ? gameData.revealStep || 0 : 0;
                 var mainLogo = selLogos.indexOf('logo1.png') >= 0 ? 'logo1.png' : null;
                 var secLogos = selLogos.filter(function(l) { return l !== 'logo1.png'; });
-                var canVote = phase === 'voting' && isInExp && !voteSubmitted && !votingTimedOut;
+                var canVote = phase === 'voting' && isInExp && !voteSubmitted && !votingTimedOut && revealStep === 0;
+                var isExited = exitedTeams.indexOf(tableId) >= 0;
+                var canBet = phase === 'voting' && isExited && !isInExp && discovered > 0 && revealStep === 0;
                 
                 // Nomes das equipas em jogo
                 var teamsInExpNames = teamsInExp.map(function(id) {
@@ -280,6 +306,10 @@
                                 h('div', { className: 'bg-red-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-red-800 mb-1' }, '☠️ Perigos'),
                                     h('div', null, 'Existem 5 tipos de perigo no baralho, cada um com 3 cópias. Quando o mesmo tipo de perigo aparece pela 2ª vez, a expedição termina imediatamente! Todos os que ainda estão na gruta perdem os rubis descobertos nessa expedição. Uma das cartas repetidas é removida do jogo.')
+                                ),
+                                h('div', { className: 'bg-indigo-50 p-3 rounded-lg' },
+                                    h('div', { className: 'font-bold text-indigo-800 mb-1' }, '🎲 Apostas'),
+                                    h('div', null, 'Depois de saíres da gruta, podes apostar 1 rubi em cada ronda: escolhe uma equipa e prevê se "Fica" ou "Sai". Acertar "Sai" dá +2 rubis, acertar "Fica" dá +1. Errar custa 1 rubi.')
                                 ),
                                 h('div', { className: 'bg-purple-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-purple-800 mb-1' }, '🏆 Pontuação'),
@@ -396,9 +426,65 @@
                             h('div', { className: 'text-xl font-semibold' }, 'À espera do início')
                         ),
                         
-                        !isInExp && phase !== 'waiting_start' && phase !== 'expedition_end' && h('div', { className: 'text-center text-white' },
+                        !isInExp && phase !== 'waiting_start' && phase !== 'expedition_end' && phase !== 'voting' && h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-6xl mb-4' }, '🏕️'),
-                            h('div', { className: 'text-xl font-semibold' }, 'No acampamento')
+                            h('div', { className: 'text-xl font-semibold' }, 'No acampamento'),
+                            h('div', { className: 'text-sm opacity-75 mt-2' }, 'À espera da próxima carta')
+                        ),
+                        
+                        // Aposta — equipa já saiu, pode apostar durante votação
+                        canBet && h('div', { className: 'w-full max-w-sm' },
+                            h('div', { className: 'text-center text-white mb-3' },
+                                h('div', { className: 'text-lg font-semibold' }, '🎲 Aposta da Ronda'),
+                                h('div', { className: 'text-xs opacity-75' }, 'Custa 1 rubi · Acertar "Sai" = +2 · Acertar "Fica" = +1')
+                            ),
+                            !betSubmitted
+                                ? h('div', { className: 'bg-white/10 rounded-xl p-4' },
+                                    h('div', { className: 'text-white text-sm mb-2 font-semibold' }, 'Escolhe uma equipa:'),
+                                    h('div', { className: 'grid grid-cols-2 gap-2 mb-3' },
+                                        teamsInExp.map(function(id) {
+                                            var t = allTables.find(function(tb) { return tb.id === id; });
+                                            var name = t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id;
+                                            var isSel = betTarget === id;
+                                            return h('button', { key: id, onClick: function() { setBetTarget(id); },
+                                                className: 'px-3 py-2 rounded-lg text-sm font-semibold transition-all ' + (isSel ? 'bg-indigo-500 text-white ring-2 ring-white' : 'bg-white/20 text-white hover:bg-white/30')
+                                            }, name);
+                                        })
+                                    ),
+                                    betTarget && h('div', { className: 'flex gap-3' },
+                                        h('button', { onClick: function() { placeBet(betTarget, 'stay'); }, className: 'flex-1 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold text-lg active:scale-95 transition-transform' }, '💎 Fica'),
+                                        h('button', { onClick: function() { placeBet(betTarget, 'leave'); }, className: 'flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-lg active:scale-95 transition-transform' }, '🏃 Sai')
+                                    )
+                                )
+                                : h('div', { className: 'bg-indigo-500/30 rounded-xl p-4 text-center text-white' },
+                                    h('div', { className: 'text-lg mb-2' }, '🎲 Aposta feita!'),
+                                    (function() {
+                                        var targetT = allTables.find(function(tb) { return tb.id === betTarget; });
+                                        var tName = targetT ? (targetT.name || 'Mesa ' + betTarget) : 'Mesa ' + betTarget;
+                                        return h('div', { className: 'font-semibold' }, tName + ' → ' + (betPrediction === 'leave' ? '🏃 SAI' : '💎 FICA'));
+                                    })(),
+                                    h('button', { onClick: clearBet, className: 'mt-3 px-4 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30' }, 'Alterar aposta')
+                                )
+                        ),
+                        
+                        // Equipa saiu mas não pode apostar (sem rubis ou apostas bloqueadas)
+                        !isInExp && isExited && phase === 'voting' && !canBet && revealStep === 0 && h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-6xl mb-4' }, '🏕️'),
+                            h('div', { className: 'text-xl font-semibold' }, 'No acampamento'),
+                            discovered <= 0 && h('div', { className: 'text-sm opacity-75 mt-2' }, 'Sem rubis para apostar')
+                        ),
+                        
+                        // Apostas reveladas (revealStep === 1) — todos vêm
+                        phase === 'voting' && revealStep === 1 && !isInExp && h('div', { className: 'w-full max-w-sm' },
+                            h('div', { className: 'bg-indigo-100 rounded-xl p-4 text-center' },
+                                h('div', { className: 'text-lg font-bold text-indigo-800 mb-2' }, '🎲 Apostas Reveladas!'),
+                                betSubmitted && (function() {
+                                    var targetT = allTables.find(function(tb) { return tb.id === betTarget; });
+                                    var tName = targetT ? (targetT.name || 'Mesa ' + betTarget) : 'Mesa ' + betTarget;
+                                    return h('div', { className: 'text-sm text-gray-700 font-semibold' }, 'A tua aposta: ' + tName + ' → ' + (betPrediction === 'leave' ? '🏃 SAI' : '💎 FICA'));
+                                })(),
+                                h('div', { className: 'text-sm text-gray-500 mt-2 animate-pulse' }, 'A aguardar resultado...')
+                            )
                         ),
                         
                         canVote && h('div', { className: 'w-full max-w-sm' },
@@ -443,7 +529,18 @@
                                 : lastReveal.leaving && lastReveal.leaving.length > 0 && h('div', { className: 'bg-white/20 rounded-xl p-4' },
                                     h('div', null, '🏃 ' + lastReveal.leaving.length + ' saíram'),
                                     h('div', null, '⛏️ ' + (lastReveal.staying ? lastReveal.staying.length : 0) + ' ficaram'),
-                                    lastReveal.artifactCollected > 0 && h('div', { className: 'text-teal-300 mt-1 font-bold' }, '🏺 Artefactos recolhidos! +' + lastReveal.artifactCollected)
+                                    lastReveal.artifactCollected > 0 && h('div', { className: 'text-teal-300 mt-1 font-bold' }, '🏺 Artefactos recolhidos! +' + lastReveal.artifactCollected),
+                                    // Resultado da minha aposta
+                                    lastReveal.betOutcomes && (function() {
+                                        var myBet = lastReveal.betOutcomes.find(function(bo) { return bo.teamId === tableId; });
+                                        if (!myBet) return null;
+                                        var targetT = allTables.find(function(tb) { return tb.id === myBet.target; });
+                                        var tName = targetT ? (targetT.name || 'Mesa ' + myBet.target) : 'Mesa ' + myBet.target;
+                                        return h('div', { className: 'mt-2 p-2 rounded-lg ' + (myBet.correct ? 'bg-green-500/30' : 'bg-red-500/30') },
+                                            h('div', { className: 'font-bold' }, (myBet.correct ? '✅' : '❌') + ' ' + tName + ' ' + (myBet.prediction === 'leave' ? 'SAI' : 'FICA')),
+                                            h('div', { className: 'text-sm font-bold' }, (myBet.gain > 0 ? '+' : '') + myBet.gain + ' 💎')
+                                        );
+                                    })()
                                 )
                         ),
                         

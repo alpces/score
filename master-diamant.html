@@ -81,6 +81,8 @@
                 var g12 = _s(''); var rubyInputValue = g12[0]; var setRubyInputValue = g12[1];
                 var g13 = _s([]); var exitedTeams = g13[0]; var setExitedTeams = g13[1];
                 var g14 = _s(0); var artifactValue = g14[0]; var setArtifactValue = g14[1];
+                var g15 = _s(0); var revealStep = g15[0]; var setRevealStep = g15[1];
+                var g16 = _s({}); var bets = g16[0]; var setBets = g16[1];
                 
                 // === UI ===
                 var u1 = _s([]); var tables = u1[0]; var setTables = u1[1];
@@ -161,12 +163,13 @@
                                 tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
                                 selectedLogos: selectedLogos, exitedTeams: exitedTeams,
                                 artifactValue: artifactValue,
+                                revealStep: revealStep,
                                 multiplierThreshold: multiplierThreshold, multiplierValue: multiplierValue,
                                 multiplierActive: multiplierActive
                             });
                         } catch (e) { console.error('Sync:', e); }
                     })();
-                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, artifactValue, multiplierThreshold, multiplierValue]);
+                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, artifactValue, revealStep, multiplierThreshold, multiplierValue]);
                 
                 // === LISTENERS ===
                 useEffect(function() {
@@ -196,7 +199,10 @@
                         var data = snap.val();
                         if (data) setVotes(function(prev) { return Object.assign({}, prev, data); });
                     });
-                    return function() { unsubC(); unsubV(); };
+                    var unsubB = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'), function(snap) {
+                        setBets(snap.val() || {});
+                    });
+                    return function() { unsubC(); unsubV(); unsubB(); };
                 }, [sessionId]);
                 
                 // === TIMER ===
@@ -381,31 +387,33 @@
                     var allIds = tables.map(function(t) { return t.id; });
                     var nd = {}; allIds.forEach(function(id) { nd[id] = 0; });
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     setPhase('exploring'); setReserve(0); setTeamsInExpedition(allIds);
-                    setDiscoveredScores(nd); setVotes({}); setLastCard(null);
+                    setDiscoveredScores(nd); setVotes({}); setBets({}); setLastCard(null);
                     setLastRevealResult(null); setVotingTimedOut(false); setExitedTeams([]);
-                    setArtifactValue(0);
+                    setArtifactValue(0); setRevealStep(0);
                 };
                 
                 var drawRubyCard = async function() {
                     var cardVal = parseInt(rubyInputValue);
                     if (!cardVal || cardVal <= 0 || teamsInExpedition.length === 0) return;
-                    // Aplicar multiplicador
                     var effectiveVal = cardVal * currentMultiplier;
                     var tc = teamsInExpedition.length;
                     var perTeam = Math.floor(effectiveVal / tc), leftover = effectiveVal % tc;
                     var nd = Object.assign({}, discoveredScores);
                     teamsInExpedition.forEach(function(id) { nd[id] = (nd[id] || 0) + perTeam; });
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     setDiscoveredScores(nd); setReserve(reserve + leftover);
-                    setPhase('voting'); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0);
                     setLastCard({ type: 'ruby', value: effectiveVal, cardValue: cardVal, perTeam: perTeam, leftover: leftover, multiplier: currentMultiplier });
                     setRubyInputValue('');
                 };
                 
                 var drawDangerCard = async function() {
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
-                    setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
+                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0);
                     setLastCard({ type: 'danger', awaitingConfirmation: true });
                 };
                 
@@ -413,8 +421,9 @@
                     if (!val || val <= 0) return;
                     var newArtifact = artifactValue + val;
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     setArtifactValue(newArtifact);
-                    setPhase('voting'); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0);
                     setLastCard({ type: 'artifact', value: val, totalArtifact: newArtifact });
                 };
                 
@@ -445,12 +454,20 @@
                 var startVotingTimeout = function(s) { setVotingTimeout(s || 10); setVotingTimedOut(false); };
                 
                 /**
-                 * Revelar votos:
-                 * - Reserva é adicionada aos DESCOBERTOS de quem sai (não aos guardados)
-                 * - Discovered mantém-se congelado para quem sai
-                 * - Guardados só atualizam quando a expedição termina toda
+                 * Passo 1: Revelar apostas (master vê painel de apostas)
+                 * Votos e apostas ficam bloqueados a partir daqui
                  */
-                var revealVotes = async function() {
+                var revealBets = function() {
+                    setRevealStep(1);
+                };
+                
+                /**
+                 * Passo 2: Revelar resultado (quem saiu/ficou + calcular apostas)
+                 * Reserva → discovered de quem sai
+                 * Apostas: acertou "Sai" = +2, acertou "Fica" = +1, errou = -1
+                 * Discovered → saved só no fim da expedição
+                 */
+                var revealResult = async function() {
                     var fv = Object.assign({}, votes);
                     teamsInExpedition.forEach(function(id) { if (fv[id] == null) fv[id] = 'continue'; });
                     var leaving = teamsInExpedition.filter(function(id) { return fv[id] === 'leave'; });
@@ -460,37 +477,48 @@
                     if (leaving.length > 0 && reserve > 0) { rpl = Math.floor(reserve / leaving.length); rlo = reserve % leaving.length; }
                     var nr = (leaving.length === 0) ? reserve : rlo;
                     
-                    // Adicionar parte da reserva aos DESCOBERTOS de quem sai (não aos guardados)
                     var nd = Object.assign({}, discoveredScores);
                     leaving.forEach(function(id) { nd[id] = (nd[id] || 0) + rpl; });
                     
-                    // Artefactos: só recolhidos se EXACTAMENTE 1 pessoa sai
-                    var artifactCollected = 0;
-                    var artifactCollectorId = null;
+                    // Artefactos
+                    var artifactCollected = 0, artifactCollectorId = null;
                     if (leaving.length === 1 && artifactValue > 0) {
                         artifactCollectorId = leaving[0];
                         nd[artifactCollectorId] = (nd[artifactCollectorId] || 0) + artifactValue;
                         artifactCollected = artifactValue;
                     }
                     
+                    // Processar apostas
+                    var betOutcomes = [];
+                    var leavingSet = {};
+                    leaving.forEach(function(id) { leavingSet[id] = true; });
+                    Object.entries(bets).forEach(function(entry) {
+                        var bettorId = parseInt(entry[0]);
+                        var bet = entry[1];
+                        if (!bet || !bet.target || !bet.prediction) return;
+                        var targetLeft = !!leavingSet[bet.target];
+                        var correct = (bet.prediction === 'leave' && targetLeft) || (bet.prediction === 'stay' && !targetLeft);
+                        var gain = correct ? (bet.prediction === 'leave' ? 2 : 1) : -1;
+                        nd[bettorId] = (nd[bettorId] || 0) + gain;
+                        betOutcomes.push({ teamId: bettorId, target: bet.target, prediction: bet.prediction, correct: correct, gain: gain });
+                    });
+                    
                     var ends = staying.length === 0;
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     
                     var allExited = exitedTeams.concat(leaving);
                     setExitedTeams(allExited);
                     setDiscoveredScores(nd);
                     setReserve(nr);
                     setTeamsInExpedition(staying);
-                    setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
-                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveRemaining: nr, artifactCollected: artifactCollected, artifactCollectorId: artifactCollectorId });
+                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    setRevealStep(0);
+                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveRemaining: nr, artifactCollected: artifactCollected, artifactCollectorId: artifactCollectorId, betOutcomes: betOutcomes });
                     
-                    // Reset artefactos se recolhidos OU se expedição terminou sem recolha
-                    if (artifactCollected > 0 || ends) {
-                        setArtifactValue(0);
-                    }
+                    if (artifactCollected > 0 || ends) setArtifactValue(0);
                     
                     if (ends) {
-                        // Expedição terminou — agora sim transferir discovered → saved
                         var ns = Object.assign({}, savedScores);
                         allExited.forEach(function(id) {
                             ns[id] = (ns[id] || 0) + (nd[id] || 0);
@@ -506,9 +534,9 @@
                 var prepareNewExpedition = function() {
                     setPhase('waiting_start'); setExpedition(expedition + 1);
                     setReserve(0); setTeamsInExpedition([]); setDiscoveredScores({});
-                    setVotes({}); setLastCard(null); setLastRevealResult(null);
+                    setVotes({}); setBets({}); setLastCard(null); setLastRevealResult(null);
                     setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
-                    setArtifactValue(0);
+                    setArtifactValue(0); setRevealStep(0);
                 };
                 
                 // === LEADERBOARD ===
@@ -741,14 +769,76 @@
                             h('div', { className: 'text-xs opacity-75 mt-1' }, 'Só recolhido por quem sair sozinho')
                         ),
                         
-                        // Banner revelação (quem saiu, rubis distribuídos, sobras, artefactos)
-                        lastRevealResult && !lastRevealResult.dangerRepeated && lastRevealResult.leaving && lastRevealResult.leaving.length > 0 && (phase === 'exploring' || phase === 'expedition_end') && h('div', { className: 'bg-white/90 text-gray-800 rounded-xl p-3 mb-4 text-center' },
-                            h('div', { className: 'text-lg font-bold' }, '🏃 ' + lastRevealResult.leaving.length + ' saíram · ⛏️ ' + (lastRevealResult.staying ? lastRevealResult.staying.length : 0) + ' ficaram'),
-                            lastRevealResult.reserveDistributed > 0 && h('div', { className: 'text-sm mt-1' },
-                                'Cada um levou ' + lastRevealResult.reserveDistributed + ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás'),
-                            lastRevealResult.reserveRemaining > 0 && h('div', { className: 'text-sm font-bold text-amber-700 mt-1' },
+                        // Painel de apostas (revealStep === 1)
+                        phase === 'voting' && revealStep === 1 && h('div', { className: 'bg-indigo-100 text-gray-800 rounded-xl p-4 mb-4' },
+                            h('div', { className: 'text-lg font-bold text-indigo-800 mb-3 text-center' }, '🎲 Apostas da Ronda'),
+                            Object.keys(bets).length === 0
+                                ? h('div', { className: 'text-center text-gray-500 italic text-sm' }, 'Nenhuma aposta nesta ronda')
+                                : h('div', { className: 'space-y-2' },
+                                    Object.entries(bets).map(function(entry) {
+                                        var bettorId = parseInt(entry[0]); var bet = entry[1];
+                                        if (!bet || !bet.target) return null;
+                                        var bettorTable = tables.find(function(t) { return t.id === bettorId; });
+                                        var targetTable = tables.find(function(t) { return t.id === bet.target; });
+                                        var bettorName = bettorTable ? (bettorTable.name || 'Mesa ' + bettorId) : 'Mesa ' + bettorId;
+                                        var targetName = targetTable ? (targetTable.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target;
+                                        return h('div', { key: bettorId, className: 'flex items-center gap-2 bg-white p-2 rounded-lg text-sm' },
+                                            h('span', { className: 'font-bold' }, bettorName),
+                                            h('span', { className: 'text-gray-400' }, '→'),
+                                            h('span', { className: 'font-semibold' }, targetName),
+                                            h('span', { className: 'px-2 py-0.5 rounded-full text-xs font-bold ' + (bet.prediction === 'leave' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800') },
+                                                bet.prediction === 'leave' ? '🏃 SAI' : '💎 FICA'
+                                            )
+                                        );
+                                    })
+                                )
+                        ),
+                        
+                        // Banner revelação com duas colunas + resultados apostas
+                        lastRevealResult && !lastRevealResult.dangerRepeated && lastRevealResult.leaving && lastRevealResult.leaving.length > 0 && (phase === 'exploring' || phase === 'expedition_end') && h('div', { className: 'bg-white/90 text-gray-800 rounded-xl p-4 mb-4' },
+                            // Apostas com resultados (✅/❌)
+                            lastRevealResult.betOutcomes && lastRevealResult.betOutcomes.length > 0 && h('div', { className: 'mb-3' },
+                                h('div', { className: 'text-sm font-bold text-indigo-800 mb-2' }, '🎲 Apostas:'),
+                                h('div', { className: 'space-y-1' },
+                                    lastRevealResult.betOutcomes.map(function(bo, idx) {
+                                        var bettorTable = tables.find(function(t) { return t.id === bo.teamId; });
+                                        var targetTable = tables.find(function(t) { return t.id === bo.target; });
+                                        var bettorName = bettorTable ? (bettorTable.name || 'Mesa ' + bo.teamId) : 'Mesa ' + bo.teamId;
+                                        var targetName = targetTable ? (targetTable.name || 'Mesa ' + bo.target) : 'Mesa ' + bo.target;
+                                        return h('div', { key: idx, className: 'flex items-center gap-2 text-sm' },
+                                            h('span', { className: 'text-lg' }, bo.correct ? '✅' : '❌'),
+                                            h('span', { className: 'font-semibold' }, bettorName),
+                                            h('span', { className: 'text-gray-400' }, '→'),
+                                            h('span', null, targetName + ' ' + (bo.prediction === 'leave' ? 'SAI' : 'FICA')),
+                                            h('span', { className: 'font-bold ' + (bo.gain > 0 ? 'text-green-600' : 'text-red-600') }, (bo.gain > 0 ? '+' : '') + bo.gain + '💎')
+                                        );
+                                    })
+                                ),
+                                h('hr', { className: 'my-2' })
+                            ),
+                            // Duas colunas: Ficaram | Saíram
+                            h('div', { className: 'grid grid-cols-2 gap-4' },
+                                h('div', null,
+                                    h('div', { className: 'text-sm font-bold text-green-700 mb-2 text-center' }, '⛏️ Ficaram (' + (lastRevealResult.staying ? lastRevealResult.staying.length : 0) + ')'),
+                                    (lastRevealResult.staying || []).map(function(id) {
+                                        var t = tables.find(function(tb) { return tb.id === id; });
+                                        return h('div', { key: id, className: 'text-sm text-center py-0.5' }, t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id);
+                                    })
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'text-sm font-bold text-red-700 mb-2 text-center' }, '🏃 Saíram (' + lastRevealResult.leaving.length + ')'),
+                                    lastRevealResult.leaving.map(function(id) {
+                                        var t = tables.find(function(tb) { return tb.id === id; });
+                                        return h('div', { key: id, className: 'text-sm text-center py-0.5' }, t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id);
+                                    })
+                                )
+                            ),
+                            // Info rubis distribuídos
+                            lastRevealResult.reserveDistributed > 0 && h('div', { className: 'text-sm mt-2 text-center' },
+                                'Cada saída levou ' + lastRevealResult.reserveDistributed + ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás'),
+                            lastRevealResult.reserveRemaining > 0 && h('div', { className: 'text-sm font-bold text-amber-700 mt-1 text-center' },
                                 '⬇️ Sobram ' + lastRevealResult.reserveRemaining + ' (deixar no caminho)'),
-                            lastRevealResult.artifactCollected > 0 && h('div', { className: 'text-sm font-bold text-teal-700 mt-1' },
+                            lastRevealResult.artifactCollected > 0 && h('div', { className: 'text-sm font-bold text-teal-700 mt-1 text-center' },
                                 '🏺 Recolheu ' + lastRevealResult.artifactCollected + ' pontos de artefactos!')
                         ),
                         lastRevealResult && lastRevealResult.dangerRepeated && phase === 'expedition_end' && h('div', { className: 'bg-red-500/80 text-white rounded-xl p-3 mb-4 text-center' },
@@ -846,12 +936,19 @@
                                 h('button', { onClick: function() { confirmDanger(true); }, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold' }, '✗ Sim!')
                             ),
                             
-                            phase === 'voting' && h('div', { className: 'flex gap-2 items-center flex-wrap' },
+                            phase === 'voting' && revealStep === 0 && h('div', { className: 'flex gap-2 items-center flex-wrap' },
                                 h('span', { className: 'text-sm font-semibold bg-blue-100 px-3 py-1 rounded-full' }, '🗳️ ' + votesRcvd + '/' + totalToVote),
+                                exitedTeams.length > 0 && h('span', { className: 'text-sm font-semibold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full' }, '🎲 ' + Object.keys(bets).length + ' apostas'),
                                 votingTimeout === 0 && !votingTimedOut && h('button', { onClick: function() { startVotingTimeout(10); }, className: 'px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-sm' }, '⏱️ 10s'),
                                 votingTimeout > 0 && h('span', { className: 'text-xl font-bold text-orange-600 animate-pulse' }, '⏱️ ' + votingTimeout + 's'),
                                 votingTimedOut && h('span', { className: 'text-sm font-semibold text-orange-600' }, '⏱️ Esgotado!'),
-                                (allVoted || votingTimedOut) && h('button', { onClick: revealVotes, className: 'px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '👁️ Revelar')
+                                (allVoted || votingTimedOut) && h('button', { onClick: revealBets, className: 'px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '👁️ Revelar')
+                            ),
+                            
+                            // Passo 2: apostas reveladas — mostrar botão resultado
+                            phase === 'voting' && revealStep === 1 && h('div', { className: 'flex gap-2 items-center' },
+                                h('span', { className: 'text-sm font-semibold bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full' }, '🎲 Apostas reveladas'),
+                                h('button', { onClick: revealResult, className: 'px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg ml-2' }, '🎯 Revelar Resultado')
                             ),
                             
                             phase === 'expedition_end' && h('button', { onClick: prepareNewExpedition, className: 'px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg' }, '🔄 Nova Expedição'),

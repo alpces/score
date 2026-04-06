@@ -4,6 +4,25 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Diamant v2.5] - 2026-04-06
+
+### Módulo Diamant - Sistema de Apostas
+
+### Adicionado
+- **Apostas para equipas que já saíram**: Durante a votação, equipas no acampamento podem apostar 1 rubi numa equipa em jogo, prevendo se "Fica" ou "Sai"
+- **Payoff**: Acertar "Sai" = +2 rubis, acertar "Fica" = +1 rubi, errar = -1 rubi (adicionado/subtraído dos Descobertos)
+- **Alterar aposta**: Possível alterar enquanto o master não revelar
+- **Revelação em dois tempos**: Master carrega em "Revelar" → mostra painel de apostas; depois "Revelar Resultado" → mostra duas colunas (Ficaram/Saíram) com ✅/❌ nas apostas e ganhos/perdas
+- **Apostas secretas**: Clientes não vêm apostas uns dos outros até à revelação
+- **revealStep sincronizado**: Clientes reagem ao passo de revelação (0=votação, 1=apostas reveladas)
+- **Regras de apostas no player aid (?)**
+
+### Alterado
+- **Botão Revelar agora é passo 1**: Mostra apostas primeiro, depois resultado
+- **Bets limpos**: diamantBets é limpo em cada nova carta (ruby/danger/artifact) e em cada nova expedição
+
+---
+
 ## [Diamant v2.4] - 2026-04-06
 
 ### Módulo Diamant - Artefactos e UX Cliente
