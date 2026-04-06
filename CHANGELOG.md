@@ -16,13 +16,12 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 - **Visibilidade**: Valor de artefactos visível no master (barra de info) e no cliente (info da expedição) quando > 0
 - **Banners informativos**: Card teal ao revelar artefacto, info de recolha no banner de revelação
 - **Player aid (?)**: Botão no header do cliente abre resumo das regras (rubis, saída, artefactos, perigos, pontuação)
-- **Confirmação ao continuar**: Aviso de risco antes de votar continuar ("se sair perigo repetido, perdes todos os rubis descobertos")
-- **Confirmação ao sair melhorada**: Texto menciona "rubis descobertos" e info de artefactos se existirem
 
 ### Alterado
 - **Nome da equipa obrigatório**: Campo deixou de ser opcional no registo do cliente
 - **Email obrigatório**: Campo deixou de ser opcional no registo do cliente
-- **Textos de confirmação**: Mensagens mais claras com contexto de rubis, reserva e artefactos
+- **Votação sem confirmação**: Botões Continuar/Sair votam com um único toque, sem confirmação — interface limpa e rápida
+- **Timer local no cliente**: Contagem decrescente corre localmente no dispositivo em vez de depender do Firebase a cada segundo, eliminando atrasos de rede na visualização do countdown
 
 ---
 

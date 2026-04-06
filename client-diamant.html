@@ -57,12 +57,13 @@
                 var c6 = _s(''); var connectionError = c6[0]; var setConnectionError = c6[1];
                 var c7 = _s(false); var autoReconnecting = c7[0]; var setAutoReconnecting = c7[1];
                 var c8 = _s(null); var gameData = c8[0]; var setGameData = c8[1];
-                var c9 = _s(false); var confirmingLeave = c9[0]; var setConfirmingLeave = c9[1];
-                var c10 = _s(false); var voteSubmitted = c10[0]; var setVoteSubmitted = c10[1];
-                var c11 = _s(false); var sessionLost = c11[0]; var setSessionLost = c11[1];
-                var c12 = _s(false); var showTeamsList = c12[0]; var setShowTeamsList = c12[1];
-                var c13 = _s(false); var showRules = c13[0]; var setShowRules = c13[1];
-                var c14 = _s(false); var confirmingContinue = c14[0]; var setConfirmingContinue = c14[1];
+                var c9 = _s(false); var voteSubmitted = c9[0]; var setVoteSubmitted = c9[1];
+                var c10 = _s(false); var sessionLost = c10[0]; var setSessionLost = c10[1];
+                var c11 = _s(false); var showTeamsList = c11[0]; var setShowTeamsList = c11[1];
+                var c12 = _s(false); var showRules = c12[0]; var setShowRules = c12[1];
+                // Timer local — o cliente corre a sua própria contagem decrescente
+                var c13 = _s(0); var localTimer = c13[0]; var setLocalTimer = c13[1];
+                var timerRef = React.useRef(null);
                 
                 // URL + localStorage
                 useEffect(function() {
@@ -95,7 +96,7 @@
                             return;
                         }
                         if (data.phase === 'voting' && gameData && gameData.phase !== 'voting') {
-                            setVoteSubmitted(false); setConfirmingLeave(false); setConfirmingContinue(false);
+                            setVoteSubmitted(false);
                         }
                         setGameData(data);
                     });
@@ -104,6 +105,28 @@
                     });
                     return function() { unsubG(); unsubV(); };
                 }, [connected, sessionCode, tableNumber, gameData ? gameData.phase : null]);
+                
+                // Timer local — corre no cliente para contagem precisa
+                useEffect(function() {
+                    var serverTimeout = gameData ? gameData.votingTimeout || 0 : 0;
+                    // Quando o master inicia o timer (valor passa de 0 para >0), sincronizar
+                    if (serverTimeout > 0 && localTimer === 0) {
+                        setLocalTimer(serverTimeout);
+                    }
+                    // Quando a fase muda de voting, resetar
+                    if (gameData && gameData.phase !== 'voting') {
+                        setLocalTimer(0);
+                    }
+                }, [gameData ? gameData.votingTimeout : 0, gameData ? gameData.phase : null]);
+                
+                useEffect(function() {
+                    if (localTimer > 0) {
+                        timerRef.current = setTimeout(function() {
+                            setLocalTimer(function(p) { return p > 0 ? p - 1 : 0; });
+                        }, 1000);
+                    }
+                    return function() { if (timerRef.current) clearTimeout(timerRef.current); };
+                }, [localTimer]);
                 
                 // Conexão com validação de mesa duplicada
                 var handleConnect = async function(isAuto) {
@@ -144,13 +167,13 @@
                     if (!confirm('Sair da sessão?')) return;
                     localStorage.removeItem('diamant_session'); localStorage.removeItem('diamant_table');
                     localStorage.removeItem('diamant_team'); localStorage.removeItem('diamant_emails');
-                    setConnected(false); setGameData(null); setVoteSubmitted(false); setConfirmingLeave(false);
+                    setConnected(false); setGameData(null); setVoteSubmitted(false);
                 };
                 
                 var castVote = async function(vote) {
                     if (!sessionCode || !tableNumber) return;
                     try { await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantVotes/' + tableNumber), vote);
-                        setVoteSubmitted(true); setConfirmingLeave(false); } catch (e) {}
+                        setVoteSubmitted(true); } catch (e) {}
                 };
                 
                 // === DADOS ===
@@ -160,7 +183,6 @@
                 var discovered = gameData && gameData.discoveredScores ? gameData.discoveredScores[tableId] || 0 : 0;
                 var saved = gameData && gameData.savedScores ? gameData.savedScores[tableId] || 0 : 0;
                 var myVote = gameData && gameData.votes ? gameData.votes[tableId] : null;
-                var votingTimeout = gameData ? gameData.votingTimeout || 0 : 0;
                 var votingTimedOut = gameData ? gameData.votingTimedOut || false : false;
                 var teamsInExp = gameData ? gameData.teamsInExpedition || [] : [];
                 var reserve = gameData ? gameData.reserve || 0 : 0;
@@ -253,7 +275,7 @@
                                 ),
                                 h('div', { className: 'bg-teal-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-teal-800 mb-1' }, '🏺 Artefactos'),
-                                    h('div', null, 'Os artefactos acumulam valor ao longo da expedição. Só são recolhidos se saíres SOZINHO — se 2 ou mais equipas saem ao mesmo tempo, os artefactos ficam para a ronda seguinte.')
+                                    h('div', null, 'Os artefactos acumulam valor ao longo da expedição. Só são recolhidos se saíres SOZINHO — se 2 ou mais equipas saem ao mesmo tempo, os artefactos mantêm-se em jogo.')
                                 ),
                                 h('div', { className: 'bg-red-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-red-800 mb-1' }, '☠️ Perigos'),
@@ -380,43 +402,17 @@
                         ),
                         
                         canVote && h('div', { className: 'w-full max-w-sm' },
-                            votingTimeout > 0 && h('div', { className: 'text-center mb-4' },
-                                h('span', { className: 'text-3xl font-bold text-orange-400 animate-pulse' }, '⏱️ ' + votingTimeout + 's')
+                            localTimer > 0 && h('div', { className: 'text-center mb-4' },
+                                h('span', { className: 'text-3xl font-bold text-orange-400 animate-pulse' }, '⏱️ ' + localTimer + 's')
                             ),
-                            // Botões principais
-                            !confirmingLeave && !confirmingContinue
-                                ? h('div', { className: 'flex gap-4' },
-                                    h('button', { onClick: function() { setConfirmingContinue(true); }, className: 'flex-1 py-8 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform' },
-                                        h('div', null, h('div', { className: 'text-5xl mb-2' }, '💎'), h('div', null, 'Continuar'))
-                                    ),
-                                    h('button', { onClick: function() { setConfirmingLeave(true); }, className: 'flex-1 py-8 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform' },
-                                        h('div', null, h('div', { className: 'text-5xl mb-2' }, '🏃'), h('div', null, 'Sair'))
-                                    )
+                            h('div', { className: 'flex gap-4' },
+                                h('button', { onClick: function() { castVote('continue'); }, className: 'flex-1 py-8 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform' },
+                                    h('div', null, h('div', { className: 'text-5xl mb-2' }, '💎'), h('div', null, 'Continuar'))
+                                ),
+                                h('button', { onClick: function() { castVote('leave'); }, className: 'flex-1 py-8 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform' },
+                                    h('div', null, h('div', { className: 'text-5xl mb-2' }, '🏃'), h('div', null, 'Sair'))
                                 )
-                            // Confirmar CONTINUAR
-                            : confirmingContinue
-                                ? h('div', { className: 'bg-white rounded-2xl p-6 shadow-xl' },
-                                    h('div', { className: 'text-center mb-4' },
-                                        h('div', { className: 'text-xl font-bold text-green-800' }, '💎 Continuar a explorar?'),
-                                        h('div', { className: 'text-sm text-gray-600 mt-2' }, 'Atenção: se a próxima carta for um perigo repetido, perdes todos os ' + discovered + ' rubis descobertos nesta expedição!')
-                                    ),
-                                    h('div', { className: 'flex gap-4' },
-                                        h('button', { onClick: function() { setConfirmingContinue(false); }, className: 'flex-1 py-4 bg-gray-400 hover:bg-gray-500 text-white rounded-xl font-bold' }, '← Voltar'),
-                                        h('button', { onClick: function() { setConfirmingContinue(false); castVote('continue'); }, className: 'flex-1 py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold' }, 'Sim, Continuar!')
-                                    )
-                                )
-                            // Confirmar SAIR
-                            : h('div', { className: 'bg-white rounded-2xl p-6 shadow-xl' },
-                                    h('div', { className: 'text-center mb-4' },
-                                        h('div', { className: 'text-xl font-bold text-red-800' }, '🏃 Sair da expedição?'),
-                                        h('div', { className: 'text-sm text-gray-600 mt-2' }, 'Vais guardar ' + discovered + ' rubis descobertos' + (reserve > 0 ? ' + eventuais rubis deixados para trás' : '') + '.'),
-                                        artifactVal > 0 && h('div', { className: 'text-sm text-teal-700 font-semibold mt-1' }, '🏺 Se saíres sozinho, recolhes ' + artifactVal + ' pontos de artefactos!')
-                                    ),
-                                    h('div', { className: 'flex gap-4' },
-                                        h('button', { onClick: function() { setConfirmingLeave(false); }, className: 'flex-1 py-4 bg-gray-400 hover:bg-gray-500 text-white rounded-xl font-bold' }, '← Voltar'),
-                                        h('button', { onClick: function() { castVote('leave'); }, className: 'flex-1 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold' }, 'Sim, Sair!')
-                                    )
-                                )
+                            )
                         ),
                         
                         phase === 'voting' && isInExp && !voteSubmitted && votingTimedOut && h('div', { className: 'text-center text-white' },
