@@ -61,7 +61,8 @@
                 var s4 = _s(''); var codeError = s4[0]; var setCodeError = s4[1];
                 var s5 = _s(false); var codeCopied = s5[0]; var setCodeCopied = s5[1];
                 var s6 = _s(0); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
-                var s7 = _s(false); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
+                var s7 = _s(true); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
+                var s7b = _s(false); var showSaved = s7b[0]; var setShowSaved = s7b[1];
                 // Multiplicador
                 var s8 = _s(9); var multiplierThreshold = s8[0]; var setMultiplierThreshold = s8[1];
                 var s9 = _s(2); var multiplierValue = s9[0]; var setMultiplierValue = s9[1];
@@ -815,12 +816,12 @@
                                     ),
                                     h('div', { className: 'font-bold text-sm truncate mb-2' + (textDim || ' text-gray-800') }, table.name || 'Mesa ' + table.id),
                                     h('div', { className: 'flex justify-between items-center gap-2' },
-                                        // Discovered: mostrar para equipas em jogo E para equipas que já saíram (score congelado)
-                                        showDiscovered && (isInExp || (isExited && disc > 0)) && h('div', { className: 'text-center' },
+                                        // Discovered: sempre visível para equipas em jogo e saídas com score congelado
+                                        (isInExp || (isExited && disc > 0)) && h('div', { className: 'text-center' },
                                             h('div', { className: 'text-xs ' + (isExited ? 'text-amber-400' : 'text-amber-600') }, isExited ? 'Desc ⏳' : 'Desc'),
                                             h('div', { className: 'text-lg font-bold ' + (isExited ? 'text-amber-300' : 'text-amber-500') }, disc)
                                         ),
-                                        h('div', { className: 'text-center flex-1' },
+                                        showSaved && h('div', { className: 'text-center flex-1' },
                                             h('div', { className: 'text-xs' + (textDim || ' text-purple-600') }, 'Guard'),
                                             h('div', { className: 'text-2xl font-black' + (textDim || ' text-purple-600') }, saved)
                                         )
@@ -889,7 +890,7 @@
                                     h('span', { className: 'text-xl' }, '🏺'),
                                     h('span', { className: 'font-bold text-teal-800 text-sm' }, 'Artefactos: ' + artifactValue)
                                 ),
-                                h('button', { onClick: function() { setShowDiscovered(!showDiscovered); }, className: 'px-3 py-1 rounded text-sm ' + (showDiscovered ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600') }, showDiscovered ? '👁️' : '🙈'),
+                                h('button', { onClick: function() { setShowSaved(!showSaved); }, className: 'px-3 py-1 rounded text-sm ' + (showSaved ? 'bg-purple-100 text-purple-700' : 'bg-gray-200 text-gray-600') }, showSaved ? '👁️ Guard' : '🙈 Guard'),
                                 h('button', { onClick: showFinalLeaderboard, className: 'px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-sm' }, '🏆')
                             )
                         )

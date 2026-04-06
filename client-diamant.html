@@ -93,23 +93,28 @@
                     var unsubG = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), function(snap) {
                         var data = snap.val();
                         if (!data || data.active === false) {
-                            // Sessão removida ou inativa
                             setSessionLost(true); setConnected(false); setGameData(null);
                             localStorage.removeItem('diamant_session'); localStorage.removeItem('diamant_table');
                             localStorage.removeItem('diamant_team'); localStorage.removeItem('diamant_emails');
                             return;
                         }
-                        if (data.phase === 'voting' && gameData && gameData.phase !== 'voting') {
-                            setVoteSubmitted(false);
-                            setBetTarget(null); setBetPrediction(null); setBetSubmitted(false);
-                        }
                         setGameData(data);
                     });
+                    // Voto: driven by Firebase — se o nó existe, votou; se não, não votou
                     var unsubV = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantVotes/' + tableNumber), function(snap) {
-                        if (snap.val() !== null) setVoteSubmitted(true);
+                        setVoteSubmitted(snap.val() !== null);
                     });
-                    return function() { unsubG(); unsubV(); };
-                }, [connected, sessionCode, tableNumber, gameData ? gameData.phase : null]);
+                    // Aposta: driven by Firebase
+                    var unsubB = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber), function(snap) {
+                        var bet = snap.val();
+                        if (bet && bet.target) {
+                            setBetTarget(bet.target); setBetPrediction(bet.prediction); setBetSubmitted(true);
+                        } else {
+                            setBetTarget(null); setBetPrediction(null); setBetSubmitted(false);
+                        }
+                    });
+                    return function() { unsubG(); unsubV(); unsubB(); };
+                }, [connected, sessionCode, tableNumber]);
                 
                 // Timer local — corre no cliente para contagem precisa
                 useEffect(function() {
@@ -224,12 +229,6 @@
                 var isExited = exitedTeams.indexOf(tableId) >= 0;
                 var canBet = phase === 'voting' && isExited && !isInExp && discovered > 0 && revealStep === 0;
                 
-                // Nomes das equipas em jogo
-                var teamsInExpNames = teamsInExp.map(function(id) {
-                    var t = allTables.find(function(tb) { return tb.id === id; });
-                    return t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id;
-                });
-                
                 // === SESSÃO PERDIDA ===
                 if (sessionLost) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex items-center justify-center p-4' },
@@ -323,22 +322,34 @@
                 
                 // === POPUP EQUIPAS EM JOGO ===
                 if (showTeamsList) {
+                    var discScores = gameData ? gameData.discoveredScores || {} : {};
                     return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50', onClick: function() { setShowTeamsList(false); } },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full', onClick: function(e) { e.stopPropagation(); } },
                             h('h3', { className: 'text-lg font-bold text-gray-800 mb-3' }, '⛏️ Equipas na Gruta'),
-                            teamsInExpNames.length === 0
+                            teamsInExp.length === 0
                                 ? h('p', { className: 'text-gray-500 italic' }, 'Nenhuma equipa na expedição.')
-                                : h('div', { className: 'space-y-2' }, teamsInExpNames.map(function(name, i) {
-                                    return h('div', { key: i, className: 'flex items-center gap-2 bg-green-50 border border-green-200 p-2 rounded-lg' },
-                                        h('span', { className: 'text-green-600' }, '⛏️'),
-                                        h('span', { className: 'font-semibold text-gray-800' }, name)
+                                : h('div', { className: 'space-y-2' }, teamsInExp.map(function(id) {
+                                    var t = allTables.find(function(tb) { return tb.id === id; });
+                                    var name = t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id;
+                                    var d = discScores[id] || 0;
+                                    return h('div', { key: id, className: 'flex items-center justify-between bg-green-50 border border-green-200 p-2 rounded-lg' },
+                                        h('div', { className: 'flex items-center gap-2' },
+                                            h('span', { className: 'text-green-600' }, '⛏️'),
+                                            h('span', { className: 'font-semibold text-gray-800' }, name)
+                                        ),
+                                        h('span', { className: 'text-amber-600 font-bold text-sm' }, '💎 ' + d)
                                     );
                                 })),
                             exitedTeams.length > 0 && h('div', { className: 'mt-4' },
                                 h('h4', { className: 'text-sm font-bold text-gray-500 mb-2' }, '🏕️ Já saíram'),
                                 h('div', { className: 'space-y-1' }, exitedTeams.map(function(id) {
                                     var t = allTables.find(function(tb) { return tb.id === id; });
-                                    return h('div', { key: id, className: 'text-sm text-gray-400' }, '🏕️ ' + (t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id));
+                                    var name = t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id;
+                                    var d = discScores[id] || 0;
+                                    return h('div', { key: id, className: 'flex items-center justify-between text-sm text-gray-400 px-2' },
+                                        h('span', null, '🏕️ ' + name),
+                                        d > 0 && h('span', { className: 'text-amber-400' }, '💎 ' + d)
+                                    );
                                 }))
                             ),
                             h('button', { onClick: function() { setShowTeamsList(false); }, className: 'w-full mt-4 py-2 bg-gray-200 rounded-lg font-bold text-gray-700' }, 'Fechar')
