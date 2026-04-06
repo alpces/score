@@ -167,6 +167,7 @@
                 var exitedTeams = gameData ? gameData.exitedTeams || [] : [];
                 var multiplierActive = gameData ? gameData.multiplierActive || false : false;
                 var multiplierVal = gameData ? gameData.multiplierValue || 2 : 2;
+                var artifactVal = gameData ? gameData.artifactValue || 0 : 0;
                 var mainLogo = selLogos.indexOf('logo1.png') >= 0 ? 'logo1.png' : null;
                 var secLogos = selLogos.filter(function(l) { return l !== 'logo1.png'; });
                 var canVote = phase === 'voting' && isInExp && !voteSubmitted && !votingTimedOut;
@@ -304,23 +305,30 @@
                                 h('span', { className: 'text-lg' }, teamsInExp.length + ' explorador' + (teamsInExp.length !== 1 ? 'es' : '') + ' na gruta'),
                                 teamsInExp.length > 0 && h('button', { onClick: function() { setShowTeamsList(true); }, className: 'text-amber-300 hover:text-amber-100 text-sm underline' }, 'ver')
                             ),
-                            reserve > 0 && h('div', { className: 'text-amber-300 mt-1' }, '💎 ' + reserve + ' rubis deixados para trás')
+                            reserve > 0 && h('div', { className: 'text-amber-300 mt-1' }, '💎 ' + reserve + ' rubis deixados para trás'),
+                            artifactVal > 0 && h('div', { className: 'text-teal-300 mt-1' }, '🏺 ' + artifactVal + ' pontos de artefactos em jogo')
                         ),
                         
                         // Carta revelada (só quando em voting)
-                        lastCard && phase === 'voting' && !voteSubmitted && h('div', {
-                            className: 'text-center p-3 rounded-xl mb-4 w-full max-w-sm ' + (lastCard.type === 'ruby' ? 'bg-amber-400 text-amber-900' : 'bg-red-500 text-white')
+                        lastCard && phase === 'voting' && !voteSubmitted && lastCard.type === 'ruby' && h('div', {
+                            className: 'text-center p-3 rounded-xl mb-4 w-full max-w-sm bg-amber-400 text-amber-900'
                         },
-                            lastCard.type === 'ruby'
-                                ? h('div', null,
-                                    h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.value || lastCard.cardValue || '?') + ' rubis'),
-                                    h('div', { className: 'text-sm' }, (lastCard.perTeam != null ? lastCard.perTeam : 0) + ' para cada'),
-                                    lastCard.leftover > 0 && h('div', { className: 'text-sm font-bold mt-1' }, '⬇️ ' + lastCard.leftover + ' não recolhido' + (lastCard.leftover > 1 ? 's' : ''))
-                                )
-                                : h('div', null,
-                                    h('div', { className: 'text-xl font-bold' }, '☠️ Perigo! (Não repetido)'),
-                                    h('div', { className: 'text-sm mt-1' }, 'Continuar ou sair?')
-                                )
+                            h('div', { className: 'text-2xl font-bold' }, '💎 ' + (lastCard.value || lastCard.cardValue || '?') + ' rubis'),
+                            h('div', { className: 'text-sm' }, (lastCard.perTeam != null ? lastCard.perTeam : 0) + ' para cada'),
+                            lastCard.leftover > 0 && h('div', { className: 'text-sm font-bold mt-1' }, '⬇️ ' + lastCard.leftover + ' não recolhido' + (lastCard.leftover > 1 ? 's' : ''))
+                        ),
+                        lastCard && phase === 'voting' && !voteSubmitted && lastCard.type === 'danger' && h('div', {
+                            className: 'text-center p-3 rounded-xl mb-4 w-full max-w-sm bg-red-500 text-white'
+                        },
+                            h('div', { className: 'text-xl font-bold' }, '☠️ Perigo! (Não repetido)'),
+                            h('div', { className: 'text-sm mt-1' }, 'Continuar ou sair?')
+                        ),
+                        lastCard && phase === 'voting' && !voteSubmitted && lastCard.type === 'artifact' && h('div', {
+                            className: 'text-center p-3 rounded-xl mb-4 w-full max-w-sm bg-teal-500 text-white'
+                        },
+                            h('div', { className: 'text-2xl font-bold' }, '🏺 Artefacto! +' + (lastCard.value || '?')),
+                            h('div', { className: 'text-sm mt-1' }, 'Total acumulado: ' + (lastCard.totalArtifact || lastCard.value || '?')),
+                            h('div', { className: 'text-xs opacity-75 mt-1' }, 'Só recolhido por quem sair sozinho')
                         ),
                         
                         // Estados
@@ -386,7 +394,8 @@
                                 )
                                 : lastReveal.leaving && lastReveal.leaving.length > 0 && h('div', { className: 'bg-white/20 rounded-xl p-4' },
                                     h('div', null, '🏃 ' + lastReveal.leaving.length + ' saíram'),
-                                    h('div', null, '⛏️ ' + (lastReveal.staying ? lastReveal.staying.length : 0) + ' ficaram')
+                                    h('div', null, '⛏️ ' + (lastReveal.staying ? lastReveal.staying.length : 0) + ' ficaram'),
+                                    lastReveal.artifactCollected > 0 && h('div', { className: 'text-teal-300 mt-1 font-bold' }, '🏺 Artefactos recolhidos! +' + lastReveal.artifactCollected)
                                 )
                         ),
                         

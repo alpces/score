@@ -4,6 +4,35 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Diamant v2.4] - 2026-04-06
+
+### Módulo Diamant - Artefactos
+
+### Adicionado
+- **Cartas de artefacto**: Novo botão "🏺" na fase de exploração com valores pré-definidos (5, 7, 8, 10, 12)
+- **Acumulação de artefactos**: O valor acumula enquanto ninguém sair sozinho da expedição
+- **Recolha solo**: Quando exactamente 1 equipa sai, recolhe todos os pontos de artefactos acumulados (adicionados aos Descobertos)
+- **Artefactos perdidos**: Se perigo repetido ou expedição termina sem recolha solo, artefactos perdem-se
+- **Visibilidade**: Valor de artefactos visível no master (barra de info) e no cliente (info da expedição) quando > 0
+- **Banners informativos**: Card teal ao revelar artefacto, info de recolha no banner de revelação
+
+---
+
+## [Diamant v2.3] - 2026-04-05
+
+### Módulo Diamant - Pontuação Diferida
+
+### Alterado
+- **Scoring diferido**: Quando uma equipa sai, Descobertos e Guardados ficam inalterados. Parte da reserva vai para Descobertos. Guardados só atualizam no fim da expedição (todos saem ou perigo repetido)
+- **Perigo repetido**: Equipas que já saíram recebem discovered → saved. Equipas na gruta perdem discovered
+
+### Corrigido
+- Fix "undefined rubis": campo `value` adicionado ao lastCard
+- Removido `effectiveValue` (redundante com `value`) e `pendingSavings`
+- `disconnectTable` agora limpa discoveredScores e adiciona a exitedTeams
+
+---
+
 ## [Diamant v2.2] - 2026-04-05
 
 ### Módulo Diamant - Funcionalidades e Correções

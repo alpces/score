@@ -80,6 +80,7 @@
                 var g11 = _s(null); var lastRevealResult = g11[0]; var setLastRevealResult = g11[1];
                 var g12 = _s(''); var rubyInputValue = g12[0]; var setRubyInputValue = g12[1];
                 var g13 = _s([]); var exitedTeams = g13[0]; var setExitedTeams = g13[1];
+                var g14 = _s(0); var artifactValue = g14[0]; var setArtifactValue = g14[1];
                 
                 // === UI ===
                 var u1 = _s([]); var tables = u1[0]; var setTables = u1[1];
@@ -159,12 +160,13 @@
                                 lastCard: lastCard, lastRevealResult: lastRevealResult,
                                 tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
                                 selectedLogos: selectedLogos, exitedTeams: exitedTeams,
+                                artifactValue: artifactValue,
                                 multiplierThreshold: multiplierThreshold, multiplierValue: multiplierValue,
                                 multiplierActive: multiplierActive
                             });
                         } catch (e) { console.error('Sync:', e); }
                     })();
-                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, multiplierThreshold, multiplierValue]);
+                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, artifactValue, multiplierThreshold, multiplierValue]);
                 
                 // === LISTENERS ===
                 useEffect(function() {
@@ -228,6 +230,7 @@
                     setExpedition(1); setReserve(0); setTeamsInExpedition([]);
                     setVotes({}); setLastCard(null); setLastRevealResult(null);
                     setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
+                    setArtifactValue(0);
                     try {
                         await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
                             gameType: GAME_TYPE, active: true, timestamp: Date.now(),
@@ -236,6 +239,7 @@
                             votes: {}, votingTimeout: 0, votingTimedOut: false,
                             lastCard: null, lastRevealResult: null, tables: [],
                             selectedLogos: selectedLogos, exitedTeams: [],
+                            artifactValue: 0,
                             multiplierThreshold: multiplierThreshold, multiplierValue: multiplierValue,
                             multiplierActive: false
                         });
@@ -270,6 +274,7 @@
                     setVotingTimeout(0); setVotingTimedOut(false);
                     setLastCard(null); setLastRevealResult(null);
                     setTables([]); setConnectedClients({}); setExitedTeams([]);
+                    setArtifactValue(0);
                     setShowLeaderboard(false); setShowQRCode(false); setShowEndSessionModal(false);
                 };
                 
@@ -311,6 +316,7 @@
                     setLastCard(null); setLastRevealResult(null);
                     setSelectedLogos(entry.selectedLogos || []);
                     setExitedTeams(entry.exitedTeams || []);
+                    setArtifactValue(entry.artifactValue || 0);
                     if (entry.multiplierThreshold) setMultiplierThreshold(entry.multiplierThreshold);
                     if (entry.multiplierValue) setMultiplierValue(entry.multiplierValue);
                     setConnectedClients({}); setShowLeaderboard(false); setShowQRCode(false);
@@ -323,6 +329,7 @@
                             discoveredScores: ld, savedScores: ls, votes: {}, votingTimeout: 0, votingTimedOut: false,
                             lastCard: null, lastRevealResult: null, tables: lt,
                             selectedLogos: entry.selectedLogos || [], exitedTeams: entry.exitedTeams || [],
+                            artifactValue: entry.artifactValue || 0,
                             multiplierThreshold: entry.multiplierThreshold || 9, multiplierValue: entry.multiplierValue || 2,
                             multiplierActive: lt.length >= (entry.multiplierThreshold || 9)
                         }); } catch (e) { console.error(e); }
@@ -377,6 +384,7 @@
                     setPhase('exploring'); setReserve(0); setTeamsInExpedition(allIds);
                     setDiscoveredScores(nd); setVotes({}); setLastCard(null);
                     setLastRevealResult(null); setVotingTimedOut(false); setExitedTeams([]);
+                    setArtifactValue(0);
                 };
                 
                 var drawRubyCard = async function() {
@@ -401,6 +409,15 @@
                     setLastCard({ type: 'danger', awaitingConfirmation: true });
                 };
                 
+                var drawArtifactCard = async function(val) {
+                    if (!val || val <= 0) return;
+                    var newArtifact = artifactValue + val;
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
+                    setArtifactValue(newArtifact);
+                    setPhase('voting'); setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    setLastCard({ type: 'artifact', value: val, totalArtifact: newArtifact });
+                };
+                
                 var confirmDanger = async function(isRepeated) {
                     if (isRepeated) {
                         // Perigo repetido:
@@ -415,6 +432,7 @@
                         teamsInExpedition.forEach(function(id) { nd[id] = 0; });
                         
                         setSavedScores(ns); setDiscoveredScores(nd);
+                        setArtifactValue(0); // Artefactos perdem-se com perigo repetido
                         setPhase('expedition_end'); setTeamsInExpedition([]); setVotes({});
                         setLastCard({ type: 'danger', isRepeated: true });
                         setLastRevealResult({ staying: [], leaving: [], dangerRepeated: true });
@@ -446,6 +464,15 @@
                     var nd = Object.assign({}, discoveredScores);
                     leaving.forEach(function(id) { nd[id] = (nd[id] || 0) + rpl; });
                     
+                    // Artefactos: só recolhidos se EXACTAMENTE 1 pessoa sai
+                    var artifactCollected = 0;
+                    var artifactCollectorId = null;
+                    if (leaving.length === 1 && artifactValue > 0) {
+                        artifactCollectorId = leaving[0];
+                        nd[artifactCollectorId] = (nd[artifactCollectorId] || 0) + artifactValue;
+                        artifactCollected = artifactValue;
+                    }
+                    
                     var ends = staying.length === 0;
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     
@@ -455,7 +482,12 @@
                     setReserve(nr);
                     setTeamsInExpedition(staying);
                     setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
-                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveRemaining: nr });
+                    setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveRemaining: nr, artifactCollected: artifactCollected, artifactCollectorId: artifactCollectorId });
+                    
+                    // Reset artefactos se recolhidos OU se expedição terminou sem recolha
+                    if (artifactCollected > 0 || ends) {
+                        setArtifactValue(0);
+                    }
                     
                     if (ends) {
                         // Expedição terminou — agora sim transferir discovered → saved
@@ -476,6 +508,7 @@
                     setReserve(0); setTeamsInExpedition([]); setDiscoveredScores({});
                     setVotes({}); setLastCard(null); setLastRevealResult(null);
                     setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
+                    setArtifactValue(0);
                 };
                 
                 // === LEADERBOARD ===
@@ -701,14 +734,22 @@
                         lastCard && phase === 'voting' && lastCard.type === 'danger' && !lastCard.awaitingConfirmation && h('div', { className: 'bg-red-500 text-white rounded-xl p-3 mb-4 text-center' },
                             h('div', { className: 'text-2xl font-bold' }, '☠️ Perigo! (Não repetido)')
                         ),
+                        // Banner artefacto
+                        lastCard && phase === 'voting' && lastCard.type === 'artifact' && h('div', { className: 'bg-teal-500 text-white rounded-xl p-3 mb-4 text-center' },
+                            h('div', { className: 'text-2xl font-bold' }, '🏺 Artefacto! +' + lastCard.value),
+                            h('div', { className: 'text-sm mt-1' }, 'Total acumulado: ' + lastCard.totalArtifact + ' pontos'),
+                            h('div', { className: 'text-xs opacity-75 mt-1' }, 'Só recolhido por quem sair sozinho')
+                        ),
                         
-                        // Banner revelação (quem saiu, rubis distribuídos, sobras)
+                        // Banner revelação (quem saiu, rubis distribuídos, sobras, artefactos)
                         lastRevealResult && !lastRevealResult.dangerRepeated && lastRevealResult.leaving && lastRevealResult.leaving.length > 0 && (phase === 'exploring' || phase === 'expedition_end') && h('div', { className: 'bg-white/90 text-gray-800 rounded-xl p-3 mb-4 text-center' },
                             h('div', { className: 'text-lg font-bold' }, '🏃 ' + lastRevealResult.leaving.length + ' saíram · ⛏️ ' + (lastRevealResult.staying ? lastRevealResult.staying.length : 0) + ' ficaram'),
                             lastRevealResult.reserveDistributed > 0 && h('div', { className: 'text-sm mt-1' },
                                 'Cada um levou ' + lastRevealResult.reserveDistributed + ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás'),
                             lastRevealResult.reserveRemaining > 0 && h('div', { className: 'text-sm font-bold text-amber-700 mt-1' },
-                                '⬇️ Sobram ' + lastRevealResult.reserveRemaining + ' (deixar no caminho)')
+                                '⬇️ Sobram ' + lastRevealResult.reserveRemaining + ' (deixar no caminho)'),
+                            lastRevealResult.artifactCollected > 0 && h('div', { className: 'text-sm font-bold text-teal-700 mt-1' },
+                                '🏺 Recolheu ' + lastRevealResult.artifactCollected + ' pontos de artefactos!')
                         ),
                         lastRevealResult && lastRevealResult.dangerRepeated && phase === 'expedition_end' && h('div', { className: 'bg-red-500/80 text-white rounded-xl p-3 mb-4 text-center' },
                             h('div', { className: 'text-xl font-bold' }, '💀 Perigo Repetido! Expedição perdida.')
@@ -782,12 +823,20 @@
                                 className: 'px-6 py-3 rounded-xl font-bold shadow-lg ' + (tables.length > 0 ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 text-gray-500')
                             }, '🚀 Iniciar (' + tables.length + ' eq)'),
                             
-                            (phase === 'exploring' && !dangerAwaiting) && h('div', { className: 'flex gap-2 items-center' },
+                            (phase === 'exploring' && !dangerAwaiting) && h('div', { className: 'flex gap-2 items-center flex-wrap' },
                                 h('input', { type: 'number', min: 1, max: 15, value: rubyInputValue, onChange: function(e) { setRubyInputValue(e.target.value); }, placeholder: '💎', className: 'w-20 px-3 py-2 border-2 border-amber-400 rounded-xl text-center font-bold text-xl' }),
                                 multiplierActive && h('span', { className: 'text-xs font-bold text-amber-700' }, '×' + currentMultiplier),
                                 h('button', { onClick: drawRubyCard, disabled: !rubyInputValue, className: 'px-4 py-2 rounded-xl font-bold ' + (rubyInputValue ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500') }, '💎 Rubis'),
-                                h('div', { className: 'w-px h-10 bg-gray-300 mx-2' }),
-                                h('button', { onClick: drawDangerCard, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold' }, '☠️ Perigo')
+                                h('div', { className: 'w-px h-10 bg-gray-300 mx-1' }),
+                                h('button', { onClick: drawDangerCard, className: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold' }, '☠️ Perigo'),
+                                h('div', { className: 'w-px h-10 bg-gray-300 mx-1' }),
+                                // Artefactos — valores pré-definidos
+                                h('div', { className: 'flex gap-1 items-center' },
+                                    h('span', { className: 'text-sm font-semibold text-teal-700' }, '🏺'),
+                                    [5, 7, 8, 10, 12].map(function(v) {
+                                        return h('button', { key: v, onClick: function() { drawArtifactCard(v); }, className: 'px-2 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded-lg font-bold text-sm' }, v);
+                                    })
+                                )
                             ),
                             
                             dangerAwaiting && h('div', { className: 'flex gap-2 items-center' },
@@ -811,6 +860,10 @@
                                 h('div', { className: 'flex items-center gap-2 bg-amber-100 px-4 py-2 rounded-full' },
                                     h('span', { className: 'text-xl' }, '💎'),
                                     h('span', { className: 'font-bold text-amber-800 text-sm' }, 'Deixados: ' + reserve)
+                                ),
+                                artifactValue > 0 && h('div', { className: 'flex items-center gap-2 bg-teal-100 px-4 py-2 rounded-full' },
+                                    h('span', { className: 'text-xl' }, '🏺'),
+                                    h('span', { className: 'font-bold text-teal-800 text-sm' }, 'Artefactos: ' + artifactValue)
                                 ),
                                 h('button', { onClick: function() { setShowDiscovered(!showDiscovered); }, className: 'px-3 py-1 rounded text-sm ' + (showDiscovered ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600') }, showDiscovered ? '👁️' : '🙈'),
                                 h('button', { onClick: showFinalLeaderboard, className: 'px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-sm' }, '🏆')
