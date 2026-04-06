@@ -61,6 +61,8 @@
                 var c10 = _s(false); var voteSubmitted = c10[0]; var setVoteSubmitted = c10[1];
                 var c11 = _s(false); var sessionLost = c11[0]; var setSessionLost = c11[1];
                 var c12 = _s(false); var showTeamsList = c12[0]; var setShowTeamsList = c12[1];
+                var c13 = _s(false); var showRules = c13[0]; var setShowRules = c13[1];
+                var c14 = _s(false); var confirmingContinue = c14[0]; var setConfirmingContinue = c14[1];
                 
                 // URL + localStorage
                 useEffect(function() {
@@ -93,7 +95,7 @@
                             return;
                         }
                         if (data.phase === 'voting' && gameData && gameData.phase !== 'voting') {
-                            setVoteSubmitted(false); setConfirmingLeave(false);
+                            setVoteSubmitted(false); setConfirmingLeave(false); setConfirmingContinue(false);
                         }
                         setGameData(data);
                     });
@@ -107,6 +109,8 @@
                 var handleConnect = async function(isAuto) {
                     var code = sessionCode.trim().toUpperCase(), table = parseInt(tableNumber);
                     if (!code || !table) { setConnectionError('Preenche código e mesa'); setAutoReconnecting(false); return; }
+                    if (!isAuto && !teamName.trim()) { setConnectionError('O nome da equipa é obrigatório'); return; }
+                    if (!isAuto && !emails.trim()) { setConnectionError('O email é obrigatório'); return; }
                     try {
                         // Verificar sessão ativa
                         var gsSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/gameState'), r, { onlyOnce: true }); });
@@ -218,17 +222,49 @@
                                         h('input', { type: 'number', min: 1, max: 50, value: tableNumber, onChange: function(e) { setTableNumber(e.target.value); }, placeholder: '1-50', className: 'w-full px-4 py-3 border-2 rounded-xl text-center text-xl focus:border-amber-500 outline-none' })
                                     ),
                                     h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Nome da Equipa (opcional)'),
+                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Nome da Equipa *'),
                                         h('input', { type: 'text', value: teamName, onChange: function(e) { setTeamName(e.target.value); }, placeholder: 'Os Exploradores', className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none' })
                                     ),
                                     h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Emails (opcional)'),
+                                        h('label', { className: 'block text-sm font-semibold mb-1' }, 'Email *'),
                                         h('input', { type: 'text', value: emails, onChange: function(e) { setEmails(e.target.value); }, placeholder: 'email1@ex.com', className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-amber-500 outline-none text-sm' })
                                     ),
                                     connectionError && h('p', { className: 'text-red-600 text-sm text-center font-semibold' }, connectionError),
                                     h('button', { onClick: function() { handleConnect(false); }, className: 'w-full py-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-lg shadow-lg' }, '🚀 Entrar')
                                 )
                             )
+                        )
+                    );
+                }
+                
+                // === REGRAS ===
+                if (showRules) {
+                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50', onClick: function() { setShowRules(false); } },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full max-h-[85vh] overflow-y-auto', onClick: function(e) { e.stopPropagation(); } },
+                            h('h3', { className: 'text-lg font-black text-amber-800 mb-3 text-center' }, '💎 Diamant — Regras'),
+                            h('div', { className: 'space-y-3 text-sm text-gray-700' },
+                                h('div', { className: 'bg-amber-50 p-3 rounded-lg' },
+                                    h('div', { className: 'font-bold text-amber-800 mb-1' }, '💎 Rubis'),
+                                    h('div', null, 'Cada carta de rubis é dividida igualmente pelas equipas na gruta. Os rubis que sobram da divisão ficam para trás na tile revelada.')
+                                ),
+                                h('div', { className: 'bg-amber-50 p-3 rounded-lg' },
+                                    h('div', { className: 'font-bold text-amber-800 mb-1' }, '🏃 Sair da Expedição'),
+                                    h('div', null, 'Ao sair, levas os rubis que descobriste. Se houver rubis deixados para trás no caminho, são divididos por quem sair nessa ronda.')
+                                ),
+                                h('div', { className: 'bg-teal-50 p-3 rounded-lg' },
+                                    h('div', { className: 'font-bold text-teal-800 mb-1' }, '🏺 Artefactos'),
+                                    h('div', null, 'Os artefactos acumulam valor ao longo da expedição. Só são recolhidos se saíres SOZINHO — se 2 ou mais equipas saem ao mesmo tempo, os artefactos ficam para a ronda seguinte.')
+                                ),
+                                h('div', { className: 'bg-red-50 p-3 rounded-lg' },
+                                    h('div', { className: 'font-bold text-red-800 mb-1' }, '☠️ Perigos'),
+                                    h('div', null, 'Existem 5 tipos de perigo no baralho, cada um com 3 cópias. Quando o mesmo tipo de perigo aparece pela 2ª vez, a expedição termina imediatamente! Todos os que ainda estão na gruta perdem os rubis descobertos nessa expedição. Uma das cartas repetidas é removida do jogo.')
+                                ),
+                                h('div', { className: 'bg-purple-50 p-3 rounded-lg' },
+                                    h('div', { className: 'font-bold text-purple-800 mb-1' }, '🏆 Pontuação'),
+                                    h('div', null, 'Os rubis descobertos só passam a guardados quando a expedição termina. Enquanto estás na gruta, arriscas perder tudo se sair um perigo repetido!')
+                                )
+                            ),
+                            h('button', { onClick: function() { setShowRules(false); }, className: 'w-full mt-4 py-2 bg-amber-600 text-white rounded-lg font-bold' }, 'Entendido!')
                         )
                     );
                 }
@@ -269,6 +305,7 @@
                             ),
                             mainLogo && h('img', { src: mainLogo, className: 'h-10 object-contain', style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } }),
                             h('div', { className: 'flex items-center gap-2' },
+                                h('button', { onClick: function() { setShowRules(true); }, className: 'text-white/75 hover:text-white text-lg font-bold bg-white/20 w-7 h-7 rounded-full flex items-center justify-center' }, '?'),
                                 h('span', { className: 'text-white/75 text-sm font-mono' }, sessionCode),
                                 h('button', { onClick: handleDisconnect, className: 'text-white/50 hover:text-white text-xl' }, '✕')
                             )
@@ -346,19 +383,34 @@
                             votingTimeout > 0 && h('div', { className: 'text-center mb-4' },
                                 h('span', { className: 'text-3xl font-bold text-orange-400 animate-pulse' }, '⏱️ ' + votingTimeout + 's')
                             ),
-                            !confirmingLeave
+                            // Botões principais
+                            !confirmingLeave && !confirmingContinue
                                 ? h('div', { className: 'flex gap-4' },
-                                    h('button', { onClick: function() { castVote('continue'); }, className: 'flex-1 py-8 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform' },
+                                    h('button', { onClick: function() { setConfirmingContinue(true); }, className: 'flex-1 py-8 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform' },
                                         h('div', null, h('div', { className: 'text-5xl mb-2' }, '💎'), h('div', null, 'Continuar'))
                                     ),
                                     h('button', { onClick: function() { setConfirmingLeave(true); }, className: 'flex-1 py-8 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold text-xl shadow-xl active:scale-95 transition-transform' },
                                         h('div', null, h('div', { className: 'text-5xl mb-2' }, '🏃'), h('div', null, 'Sair'))
                                     )
                                 )
-                                : h('div', { className: 'bg-white rounded-2xl p-6 shadow-xl' },
+                            // Confirmar CONTINUAR
+                            : confirmingContinue
+                                ? h('div', { className: 'bg-white rounded-2xl p-6 shadow-xl' },
                                     h('div', { className: 'text-center mb-4' },
-                                        h('div', { className: 'text-xl font-bold text-red-800' }, 'Tens a certeza?'),
-                                        h('div', { className: 'text-sm text-gray-600 mt-2' }, 'Vais guardar ' + discovered + ' descobertos + parte dos deixados para trás')
+                                        h('div', { className: 'text-xl font-bold text-green-800' }, '💎 Continuar a explorar?'),
+                                        h('div', { className: 'text-sm text-gray-600 mt-2' }, 'Atenção: se a próxima carta for um perigo repetido, perdes todos os ' + discovered + ' rubis descobertos nesta expedição!')
+                                    ),
+                                    h('div', { className: 'flex gap-4' },
+                                        h('button', { onClick: function() { setConfirmingContinue(false); }, className: 'flex-1 py-4 bg-gray-400 hover:bg-gray-500 text-white rounded-xl font-bold' }, '← Voltar'),
+                                        h('button', { onClick: function() { setConfirmingContinue(false); castVote('continue'); }, className: 'flex-1 py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold' }, 'Sim, Continuar!')
+                                    )
+                                )
+                            // Confirmar SAIR
+                            : h('div', { className: 'bg-white rounded-2xl p-6 shadow-xl' },
+                                    h('div', { className: 'text-center mb-4' },
+                                        h('div', { className: 'text-xl font-bold text-red-800' }, '🏃 Sair da expedição?'),
+                                        h('div', { className: 'text-sm text-gray-600 mt-2' }, 'Vais guardar ' + discovered + ' rubis descobertos' + (reserve > 0 ? ' + eventuais rubis deixados para trás' : '') + '.'),
+                                        artifactVal > 0 && h('div', { className: 'text-sm text-teal-700 font-semibold mt-1' }, '🏺 Se saíres sozinho, recolhes ' + artifactVal + ' pontos de artefactos!')
                                     ),
                                     h('div', { className: 'flex gap-4' },
                                         h('button', { onClick: function() { setConfirmingLeave(false); }, className: 'flex-1 py-4 bg-gray-400 hover:bg-gray-500 text-white rounded-xl font-bold' }, '← Voltar'),

@@ -6,7 +6,7 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ## [Diamant v2.4] - 2026-04-06
 
-### Módulo Diamant - Artefactos
+### Módulo Diamant - Artefactos e UX Cliente
 
 ### Adicionado
 - **Cartas de artefacto**: Novo botão "🏺" na fase de exploração com valores pré-definidos (5, 7, 8, 10, 12)
@@ -15,6 +15,14 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 - **Artefactos perdidos**: Se perigo repetido ou expedição termina sem recolha solo, artefactos perdem-se
 - **Visibilidade**: Valor de artefactos visível no master (barra de info) e no cliente (info da expedição) quando > 0
 - **Banners informativos**: Card teal ao revelar artefacto, info de recolha no banner de revelação
+- **Player aid (?)**: Botão no header do cliente abre resumo das regras (rubis, saída, artefactos, perigos, pontuação)
+- **Confirmação ao continuar**: Aviso de risco antes de votar continuar ("se sair perigo repetido, perdes todos os rubis descobertos")
+- **Confirmação ao sair melhorada**: Texto menciona "rubis descobertos" e info de artefactos se existirem
+
+### Alterado
+- **Nome da equipa obrigatório**: Campo deixou de ser opcional no registo do cliente
+- **Email obrigatório**: Campo deixou de ser opcional no registo do cliente
+- **Textos de confirmação**: Mensagens mais claras com contexto de rubis, reserva e artefactos
 
 ---
 
