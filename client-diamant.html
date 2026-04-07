@@ -72,10 +72,22 @@
                 // URL + localStorage
                 useEffect(function() {
                     var p = new URLSearchParams(window.location.search);
-                    var us = p.get('session');
-                    if (us) setSessionCode(us.toUpperCase());
+                    var urlSession = p.get('session');
                     var ss = localStorage.getItem('diamant_session'), st = localStorage.getItem('diamant_table');
-                    if (ss && st) {
+                    
+                    if (urlSession) {
+                        var urlUpper = urlSession.toUpperCase();
+                        // URL tem sessão diferente da guardada? Desconectar da antiga
+                        if (ss && ss !== urlUpper) {
+                            localStorage.removeItem('diamant_session');
+                            localStorage.removeItem('diamant_table');
+                            localStorage.removeItem('diamant_team');
+                            localStorage.removeItem('diamant_emails');
+                        }
+                        setSessionCode(urlUpper);
+                        // Não auto-reconectar — mostrar ecrã de registo
+                    } else if (ss && st) {
+                        // Sem URL, usar localStorage para auto-reconexão
                         setSessionCode(ss); setTableNumber(st);
                         var sn = localStorage.getItem('diamant_team'), se = localStorage.getItem('diamant_emails');
                         if (sn) setTeamName(sn); if (se) setEmails(se);
@@ -223,6 +235,7 @@
                 var multiplierVal = gameData ? gameData.multiplierValue || 2 : 2;
                 var artifactVal = gameData ? gameData.artifactValue || 0 : 0;
                 var revealStep = gameData ? gameData.revealStep || 0 : 0;
+                var revealedBets = gameData ? gameData.revealedBets || [] : [];
                 var mainLogo = selLogos.indexOf('logo1.png') >= 0 ? 'logo1.png' : null;
                 var secLogos = selLogos.filter(function(l) { return l !== 'logo1.png'; });
                 var canVote = phase === 'voting' && isInExp && !voteSubmitted && !votingTimedOut && revealStep === 0;
@@ -402,11 +415,11 @@
                         h('div', { className: 'text-center text-white mb-6' },
                             h('div', { className: 'text-sm opacity-75' }, 'Expedição ' + (gameData ? gameData.expedition || 1 : 1)),
                             h('div', { className: 'flex items-center justify-center gap-2' },
-                                h('span', { className: 'text-lg' }, teamsInExp.length + ' explorador' + (teamsInExp.length !== 1 ? 'es' : '') + ' na gruta'),
+                                h('span', { className: 'text-lg' }, 'Exploradores na gruta: ' + teamsInExp.length),
                                 teamsInExp.length > 0 && h('button', { onClick: function() { setShowTeamsList(true); }, className: 'text-amber-300 hover:text-amber-100 text-sm underline' }, 'ver')
                             ),
-                            reserve > 0 && h('div', { className: 'text-amber-300 mt-1' }, '💎 ' + reserve + ' rubis deixados para trás'),
-                            artifactVal > 0 && h('div', { className: 'text-teal-300 mt-1' }, '🏺 ' + artifactVal + ' pontos de artefactos em jogo')
+                            reserve > 0 && h('div', { className: 'text-amber-300 mt-1' }, '💎 Rubis deixados para trás: ' + reserve),
+                            artifactVal > 0 && h('div', { className: 'text-teal-300 mt-1' }, '🏺 Artefactos em jogo: ' + artifactVal)
                         ),
                         
                         // Carta revelada (só quando em voting)
@@ -530,23 +543,21 @@
                             h('div', { className: 'text-sm opacity-75 mt-2' }, 'À espera da próxima carta')
                         ),
                         
-                        // Revelação
-                        lastReveal && phase === 'exploring' && h('div', { className: 'text-center text-white mt-4' },
+                        // Revelação inline (resumo simples)
+                        lastReveal && phase === 'exploring' && revealStep === 0 && h('div', { className: 'text-center text-white mt-4' },
                             lastReveal.dangerRepeated
                                 ? h('div', { className: 'bg-red-500/50 rounded-xl p-4' },
                                     h('div', { className: 'text-2xl font-bold' }, '💀 Perigo Repetido!'),
                                     h('div', { className: 'text-sm mt-1' }, 'Todos perderam os descobertos')
                                 )
                                 : lastReveal.leaving && lastReveal.leaving.length > 0 && h('div', { className: 'bg-white/20 rounded-xl p-4' },
-                                    h('div', null, '🏃 ' + lastReveal.leaving.length + ' saíram'),
-                                    h('div', null, '⛏️ ' + (lastReveal.staying ? lastReveal.staying.length : 0) + ' ficaram'),
-                                    lastReveal.artifactCollected > 0 && h('div', { className: 'text-teal-300 mt-1 font-bold' }, '🏺 Artefactos recolhidos! +' + lastReveal.artifactCollected),
-                                    // Resultado da minha aposta
+                                    h('div', null, '🏃 Saíram: ' + lastReveal.leaving.length),
+                                    h('div', null, '⛏️ Ficaram: ' + (lastReveal.staying ? lastReveal.staying.length : 0)),
+                                    lastReveal.artifactCollected > 0 && h('div', { className: 'text-teal-300 mt-1 font-bold' }, '🏺 Artefactos recolhidos: +' + lastReveal.artifactCollected),
                                     lastReveal.betOutcomes && (function() {
                                         var myBet = lastReveal.betOutcomes.find(function(bo) { return bo.teamId === tableId; });
                                         if (!myBet) return null;
-                                        var targetT = allTables.find(function(tb) { return tb.id === myBet.target; });
-                                        var tName = targetT ? (targetT.name || 'Mesa ' + myBet.target) : 'Mesa ' + myBet.target;
+                                        var tName = myBet.targetName || 'Mesa ' + myBet.target;
                                         return h('div', { className: 'mt-2 p-2 rounded-lg ' + (myBet.correct ? 'bg-green-500/30' : 'bg-red-500/30') },
                                             h('div', { className: 'font-bold' }, (myBet.correct ? '✅' : '❌') + ' ' + tName + ' ' + (myBet.prediction === 'leave' ? 'SAI' : 'FICA')),
                                             h('div', { className: 'text-sm font-bold' }, (myBet.gain > 0 ? '+' : '') + myBet.gain + ' 💎')
@@ -559,6 +570,81 @@
                             lastReveal && lastReveal.dangerRepeated
                                 ? h('div', null, h('div', { className: 'text-6xl mb-4' }, '💀'), h('div', { className: 'text-xl font-bold text-red-400' }, 'Perigo Repetido!'))
                                 : h('div', null, h('div', { className: 'text-6xl mb-4' }, '🏁'), h('div', { className: 'text-xl font-semibold' }, 'Expedição Terminada!'))
+                        )
+                    ),
+                    
+                    // === POPUP REVELAÇÃO (espelha master) ===
+                    revealStep >= 1 && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full max-h-[85vh] overflow-y-auto' },
+                            h('h2', { className: 'text-lg font-black text-gray-800 text-center mb-3' }, '🎲 Revelação'),
+                            
+                            // Apostas
+                            h('div', { className: 'mb-3' },
+                                h('h3', { className: 'text-xs font-bold text-indigo-700 mb-2' }, 'APOSTAS'),
+                                (function() {
+                                    var items = revealStep === 2 && lastReveal && lastReveal.betOutcomes
+                                        ? lastReveal.betOutcomes
+                                        : (revealedBets || []);
+                                    
+                                    if (items.length === 0) return h('div', { className: 'text-gray-400 italic text-xs text-center py-2' }, 'Não houve apostas nesta ronda');
+                                    
+                                    return h('div', { className: 'space-y-1' }, items.map(function(item, idx) {
+                                        var bName = item.teamName || 'Mesa ' + item.teamId;
+                                        var tName = item.targetName || (function() { var t = allTables.find(function(tb) { return tb.id === item.target; }); return t ? (t.name || 'Mesa ' + item.target) : 'Mesa ' + item.target; })();
+                                        var hasResult = item.correct !== undefined;
+                                        var isMe = item.teamId === tableId;
+                                        var bgColor = hasResult ? (item.correct ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400') : (isMe ? 'bg-indigo-50 border-indigo-300' : 'bg-gray-50 border-gray-200');
+                                        
+                                        return h('div', { key: idx, className: 'flex items-center justify-between p-2 rounded-lg border text-xs ' + bgColor },
+                                            h('div', { className: 'flex items-center gap-1' },
+                                                hasResult && h('span', { className: 'text-base' }, item.correct ? '✅' : '❌'),
+                                                h('span', { className: 'font-bold ' + (isMe ? 'text-indigo-700' : 'text-gray-800') }, bName)
+                                            ),
+                                            h('div', { className: 'flex items-center gap-1' },
+                                                h('span', { className: 'text-gray-400' }, '→'),
+                                                h('span', { className: 'font-semibold' }, tName),
+                                                h('span', { className: 'px-1.5 py-0.5 rounded-full font-bold ' + (item.prediction === 'leave' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800') },
+                                                    item.prediction === 'leave' ? '🏃' : '💎'
+                                                ),
+                                                hasResult && h('span', { className: 'font-bold ml-1 ' + (item.gain > 0 ? 'text-green-600' : 'text-red-600') },
+                                                    (item.gain > 0 ? '+' : '') + item.gain + '💎'
+                                                )
+                                            )
+                                        );
+                                    }));
+                                })()
+                            ),
+                            
+                            // Decisões (step 2)
+                            revealStep === 2 && lastReveal && !lastReveal.dangerRepeated && h('div', null,
+                                h('hr', { className: 'my-2' }),
+                                h('div', { className: 'grid grid-cols-2 gap-3' },
+                                    h('div', { className: 'bg-green-50 rounded-xl p-2' },
+                                        h('h4', { className: 'font-bold text-green-800 text-center mb-1 text-sm' }, '⛏️ Ficaram: ' + (lastReveal.staying ? lastReveal.staying.length : 0)),
+                                        (lastReveal.staying && lastReveal.staying.length > 0)
+                                            ? lastReveal.staying.map(function(id) {
+                                                var t = allTables.find(function(tb) { return tb.id === id; });
+                                                return h('div', { key: id, className: 'text-xs text-center py-0.5 text-green-800' }, t ? t.name : 'Mesa ' + id);
+                                            })
+                                            : h('div', { className: 'text-xs text-center text-gray-400 italic' }, 'Ninguém')
+                                    ),
+                                    h('div', { className: 'bg-red-50 rounded-xl p-2' },
+                                        h('h4', { className: 'font-bold text-red-800 text-center mb-1 text-sm' }, '🏃 Saíram: ' + (lastReveal.leaving ? lastReveal.leaving.length : 0)),
+                                        (lastReveal.leaving && lastReveal.leaving.length > 0)
+                                            ? lastReveal.leaving.map(function(id) {
+                                                var t = allTables.find(function(tb) { return tb.id === id; });
+                                                return h('div', { key: id, className: 'text-xs text-center py-0.5 text-red-800' }, t ? t.name : 'Mesa ' + id);
+                                            })
+                                            : h('div', { className: 'text-xs text-center text-gray-400 italic' }, 'Ninguém')
+                                    )
+                                ),
+                                lastReveal.artifactCollected > 0 && h('div', { className: 'mt-2 text-center text-sm font-bold text-teal-700' },
+                                    '🏺 Artefactos recolhidos: +' + lastReveal.artifactCollected
+                                )
+                            ),
+                            
+                            // Info — à espera ou a ver resultado
+                            revealStep === 1 && h('div', { className: 'text-center text-gray-400 text-sm mt-3 animate-pulse' }, 'A aguardar revelação das decisões...')
                         )
                     ),
                     

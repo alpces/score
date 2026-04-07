@@ -84,6 +84,7 @@
                 var g14 = _s(0); var artifactValue = g14[0]; var setArtifactValue = g14[1];
                 var g15 = _s(0); var revealStep = g15[0]; var setRevealStep = g15[1];
                 var g16 = _s({}); var bets = g16[0]; var setBets = g16[1];
+                var g17 = _s(null); var revealedBets = g17[0]; var setRevealedBets = g17[1];
                 
                 // === UI ===
                 var u1 = _s([]); var tables = u1[0]; var setTables = u1[1];
@@ -164,13 +165,13 @@
                                 tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
                                 selectedLogos: selectedLogos, exitedTeams: exitedTeams,
                                 artifactValue: artifactValue,
-                                revealStep: revealStep,
+                                revealStep: revealStep, revealedBets: revealedBets,
                                 multiplierThreshold: multiplierThreshold, multiplierValue: multiplierValue,
                                 multiplierActive: multiplierActive
                             });
                         } catch (e) { console.error('Sync:', e); }
                     })();
-                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, artifactValue, revealStep, multiplierThreshold, multiplierValue]);
+                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, artifactValue, revealStep, revealedBets, multiplierThreshold, multiplierValue]);
                 
                 // === LISTENERS ===
                 useEffect(function() {
@@ -459,6 +460,17 @@
                  * Votos e apostas ficam bloqueados a partir daqui
                  */
                 var revealBets = function() {
+                    // Snapshot das apostas para enviar aos clientes
+                    var betsList = [];
+                    Object.entries(bets).forEach(function(e) {
+                        var id = parseInt(e[0]), bet = e[1];
+                        if (bet && bet.target) {
+                            var bT = tables.find(function(t) { return t.id === id; });
+                            var tT = tables.find(function(t) { return t.id === bet.target; });
+                            betsList.push({ teamId: id, teamName: bT ? (bT.name || 'Mesa ' + id) : 'Mesa ' + id, target: bet.target, targetName: tT ? (tT.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target, prediction: bet.prediction });
+                        }
+                    });
+                    setRevealedBets(betsList.length > 0 ? betsList : []);
                     setRevealStep(1);
                 };
                 
@@ -501,7 +513,9 @@
                         var correct = (bet.prediction === 'leave' && targetLeft) || (bet.prediction === 'stay' && !targetLeft);
                         var gain = correct ? (bet.prediction === 'leave' ? 3 : 2) : -1;
                         nd[bettorId] = (nd[bettorId] || 0) + gain;
-                        betOutcomes.push({ teamId: bettorId, target: bet.target, prediction: bet.prediction, correct: correct, gain: gain });
+                        var bT = tables.find(function(t) { return t.id === bettorId; });
+                        var tT = tables.find(function(t) { return t.id === bet.target; });
+                        betOutcomes.push({ teamId: bettorId, teamName: bT ? (bT.name || 'Mesa ' + bettorId) : 'Mesa ' + bettorId, target: bet.target, targetName: tT ? (tT.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target, prediction: bet.prediction, correct: correct, gain: gain });
                     });
                     
                     var ends = staying.length === 0;
@@ -542,6 +556,7 @@
                 
                 var closeRevealPopup = function() {
                     setRevealStep(0);
+                    setRevealedBets(null);
                 };
                 
                 // === LEADERBOARD ===
@@ -905,23 +920,16 @@
                             h('div', { className: 'mb-4' },
                                 h('h3', { className: 'text-sm font-bold text-indigo-700 mb-2' }, 'APOSTAS'),
                                 (function() {
-                                    var betEntries = Object.entries(bets).concat(
-                                        revealStep === 2 && lastRevealResult && lastRevealResult.betOutcomes ? [] : []
-                                    );
-                                    // Use betOutcomes for step 2 (bets already cleared from state)
                                     var items = revealStep === 2 && lastRevealResult && lastRevealResult.betOutcomes 
                                         ? lastRevealResult.betOutcomes 
-                                        : Object.entries(bets).map(function(e) { return { teamId: parseInt(e[0]), target: e[1] && e[1].target, prediction: e[1] && e[1].prediction }; }).filter(function(b) { return b.target; });
+                                        : (revealedBets || []);
                                     
                                     if (items.length === 0) return h('div', { className: 'text-gray-400 italic text-sm text-center py-2' }, 'Não houve apostas nesta ronda');
                                     
                                     return h('div', { className: 'space-y-2' }, items.map(function(item, idx) {
-                                        var bettorT = tables.find(function(t) { return t.id === item.teamId; });
-                                        var targetT = tables.find(function(t) { return t.id === item.target; });
-                                        var bName = bettorT ? (bettorT.name || 'Mesa ' + item.teamId) : 'Mesa ' + item.teamId;
-                                        var tName = targetT ? (targetT.name || 'Mesa ' + item.target) : 'Mesa ' + item.target;
+                                        var bName = item.teamName || ('Mesa ' + item.teamId);
+                                        var tName = item.targetName || (function() { var t = tables.find(function(tb) { return tb.id === item.target; }); return t ? (t.name || 'Mesa ' + item.target) : 'Mesa ' + item.target; })();
                                         var hasResult = item.correct !== undefined;
-                                        
                                         var bgColor = hasResult ? (item.correct ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400') : 'bg-gray-50 border-gray-200';
                                         
                                         return h('div', { key: idx, className: 'flex items-center justify-between p-2 rounded-lg border ' + bgColor },
@@ -952,7 +960,7 @@
                                     h('div', { className: 'bg-green-50 rounded-xl p-3' },
                                         h('h4', { className: 'font-bold text-green-800 text-center mb-2' }, '⛏️ Ficaram (' + (lastRevealResult.staying ? lastRevealResult.staying.length : 0) + ')'),
                                         (lastRevealResult.staying && lastRevealResult.staying.length > 0)
-                                            ? (lastRevealResult.staying || []).map(function(id) {
+                                            ? lastRevealResult.staying.map(function(id) {
                                                 var t = tables.find(function(tb) { return tb.id === id; });
                                                 return h('div', { key: id, className: 'text-sm text-center py-1 font-semibold text-green-800' }, 
                                                     (t ? t.name : 'Mesa ' + id) + ' (Mesa ' + id + ')'
@@ -963,7 +971,7 @@
                                     h('div', { className: 'bg-red-50 rounded-xl p-3' },
                                         h('h4', { className: 'font-bold text-red-800 text-center mb-2' }, '🏃 Saíram (' + (lastRevealResult.leaving ? lastRevealResult.leaving.length : 0) + ')'),
                                         (lastRevealResult.leaving && lastRevealResult.leaving.length > 0)
-                                            ? (lastRevealResult.leaving || []).map(function(id) {
+                                            ? lastRevealResult.leaving.map(function(id) {
                                                 var t = tables.find(function(tb) { return tb.id === id; });
                                                 return h('div', { key: id, className: 'text-sm text-center py-1 font-semibold text-red-800' }, 
                                                     (t ? t.name : 'Mesa ' + id) + ' (Mesa ' + id + ')'
@@ -972,20 +980,26 @@
                                             : h('div', { className: 'text-sm text-center text-gray-400 italic' }, 'Ninguém')
                                     )
                                 ),
-                                // Info extra
-                                lastRevealResult.reserveDistributed > 0 && h('div', { className: 'text-sm mt-3 text-center text-gray-700' },
-                                    'Cada saída levou ' + lastRevealResult.reserveDistributed + ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás'),
-                                lastRevealResult.reserveRemaining > 0 && h('div', { className: 'text-sm font-bold text-amber-700 mt-1 text-center' },
-                                    '⬇️ Sobram ' + lastRevealResult.reserveRemaining + ' (deixar no caminho)'),
-                                lastRevealResult.artifactCollected > 0 && h('div', { className: 'text-sm font-bold text-teal-700 mt-1 text-center' },
-                                    '🏺 Recolheu ' + lastRevealResult.artifactCollected + ' pontos de artefactos!')
+                                // Info rubis — texto melhorado e destacado
+                                lastRevealResult.reserveDistributed > 0 && h('div', { className: 'mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-center' },
+                                    h('span', { className: 'text-sm text-amber-900' }, 'Cada equipa que saiu levou '),
+                                    h('span', { className: 'font-black text-amber-700 text-base' }, lastRevealResult.reserveDistributed),
+                                    h('span', { className: 'text-sm text-amber-900' }, ' rubi' + (lastRevealResult.reserveDistributed > 1 ? 's' : '') + ' dos deixados para trás. Sobraram '),
+                                    h('span', { className: 'font-black text-amber-700 text-base' }, lastRevealResult.reserveRemaining || 0),
+                                    h('span', { className: 'text-sm text-amber-900' }, ' no caminho.')
+                                ),
+                                lastRevealResult.artifactCollected > 0 && h('div', { className: 'mt-2 bg-teal-50 border border-teal-200 rounded-lg p-3 text-center' },
+                                    h('span', { className: 'text-sm text-teal-900' }, '🏺 Recolheu '),
+                                    h('span', { className: 'font-black text-teal-700 text-base' }, lastRevealResult.artifactCollected),
+                                    h('span', { className: 'text-sm text-teal-900' }, ' pontos de artefactos!')
+                                )
                             ),
                             
                             // Botão
                             h('div', { className: 'text-center mt-4' },
                                 revealStep === 1 
                                     ? h('button', { onClick: revealResult, className: 'px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-lg shadow-lg' }, '🎯 Revelar Decisões')
-                                    : h('button', { onClick: closeRevealPopup, className: 'px-8 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-xl font-bold text-lg shadow-lg' }, '✕ Fechar')
+                                    : h('button', { onClick: closeRevealPopup, className: 'px-8 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-xl font-bold text-lg shadow-lg' }, '✕ Fechar e Continuar')
                             )
                         )
                     )
