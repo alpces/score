@@ -66,31 +66,46 @@
                 var timerRef = React.useRef(null);
                 // Apostas
                 var c14 = _s(null); var betTarget = c14[0]; var setBetTarget = c14[1];
-                var c15 = _s(null); var betPrediction = c15[0]; var setBetPrediction = c15[1];
-                var c16 = _s(false); var betSubmitted = c16[0]; var setBetSubmitted = c16[1];
+                var c15 = _s(false); var betSubmitted = c15[0]; var setBetSubmitted = c15[1];
+                var c16 = _s(1); var betAmount = c16[0]; var setBetAmount = c16[1];
                 
-                // URL + localStorage
+                // Expiração de sessão: 12h
+                var EXPIRY_MS = 12 * 60 * 60 * 1000;
+                var clearLocal = function() {
+                    localStorage.removeItem('diamant_session'); localStorage.removeItem('diamant_table');
+                    localStorage.removeItem('diamant_team'); localStorage.removeItem('diamant_emails');
+                    localStorage.removeItem('diamant_ts');
+                };
+                
                 useEffect(function() {
                     var p = new URLSearchParams(window.location.search);
                     var urlSession = p.get('session');
-                    var ss = localStorage.getItem('diamant_session'), st = localStorage.getItem('diamant_table');
+                    var ss = localStorage.getItem('diamant_session');
+                    var st = localStorage.getItem('diamant_table');
+                    var ts = parseInt(localStorage.getItem('diamant_ts') || '0');
+                    var expired = (Date.now() - ts) > EXPIRY_MS;
+                    
+                    // Expirado? Limpar tudo
+                    if (ss && expired) { clearLocal(); ss = null; st = null; }
                     
                     if (urlSession) {
                         var urlUpper = urlSession.toUpperCase();
-                        // URL tem sessão diferente da guardada? Desconectar da antiga
-                        if (ss && ss !== urlUpper) {
-                            localStorage.removeItem('diamant_session');
-                            localStorage.removeItem('diamant_table');
-                            localStorage.removeItem('diamant_team');
-                            localStorage.removeItem('diamant_emails');
+                        if (ss && ss === urlUpper && st) {
+                            // URL = sessão guardada → auto-reconectar (refresh)
+                            setSessionCode(ss); setTableNumber(st);
+                            var sn = localStorage.getItem('diamant_team'), se = localStorage.getItem('diamant_emails');
+                            if (sn) setTeamName(sn); if (se) setEmails(se);
+                            setAutoReconnecting(true);
+                        } else {
+                            // URL diferente → limpar e mostrar login
+                            if (ss) clearLocal();
+                            setSessionCode(urlUpper);
                         }
-                        setSessionCode(urlUpper);
-                        // Não auto-reconectar — mostrar ecrã de registo
                     } else if (ss && st) {
-                        // Sem URL, usar localStorage para auto-reconexão
+                        // Sem URL, usar localStorage
                         setSessionCode(ss); setTableNumber(st);
-                        var sn = localStorage.getItem('diamant_team'), se = localStorage.getItem('diamant_emails');
-                        if (sn) setTeamName(sn); if (se) setEmails(se);
+                        var sn2 = localStorage.getItem('diamant_team'), se2 = localStorage.getItem('diamant_emails');
+                        if (sn2) setTeamName(sn2); if (se2) setEmails(se2);
                         setAutoReconnecting(true);
                     }
                 }, []);
@@ -106,8 +121,7 @@
                         var data = snap.val();
                         if (!data || data.active === false) {
                             setSessionLost(true); setConnected(false); setGameData(null);
-                            localStorage.removeItem('diamant_session'); localStorage.removeItem('diamant_table');
-                            localStorage.removeItem('diamant_team'); localStorage.removeItem('diamant_emails');
+                            clearLocal();
                             return;
                         }
                         setGameData(data);
@@ -120,9 +134,9 @@
                     var unsubB = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber), function(snap) {
                         var bet = snap.val();
                         if (bet && bet.target) {
-                            setBetTarget(bet.target); setBetPrediction(bet.prediction); setBetSubmitted(true);
+                            setBetTarget(bet.target); setBetAmount(bet.amount || 1); setBetSubmitted(true);
                         } else {
-                            setBetTarget(null); setBetPrediction(null); setBetSubmitted(false);
+                            setBetTarget(null); setBetAmount(1); setBetSubmitted(false);
                         }
                     });
                     return function() { unsubG(); unsubV(); unsubB(); };
@@ -179,6 +193,7 @@
                             connectedAt: Date.now(), lastPing: Date.now()
                         });
                         localStorage.setItem('diamant_session', code); localStorage.setItem('diamant_table', table.toString());
+                        localStorage.setItem('diamant_ts', Date.now().toString());
                         if (teamName) localStorage.setItem('diamant_team', teamName);
                         if (emails) localStorage.setItem('diamant_emails', emails);
                         setConnected(true); setAutoReconnecting(false); setConnectionError(''); setSessionLost(false);
@@ -187,8 +202,7 @@
                 
                 var handleDisconnect = function() {
                     if (!confirm('Sair da sessão?')) return;
-                    localStorage.removeItem('diamant_session'); localStorage.removeItem('diamant_table');
-                    localStorage.removeItem('diamant_team'); localStorage.removeItem('diamant_emails');
+                    clearLocal();
                     setConnected(false); setGameData(null); setVoteSubmitted(false);
                 };
                 
@@ -198,13 +212,13 @@
                         setVoteSubmitted(true); } catch (e) {}
                 };
                 
-                var placeBet = async function(targetId, prediction) {
-                    if (!sessionCode || !tableNumber) return;
+                var placeBet = async function(targetId, amount) {
+                    if (!sessionCode || !tableNumber || !amount || amount < 1) return;
                     try {
                         await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber), {
-                            target: targetId, prediction: prediction
+                            target: targetId, amount: amount
                         });
-                        setBetTarget(targetId); setBetPrediction(prediction); setBetSubmitted(true);
+                        setBetTarget(targetId); setBetAmount(amount); setBetSubmitted(true);
                     } catch (e) { console.error('Erro aposta:', e); }
                 };
                 
@@ -212,7 +226,7 @@
                     if (!sessionCode || !tableNumber) return;
                     try {
                         await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber), null);
-                        setBetTarget(null); setBetPrediction(null); setBetSubmitted(false);
+                        setBetTarget(null); setBetAmount(1); setBetSubmitted(false);
                     } catch (e) {}
                 };
                 
@@ -321,7 +335,7 @@
                                 ),
                                 h('div', { className: 'bg-indigo-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-indigo-800 mb-1' }, '🎲 Apostas'),
-                                    h('div', null, 'Depois de estares fora da expedição, podes fazer apostas nas rondas seguintes, gastando 1 dos rubis descobertos por cada aposta: escolhe uma equipa e prevê se "Fica" ou "Sai". Acertar em "Sai" dá +3 rubis, acertar "Fica" dá +2.')
+                                    h('div', null, 'Depois de estares fora da expedição, podes fazer apostas nas rondas seguintes, gastando 1 a 5 dos rubis descobertos por cada aposta: escolhe uma equipa e aposta que ela vai sair. Se acertares, recebes o dobro do que apostaste. Se falhares, perdes o que apostaste.')
                                 ),
                                 h('div', { className: 'bg-purple-50 p-3 rounded-lg' },
                                     h('div', { className: 'font-bold text-purple-800 mb-1' }, '🏆 Pontuação'),
@@ -381,7 +395,7 @@
                             ),
                             mainLogo && h('img', { src: mainLogo, className: 'h-10 object-contain', style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } }),
                             h('div', { className: 'flex items-center gap-2' },
-                                h('button', { onClick: function() { setShowRules(true); }, className: 'text-white/75 hover:text-white text-lg font-bold bg-white/20 w-7 h-7 rounded-full flex items-center justify-center' }, '?'),
+                                h('button', { onClick: function() { setShowRules(true); }, className: 'text-white text-lg font-bold bg-blue-500 hover:bg-blue-400 w-8 h-8 rounded-full flex items-center justify-center shadow-lg shadow-blue-500/50' }, '?'),
                                 h('span', { className: 'text-white/75 text-sm font-mono' }, sessionCode),
                                 h('button', { onClick: handleDisconnect, className: 'text-white/50 hover:text-white text-xl' }, '✕')
                             )
@@ -460,24 +474,34 @@
                         canBet && h('div', { className: 'w-full max-w-sm' },
                             h('div', { className: 'text-center text-white mb-3' },
                                 h('div', { className: 'text-lg font-semibold' }, '🎲 Aposta da Ronda'),
-                                h('div', { className: 'text-xs opacity-75' }, 'Custa 1 rubi · Acertar "Sai" = +3 · Acertar "Fica" = +2')
+                                h('div', { className: 'text-xs opacity-75' }, 'Aposta em quem vai SAIR. Acertas = dobro. Falhas = perdes.')
                             ),
                             !betSubmitted
                                 ? h('div', { className: 'bg-white/10 rounded-xl p-4' },
-                                    h('div', { className: 'text-white text-sm mb-2 font-semibold' }, 'Escolhe uma equipa:'),
+                                    h('div', { className: 'text-white text-sm mb-2 font-semibold' }, 'Quem vai sair?'),
                                     h('div', { className: 'grid grid-cols-2 gap-2 mb-3' },
                                         teamsInExp.map(function(id) {
                                             var t = allTables.find(function(tb) { return tb.id === id; });
                                             var name = t ? (t.name || 'Mesa ' + id) : 'Mesa ' + id;
                                             var isSel = betTarget === id;
                                             return h('button', { key: id, onClick: function() { setBetTarget(id); },
-                                                className: 'px-3 py-2 rounded-lg text-sm font-semibold transition-all ' + (isSel ? 'bg-indigo-500 text-white ring-2 ring-white' : 'bg-white/20 text-white hover:bg-white/30')
+                                                className: 'px-3 py-2 rounded-lg text-sm font-semibold transition-all ' + (isSel ? 'bg-red-500 text-white ring-2 ring-white' : 'bg-white/20 text-white hover:bg-white/30')
                                             }, name);
                                         })
                                     ),
-                                    betTarget && h('div', { className: 'flex gap-3' },
-                                        h('button', { onClick: function() { placeBet(betTarget, 'stay'); }, className: 'flex-1 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold text-lg active:scale-95 transition-transform' }, '💎 Fica'),
-                                        h('button', { onClick: function() { placeBet(betTarget, 'leave'); }, className: 'flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-lg active:scale-95 transition-transform' }, '🏃 Sai')
+                                    betTarget && h('div', null,
+                                        h('div', { className: 'text-white text-sm mb-2 font-semibold' }, 'Quantos rubis apostas? (máx: ' + Math.min(5, discovered) + ')'),
+                                        h('div', { className: 'flex gap-2 justify-center mb-3' },
+                                            [1, 2, 3, 4, 5].map(function(v) {
+                                                if (v > discovered) return null;
+                                                return h('button', { key: v, onClick: function() { setBetAmount(v); },
+                                                    className: 'w-10 h-10 rounded-lg font-bold text-lg ' + (betAmount === v ? 'bg-amber-500 text-white ring-2 ring-white' : 'bg-white/20 text-white hover:bg-white/30')
+                                                }, v);
+                                            })
+                                        ),
+                                        h('button', { onClick: function() { placeBet(betTarget, betAmount); }, className: 'w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-lg active:scale-95 transition-transform' },
+                                            '🏃 Apostar ' + betAmount + '💎 que SAI'
+                                        )
                                     )
                                 )
                                 : h('div', { className: 'bg-indigo-500/30 rounded-xl p-4 text-center text-white' },
@@ -485,7 +509,7 @@
                                     (function() {
                                         var targetT = allTables.find(function(tb) { return tb.id === betTarget; });
                                         var tName = targetT ? (targetT.name || 'Mesa ' + betTarget) : 'Mesa ' + betTarget;
-                                        return h('div', { className: 'font-semibold' }, tName + ' → ' + (betPrediction === 'leave' ? '🏃 SAI' : '💎 FICA'));
+                                        return h('div', { className: 'font-semibold' }, tName + ' → 🏃 SAI (' + betAmount + '💎)');
                                     })(),
                                     h('button', { onClick: clearBet, className: 'mt-3 px-4 py-1 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30' }, 'Alterar aposta')
                                 )
@@ -498,18 +522,6 @@
                             discovered <= 0 && h('div', { className: 'text-sm opacity-75 mt-2' }, 'Sem rubis para apostar')
                         ),
                         
-                        // Apostas reveladas (revealStep === 1) — todos vêm
-                        phase === 'voting' && revealStep === 1 && !isInExp && h('div', { className: 'w-full max-w-sm' },
-                            h('div', { className: 'bg-indigo-100 rounded-xl p-4 text-center' },
-                                h('div', { className: 'text-lg font-bold text-indigo-800 mb-2' }, '🎲 Apostas Reveladas!'),
-                                betSubmitted && (function() {
-                                    var targetT = allTables.find(function(tb) { return tb.id === betTarget; });
-                                    var tName = targetT ? (targetT.name || 'Mesa ' + betTarget) : 'Mesa ' + betTarget;
-                                    return h('div', { className: 'text-sm text-gray-700 font-semibold' }, 'A tua aposta: ' + tName + ' → ' + (betPrediction === 'leave' ? '🏃 SAI' : '💎 FICA'));
-                                })(),
-                                h('div', { className: 'text-sm text-gray-500 mt-2 animate-pulse' }, 'A aguardar resultado...')
-                            )
-                        ),
                         
                         canVote && h('div', { className: 'w-full max-w-sm' },
                             localTimer > 0 && h('div', { className: 'text-center mb-4' },
@@ -559,7 +571,7 @@
                                         if (!myBet) return null;
                                         var tName = myBet.targetName || 'Mesa ' + myBet.target;
                                         return h('div', { className: 'mt-2 p-2 rounded-lg ' + (myBet.correct ? 'bg-green-500/30' : 'bg-red-500/30') },
-                                            h('div', { className: 'font-bold' }, (myBet.correct ? '✅' : '❌') + ' ' + tName + ' ' + (myBet.prediction === 'leave' ? 'SAI' : 'FICA')),
+                                            h('div', { className: 'font-bold' }, (myBet.correct ? '✅' : '❌') + ' ' + tName + ' SAI (' + (myBet.amount || 1) + '💎)'),
                                             h('div', { className: 'text-sm font-bold' }, (myBet.gain > 0 ? '+' : '') + myBet.gain + ' 💎')
                                         );
                                     })()
@@ -603,8 +615,8 @@
                                             h('div', { className: 'flex items-center gap-1' },
                                                 h('span', { className: 'text-gray-400' }, '→'),
                                                 h('span', { className: 'font-semibold' }, tName),
-                                                h('span', { className: 'px-1.5 py-0.5 rounded-full font-bold ' + (item.prediction === 'leave' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800') },
-                                                    item.prediction === 'leave' ? '🏃' : '💎'
+                                                h('span', { className: 'px-1.5 py-0.5 rounded-full font-bold bg-red-200 text-red-800' },
+                                                    '🏃 ' + (item.amount || 1) + '💎'
                                                 ),
                                                 hasResult && h('span', { className: 'font-bold ml-1 ' + (item.gain > 0 ? 'text-green-600' : 'text-red-600') },
                                                     (item.gain > 0 ? '+' : '') + item.gain + '💎'

@@ -61,8 +61,7 @@
                 var s4 = _s(''); var codeError = s4[0]; var setCodeError = s4[1];
                 var s5 = _s(false); var codeCopied = s5[0]; var setCodeCopied = s5[1];
                 var s6 = _s(0); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
-                var s7 = _s(true); var showDiscovered = s7[0]; var setShowDiscovered = s7[1];
-                var s7b = _s(false); var showSaved = s7b[0]; var setShowSaved = s7b[1];
+                var s7 = _s(false); var showSaved = s7[0]; var setShowSaved = s7[1];
                 // Multiplicador
                 var s8 = _s(9); var multiplierThreshold = s8[0]; var setMultiplierThreshold = s8[1];
                 var s9 = _s(2); var multiplierValue = s9[0]; var setMultiplierValue = s9[1];
@@ -100,6 +99,7 @@
                 var u11 = _s(false); var showExistingSessionDialog = u11[0]; var setShowExistingSessionDialog = u11[1];
                 var u12 = _s(null); var existingSessionData = u12[0]; var setExistingSessionData = u12[1];
                 var u13 = _s(false); var showEndSessionModal = u13[0]; var setShowEndSessionModal = u13[1];
+                var u14 = _s(null); var sessionDetail = u14[0]; var setSessionDetail = u14[1];
                 
                 var timerRef = useRef(null);
                 
@@ -260,13 +260,17 @@
                     else if (choice === 'no') {
                         setShowExistingSessionDialog(false);
                         try {
+                            // Buscar clientes (emails) antes de arquivar
+                            var cliSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients'), r, { onlyOnce: true }); });
+                            var cliData = cliSnap.val() || {};
                             await fm.update(fm.ref(rtdb, 'sessions/' + code + '/gameState'), { active: false, closedAt: Date.now() });
                             await new Promise(function(r) { setTimeout(r, 200); });
                             var hid = Math.random().toString(36).substring(2, 12);
                             await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), {
                                 sessionId: code, timestamp: Date.now(), gameType: GAME_TYPE,
                                 tables: data.tables || [], discoveredScores: data.discoveredScores || {},
-                                savedScores: data.savedScores || {}, expedition: data.expedition || 1, archived: true
+                                savedScores: data.savedScores || {}, expedition: data.expedition || 1,
+                                clients: cliData, archived: true
                             });
                             await fm.remove(fm.ref(rtdb, 'sessions/' + code));
                             await new Promise(function(r) { setTimeout(r, 200); });
@@ -290,13 +294,15 @@
                     if (!sessionId) return;
                     try {
                         var curId = sessionId;
+                        // Buscar clientes do Firebase
+                        var cliSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + curId + '/clients'), r, { onlyOnce: true }); });
+                        var cliData = cliSnap.val() || {};
                         var hd = {
                             sessionId: curId, timestamp: Date.now(), gameType: GAME_TYPE,
                             tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
                             discoveredScores: Object.assign({}, discoveredScores), savedScores: Object.assign({}, savedScores),
-                            expedition: expedition, emails: {}, selectedLogos: selectedLogos, archived: true
+                            expedition: expedition, clients: cliData, selectedLogos: selectedLogos, archived: true
                         };
-                        Object.values(connectedClients).forEach(function(c) { hd.emails[c.tableNumber] = c.emails || []; });
                         // Marcar inativo PRIMEIRO para clientes detectarem
                         await fm.update(fm.ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
                         // Esperar para clientes processarem
@@ -355,8 +361,7 @@
                         var cd = cSnap.val() || {};
                         var hd = { sessionId: sc, timestamp: Date.now(), gameType: GAME_TYPE, tables: sd.tables || [],
                             discoveredScores: sd.discoveredScores || {}, savedScores: sd.savedScores || {},
-                            expedition: sd.expedition || 1, emails: {}, selectedLogos: sd.selectedLogos || [], archived: true };
-                        Object.values(cd).forEach(function(c) { hd.emails[c.tableNumber] = c.emails || []; });
+                            expedition: sd.expedition || 1, clients: cd, selectedLogos: sd.selectedLogos || [], archived: true };
                         var hid = Math.random().toString(36).substring(2, 12);
                         await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), hd);
                         await fm.remove(fm.ref(rtdb, 'sessions/' + sc));
@@ -393,7 +398,7 @@
                     setPhase('exploring'); setReserve(0); setTeamsInExpedition(allIds);
                     setDiscoveredScores(nd); setVotes({}); setBets({}); setLastCard(null);
                     setLastRevealResult(null); setVotingTimedOut(false); setExitedTeams([]);
-                    setArtifactValue(0); setRevealStep(0);
+                    setArtifactValue(0); setRevealStep(0); setRevealedBets(null);
                 };
                 
                 var drawRubyCard = async function() {
@@ -407,7 +412,7 @@
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     setDiscoveredScores(nd); setReserve(reserve + leftover);
-                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0);
+                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
                     setLastCard({ type: 'ruby', value: effectiveVal, cardValue: cardVal, perTeam: perTeam, leftover: leftover, multiplier: currentMultiplier });
                     setRubyInputValue('');
                 };
@@ -415,7 +420,7 @@
                 var drawDangerCard = async function() {
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
-                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0);
+                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
                     setLastCard({ type: 'danger', awaitingConfirmation: true });
                 };
                 
@@ -425,7 +430,7 @@
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     setArtifactValue(newArtifact);
-                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0);
+                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
                     setLastCard({ type: 'artifact', value: val, totalArtifact: newArtifact });
                 };
                 
@@ -467,7 +472,7 @@
                         if (bet && bet.target) {
                             var bT = tables.find(function(t) { return t.id === id; });
                             var tT = tables.find(function(t) { return t.id === bet.target; });
-                            betsList.push({ teamId: id, teamName: bT ? (bT.name || 'Mesa ' + id) : 'Mesa ' + id, target: bet.target, targetName: tT ? (tT.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target, prediction: bet.prediction });
+                            betsList.push({ teamId: id, teamName: bT ? (bT.name || 'Mesa ' + id) : 'Mesa ' + id, target: bet.target, targetName: tT ? (tT.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target, amount: bet.amount || 1 });
                         }
                     });
                     setRevealedBets(betsList.length > 0 ? betsList : []);
@@ -508,14 +513,15 @@
                     Object.entries(bets).forEach(function(entry) {
                         var bettorId = parseInt(entry[0]);
                         var bet = entry[1];
-                        if (!bet || !bet.target || !bet.prediction) return;
+                        if (!bet || !bet.target) return;
+                        var amount = bet.amount || 1;
                         var targetLeft = !!leavingSet[bet.target];
-                        var correct = (bet.prediction === 'leave' && targetLeft) || (bet.prediction === 'stay' && !targetLeft);
-                        var gain = correct ? (bet.prediction === 'leave' ? 3 : 2) : -1;
+                        var correct = targetLeft;
+                        var gain = correct ? amount * 2 : -amount;
                         nd[bettorId] = (nd[bettorId] || 0) + gain;
                         var bT = tables.find(function(t) { return t.id === bettorId; });
                         var tT = tables.find(function(t) { return t.id === bet.target; });
-                        betOutcomes.push({ teamId: bettorId, teamName: bT ? (bT.name || 'Mesa ' + bettorId) : 'Mesa ' + bettorId, target: bet.target, targetName: tT ? (tT.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target, prediction: bet.prediction, correct: correct, gain: gain });
+                        betOutcomes.push({ teamId: bettorId, teamName: bT ? (bT.name || 'Mesa ' + bettorId) : 'Mesa ' + bettorId, target: bet.target, targetName: tT ? (tT.name || 'Mesa ' + bet.target) : 'Mesa ' + bet.target, amount: amount, correct: correct, gain: gain });
                     });
                     
                     var ends = staying.length === 0;
@@ -551,7 +557,7 @@
                     setReserve(0); setTeamsInExpedition([]); setDiscoveredScores({});
                     setVotes({}); setBets({}); setLastCard(null); setLastRevealResult(null);
                     setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
-                    setArtifactValue(0); setRevealStep(0);
+                    setArtifactValue(0); setRevealStep(0); setRevealedBets(null);
                 };
                 
                 var closeRevealPopup = function() {
@@ -654,7 +660,7 @@
                             h('div', { className: 'bg-white rounded-2xl p-4' },
                                 h('div', { className: 'flex justify-between mb-4' },
                                     h('h2', { className: 'text-xl font-bold' }, '💎 Gestão de Sessões'),
-                                    h('button', { onClick: function() { setShowHistory(false); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
+                                    h('button', { onClick: function() { setShowHistory(false); setSessionDetail(null); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                 ),
                                 h('div', { className: 'mb-6' },
                                     h('h3', { className: 'text-lg font-bold text-green-700 mb-3' }, '🟢 Abertas (' + activeSessions.length + ')'),
@@ -663,6 +669,7 @@
                                         return h('div', { key: s.sessionId, className: 'flex justify-between items-center bg-green-50 border-2 border-green-200 p-3 rounded-lg' },
                                             h('div', { className: 'flex-1' }, h('div', { className: 'font-bold text-lg' }, s.sessionId), h('div', { className: 'text-sm text-gray-600' }, (s.tables ? s.tables.length : 0) + ' eq · Exp. ' + (s.expedition || 1) + ' · ' + fmtDate(s.timestamp))),
                                             h('div', { className: 'flex gap-2' },
+                                                h('button', { onClick: function() { setSessionDetail(s); }, className: 'px-3 py-2 bg-gray-500 text-white text-sm rounded font-semibold' }, 'ℹ️'),
                                                 h('button', { onClick: function() { loadSession(Object.assign({ sessionId: s.sessionId }, s), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded font-semibold' }, '🔄 Abrir'),
                                                 h('button', { onClick: function() { closeActiveSession(s.sessionId); }, className: 'px-4 py-2 bg-orange-600 text-white text-sm rounded font-semibold' }, '📦')
                                             )
@@ -677,12 +684,51 @@
                                         return h('div', { key: e.id, className: 'flex justify-between items-center bg-gray-50 p-3 rounded-lg' },
                                             h('div', { className: 'flex-1' }, h('div', { className: 'font-semibold' }, e.sessionId), h('div', { className: 'text-sm text-gray-600' }, (e.tables ? e.tables.length : 0) + ' eq · ' + fmtDate(e.timestamp))),
                                             h('div', { className: 'flex gap-2' },
+                                                h('button', { onClick: function() { setSessionDetail(e); }, className: 'px-3 py-1.5 bg-gray-500 text-white text-sm rounded font-semibold' }, 'ℹ️'),
                                                 h('button', { onClick: function() { loadSession(e); }, className: 'px-3 py-1.5 bg-green-600 text-white text-sm rounded font-semibold' }, 'Carregar'),
                                                 h('button', { onClick: function() { deleteHistoryEntry(e.id); }, className: 'px-3 py-1.5 bg-red-500 text-white text-sm rounded' }, '✕')
                                             )
                                         );
                                     }))
                                 )
+                            )
+                        ),
+                        // Popup detalhes da sessão
+                        sessionDetail && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50', onClick: function() { setSessionDetail(null); } },
+                            h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 max-w-lg w-full max-h-[85vh] overflow-y-auto', onClick: function(e) { e.stopPropagation(); } },
+                                h('div', { className: 'flex justify-between items-center mb-4' },
+                                    h('h3', { className: 'text-lg font-bold text-gray-800' }, '📋 Sessão: ' + sessionDetail.sessionId),
+                                    h('button', { onClick: function() { setSessionDetail(null); }, className: 'text-gray-500 hover:text-gray-800 text-xl' }, '✕')
+                                ),
+                                h('div', { className: 'text-sm text-gray-500 mb-4' },
+                                    'Expedição: ' + (sessionDetail.expedition || 1) + ' · ' + fmtDate(sessionDetail.timestamp)
+                                ),
+                                // Tabela de equipas
+                                (sessionDetail.tables && sessionDetail.tables.length > 0)
+                                    ? h('table', { className: 'w-full text-sm' },
+                                        h('thead', null, h('tr', { className: 'border-b-2 border-gray-200' },
+                                            h('th', { className: 'text-left py-2 px-1' }, 'Mesa'),
+                                            h('th', { className: 'text-left py-2 px-1' }, 'Equipa'),
+                                            h('th', { className: 'text-right py-2 px-1' }, 'Guard.'),
+                                            h('th', { className: 'text-right py-2 px-1' }, 'Desc.'),
+                                            h('th', { className: 'text-left py-2 px-1' }, 'Email')
+                                        )),
+                                        h('tbody', null, sessionDetail.tables.map(function(t) {
+                                            var cli = sessionDetail.clients ? (sessionDetail.clients[t.id] || null) : null;
+                                            var emailStr = cli && cli.emails ? (Array.isArray(cli.emails) ? cli.emails.join(', ') : cli.emails) : '';
+                                            var disc = sessionDetail.discoveredScores ? (sessionDetail.discoveredScores[t.id] || 0) : 0;
+                                            var sav = sessionDetail.savedScores ? (sessionDetail.savedScores[t.id] || t.score || 0) : (t.score || 0);
+                                            return h('tr', { key: t.id, className: 'border-b border-gray-100' },
+                                                h('td', { className: 'py-2 px-1 font-mono' }, t.id),
+                                                h('td', { className: 'py-2 px-1 font-semibold' }, t.name || 'Mesa ' + t.id),
+                                                h('td', { className: 'py-2 px-1 text-right font-bold text-purple-600' }, sav),
+                                                h('td', { className: 'py-2 px-1 text-right font-bold text-amber-500' }, disc),
+                                                h('td', { className: 'py-2 px-1 text-xs text-gray-500 break-all' }, emailStr)
+                                            );
+                                        }))
+                                    )
+                                    : h('p', { className: 'text-gray-500 italic' }, 'Sem equipas registadas'),
+                                h('button', { onClick: function() { setSessionDetail(null); }, className: 'w-full mt-4 py-2 bg-gray-200 rounded-lg font-bold text-gray-700' }, 'Fechar')
                             )
                         )
                     );
@@ -941,8 +987,8 @@
                                             h('div', { className: 'flex items-center gap-2' },
                                                 h('span', { className: 'text-gray-400 text-sm' }, '→'),
                                                 h('span', { className: 'font-semibold text-sm' }, tName),
-                                                h('span', { className: 'px-2 py-0.5 rounded-full text-xs font-bold ' + (item.prediction === 'leave' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800') },
-                                                    item.prediction === 'leave' ? '🏃 SAI' : '💎 FICA'
+                                                h('span', { className: 'px-2 py-0.5 rounded-full text-xs font-bold bg-red-200 text-red-800' },
+                                                    '🏃 SAI ' + (item.amount || 1) + '💎'
                                                 ),
                                                 hasResult && h('span', { className: 'font-bold text-sm ml-1 ' + (item.gain > 0 ? 'text-green-600' : 'text-red-600') }, 
                                                     (item.gain > 0 ? '+' : '') + item.gain + '💎'

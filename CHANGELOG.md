@@ -4,6 +4,36 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Diamant v2.6] - 2026-04-07
+
+### Módulo Diamant - Auto-reconnect, Apostas Amount-based, Detalhes de Sessão
+
+### Adicionado
+- **Auto-reconnect no refresh**: Se URL = sessão guardada, reconecta automaticamente sem mostrar login
+- **Expiração 12h**: Sessão local expira após 12 horas (diamant_ts), evitando conflitos com sessões antigas
+- **clearLocal() helper**: Função centralizada para limpar todos os dados de sessão do localStorage
+- **Detalhes de sessão**: Botão ℹ️ em cada sessão (ativa ou arquivada) abre popup com tabela de equipas, pontuações (Guardados + Descobertos) e emails
+- **Clients guardados no arquivo**: Ao arquivar sessão, dados completos dos clientes (nome, mesa, emails) são preservados
+
+### Alterado
+- **Sistema de apostas**: Aposta apenas em quem vai SAIR (removido "Fica"). Quantidade: 1-5 rubis dos descobertos. Acertou = dobro, falhou = perde o apostado
+- **Botão "?"**: Fundo azul com brilho suave (bg-blue-500 shadow-blue-500/50)
+- **Guardados ocultos por defeito no master**: Toggle 👁️/🙈 Guard (removido showDiscovered, agora showSaved)
+- **Textos**: Formato "Label: valor" (Exploradores na gruta: X, Rubis deixados para trás: X, Saíram: X, Ficaram: X)
+- **Campos sem placeholder**: Nome e email sem texto de exemplo
+- **Texto de ajuda apostas**: Regras actualizadas para sistema amount-based
+
+### Removido
+- **betPrediction**: Estado completamente removido (apostas são sempre "sai")
+- **showDiscovered**: Redundante (descobertos sempre visíveis)
+- **Confirmação de voto**: Removida em versão anterior, confirmado limpo
+
+### Corrigido
+- **revealedBets(null)**: Agora limpo em TODOS os caminhos de reset (startExpedition, drawCard, prepareNewExpedition, closePopup)
+- **Audit**: Zero código morto, parêntesis/chaves balanceados, variáveis limpas
+
+---
+
 ## [Diamant v2.5] - 2026-04-07
 
 ### Módulo Diamant - Sistema de Apostas e Melhorias UX
