@@ -78,35 +78,24 @@
                 };
                 
                 useEffect(function() {
-                    var p = new URLSearchParams(window.location.search);
-                    var urlSession = p.get('session');
                     var ss = localStorage.getItem('diamant_session');
                     var st = localStorage.getItem('diamant_table');
                     var ts = parseInt(localStorage.getItem('diamant_ts') || '0');
                     var expired = (Date.now() - ts) > EXPIRY_MS;
                     
-                    // Expirado? Limpar tudo
                     if (ss && expired) { clearLocal(); ss = null; st = null; }
                     
-                    if (urlSession) {
-                        var urlUpper = urlSession.toUpperCase();
-                        if (ss && ss === urlUpper && st) {
-                            // URL = sessão guardada → auto-reconectar (refresh)
-                            setSessionCode(ss); setTableNumber(st);
-                            var sn = localStorage.getItem('diamant_team'), se = localStorage.getItem('diamant_emails');
-                            if (sn) setTeamName(sn); if (se) setEmails(se);
-                            setAutoReconnecting(true);
-                        } else {
-                            // URL diferente → limpar e mostrar login
-                            if (ss) clearLocal();
-                            setSessionCode(urlUpper);
-                        }
-                    } else if (ss && st) {
-                        // Sem URL, usar localStorage
+                    if (ss && st) {
+                        // Sessão local válida → auto-reconnect (ignora URL)
                         setSessionCode(ss); setTableNumber(st);
-                        var sn2 = localStorage.getItem('diamant_team'), se2 = localStorage.getItem('diamant_emails');
-                        if (sn2) setTeamName(sn2); if (se2) setEmails(se2);
+                        var sn = localStorage.getItem('diamant_team'), se = localStorage.getItem('diamant_emails');
+                        if (sn) setTeamName(sn); if (se) setEmails(se);
                         setAutoReconnecting(true);
+                    } else {
+                        // Sem sessão local → login. URL pré-preenche o código se existir
+                        var p = new URLSearchParams(window.location.search);
+                        var urlSession = p.get('session');
+                        if (urlSession) setSessionCode(urlSession.toUpperCase());
                     }
                 }, []);
                 
@@ -139,7 +128,16 @@
                             setBetTarget(null); setBetAmount(1); setBetSubmitted(false);
                         }
                     });
-                    return function() { unsubG(); unsubV(); unsubB(); };
+                    // Desconexão: master removeu esta mesa
+                    var firstClientSnap = true;
+                    var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber), function(snap) {
+                        if (firstClientSnap) { firstClientSnap = false; return; }
+                        if (snap.val() === null) {
+                            setSessionLost(true); setConnected(false); setGameData(null);
+                            clearLocal();
+                        }
+                    });
+                    return function() { unsubG(); unsubV(); unsubB(); unsubC(); };
                 }, [connected, sessionCode, tableNumber]);
                 
                 // Timer local — corre no cliente para contagem precisa
