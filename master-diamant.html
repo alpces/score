@@ -669,7 +669,13 @@
                                         return h('div', { key: s.sessionId, className: 'flex justify-between items-center bg-green-50 border-2 border-green-200 p-3 rounded-lg' },
                                             h('div', { className: 'flex-1' }, h('div', { className: 'font-bold text-lg' }, s.sessionId), h('div', { className: 'text-sm text-gray-600' }, (s.tables ? s.tables.length : 0) + ' eq · Exp. ' + (s.expedition || 1) + ' · ' + fmtDate(s.timestamp))),
                                             h('div', { className: 'flex gap-2' },
-                                                h('button', { onClick: function() { setSessionDetail(s); }, className: 'px-3 py-2 bg-gray-500 text-white text-sm rounded font-semibold' }, 'ℹ️'),
+                                                h('button', { onClick: async function() {
+                                                    // Para sessões ativas, buscar clients do Firebase
+                                                    try {
+                                                        var cs = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + s.sessionId + '/clients'), r, { onlyOnce: true }); });
+                                                        setSessionDetail(Object.assign({}, s, { clients: cs.val() || {} }));
+                                                    } catch (e) { setSessionDetail(s); }
+                                                }, className: 'px-3 py-2 bg-gray-500 text-white text-sm rounded font-semibold' }, 'ℹ️'),
                                                 h('button', { onClick: function() { loadSession(Object.assign({ sessionId: s.sessionId }, s), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded font-semibold' }, '🔄 Abrir'),
                                                 h('button', { onClick: function() { closeActiveSession(s.sessionId); }, className: 'px-4 py-2 bg-orange-600 text-white text-sm rounded font-semibold' }, '📦')
                                             )
@@ -714,7 +720,7 @@
                                             h('th', { className: 'text-left py-2 px-1' }, 'Email')
                                         )),
                                         h('tbody', null, sessionDetail.tables.map(function(t) {
-                                            var cli = sessionDetail.clients ? (sessionDetail.clients[t.id] || null) : null;
+                                            var cli = sessionDetail.clients ? (sessionDetail.clients[t.id] || sessionDetail.clients[String(t.id)] || null) : null;
                                             var emailStr = cli && cli.emails ? (Array.isArray(cli.emails) ? cli.emails.join(', ') : cli.emails) : '';
                                             var disc = sessionDetail.discoveredScores ? (sessionDetail.discoveredScores[t.id] || 0) : 0;
                                             var sav = sessionDetail.savedScores ? (sessionDetail.savedScores[t.id] || t.score || 0) : (t.score || 0);

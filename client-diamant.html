@@ -68,6 +68,18 @@
                 var c14 = _s(null); var betTarget = c14[0]; var setBetTarget = c14[1];
                 var c15 = _s(false); var betSubmitted = c15[0]; var setBetSubmitted = c15[1];
                 var c16 = _s(1); var betAmount = c16[0]; var setBetAmount = c16[1];
+                var c17 = _s(0); var resubKey = c17[0]; var setResubKey = c17[1];
+                
+                // Re-subscrever listeners quando a app volta de background
+                useEffect(function() {
+                    var onVis = function() {
+                        if (document.visibilityState === 'visible') {
+                            setResubKey(function(k) { return k + 1; });
+                        }
+                    };
+                    document.addEventListener('visibilitychange', onVis);
+                    return function() { document.removeEventListener('visibilitychange', onVis); };
+                }, []);
                 
                 // Expiração de sessão: 12h
                 var EXPIRY_MS = 12 * 60 * 60 * 1000;
@@ -108,12 +120,27 @@
                     if (!connected || !sessionCode) return;
                     var unsubG = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), function(snap) {
                         var data = snap.val();
-                        if (!data || data.active === false) {
+                        if (!data) {
+                            // Snapshot nulo — pode ser reconexão, não limpar estado
+                            return;
+                        }
+                        if (data.active === false) {
                             setSessionLost(true); setConnected(false); setGameData(null);
                             clearLocal();
                             return;
                         }
-                        setGameData(data);
+                        // Defensive merge: preservar savedScores/discoveredScores se vierem vazios inesperadamente
+                        setGameData(function(prev) {
+                            if (prev && prev.gameType === 'diamant') {
+                                var merged = Object.assign({}, data);
+                                if ((!data.savedScores || Object.keys(data.savedScores).length === 0) && prev.savedScores && Object.keys(prev.savedScores).length > 0) {
+                                    merged.savedScores = prev.savedScores;
+                                }
+                                if (!data.tables && prev.tables) merged.tables = prev.tables;
+                                return merged;
+                            }
+                            return data;
+                        });
                     });
                     // Voto: driven by Firebase — se o nó existe, votou; se não, não votou
                     var unsubV = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantVotes/' + tableNumber), function(snap) {
@@ -138,7 +165,7 @@
                         }
                     });
                     return function() { unsubG(); unsubV(); unsubB(); unsubC(); };
-                }, [connected, sessionCode, tableNumber]);
+                }, [connected, sessionCode, tableNumber, resubKey]);
                 
                 // Timer local — corre no cliente para contagem precisa
                 useEffect(function() {
@@ -393,7 +420,7 @@
                             ),
                             mainLogo && h('img', { src: mainLogo, className: 'h-10 object-contain', style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } }),
                             h('div', { className: 'flex items-center gap-2' },
-                                h('button', { onClick: function() { setShowRules(true); }, className: 'text-white text-lg font-bold bg-blue-500 hover:bg-blue-400 w-8 h-8 rounded-full flex items-center justify-center shadow-lg shadow-blue-500/50' }, '?'),
+                                h('button', { onClick: function() { setShowRules(true); }, className: 'text-white text-xl font-black bg-blue-500 hover:bg-blue-400 w-9 h-9 rounded-full flex items-center justify-center shadow-lg shadow-blue-400/80 ring-2 ring-blue-300/60 animate-pulse' }, '?'),
                                 h('span', { className: 'text-white/75 text-sm font-mono' }, sessionCode),
                                 h('button', { onClick: handleDisconnect, className: 'text-white/50 hover:text-white text-xl' }, '✕')
                             )
