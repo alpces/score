@@ -60,7 +60,7 @@
                 var s3 = _s(''); var customSessionCode = s3[0]; var setCustomSessionCode = s3[1];
                 var s4 = _s(''); var codeError = s4[0]; var setCodeError = s4[1];
                 var s5 = _s(false); var codeCopied = s5[0]; var setCodeCopied = s5[1];
-                var s6 = _s(10); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
+                var s6 = _s(15); var votingTimeoutDefault = s6[0]; var setVotingTimeoutDefault = s6[1];
                 var s7 = _s(false); var showSaved = s7[0]; var setShowSaved = s7[1];
                 // Multiplicador
                 var s8 = _s(9); var multiplierThreshold = s8[0]; var setMultiplierThreshold = s8[1];
@@ -179,23 +179,28 @@
                     var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
                         var data = snap.val();
                         setConnectedClients(data || {});
-                        if (data) {
-                            setTables(function(prev) {
-                                var nt = prev.slice();
+                        setTables(function(prev) {
+                            var nt = prev.slice();
+                            // Marcar como disconnected as tables que já não estão no snapshot
+                            nt = nt.map(function(t) {
+                                if (data && data[t.id]) return Object.assign({}, t, { disconnected: false });
+                                return Object.assign({}, t, { disconnected: true });
+                            });
+                            if (data) {
                                 Object.entries(data).forEach(function(e) {
                                     var id = parseInt(e[0]), cd = e[1];
                                     var idx = nt.findIndex(function(t) { return t.id === id; });
-                                    if (idx >= 0) { if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName }); }
+                                    if (idx >= 0) { if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName, disconnected: false }); }
                                     else {
-                                        nt.push({ id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
+                                        nt.push({ id: id, name: cd.teamName || ('Mesa ' + id), score: 0, disconnected: false });
                                         setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (!n[id]) n[id] = 0; return n; });
                                         setSavedScores(function(ds) { var n = Object.assign({}, ds); if (!n[id]) n[id] = 0; return n; });
                                     }
                                 });
-                                nt.sort(function(a, b) { return a.id - b.id; });
-                                return nt;
-                            });
-                        }
+                            }
+                            nt.sort(function(a, b) { return a.id - b.id; });
+                            return nt;
+                        });
                     });
                     var unsubV = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'), function(snap) {
                         var data = snap.val();
@@ -373,25 +378,22 @@
                 var disconnectTable = async function(tableId) {
                     if (!confirm('Desconectar Mesa ' + tableId + '?')) return;
                     try {
-                        // Remover do nó clients
                         await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/clients/' + tableId));
-                        // Remover da expedição se estiver em jogo
+                        setTables(function(prev) { return prev.map(function(t) { return t.id === tableId ? Object.assign({}, t, { disconnected: true }) : t; }); });
                         if (teamsInExpedition.indexOf(tableId) >= 0) {
                             setTeamsInExpedition(function(prev) { return prev.filter(function(id) { return id !== tableId; }); });
-                            // Limpar descobertos (perdem-se ao ser desconectado)
                             setDiscoveredScores(function(prev) { var n = Object.assign({}, prev); n[tableId] = 0; return n; });
-                            // Adicionar aos que saíram
-                            setExitedTeams(function(prev) { return prev.concat([tableId]); });
+                            setExitedTeams(function(prev) { return prev.indexOf(tableId) >= 0 ? prev : prev.concat([tableId]); });
                         }
-                        // Remover votos
                         await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes/' + tableId));
                     } catch (e) { console.error(e); }
                 };
                 
                 // === JOGO ===
                 var startExpedition = async function() {
-                    if (tables.length === 0) { alert('Nenhuma equipa registada.'); return; }
-                    var allIds = tables.map(function(t) { return t.id; });
+                    var active = tables.filter(function(t) { return !t.disconnected; });
+                    if (active.length === 0) { alert('Nenhuma equipa registada.'); return; }
+                    var allIds = active.map(function(t) { return t.id; });
                     var nd = {}; allIds.forEach(function(id) { nd[id] = 0; });
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
@@ -726,7 +728,7 @@
                                             var sav = sessionDetail.savedScores ? (sessionDetail.savedScores[t.id] || t.score || 0) : (t.score || 0);
                                             return h('tr', { key: t.id, className: 'border-b border-gray-100' },
                                                 h('td', { className: 'py-2 px-1 font-mono' }, t.id),
-                                                h('td', { className: 'py-2 px-1 font-semibold' }, t.name || 'Mesa ' + t.id),
+                                                h('td', { className: 'py-2 px-1 font-semibold' }, (t.name || 'Mesa ' + t.id) + (t.disconnected ? ' (saiu)' : '')),
                                                 h('td', { className: 'py-2 px-1 text-right font-bold text-purple-600' }, sav),
                                                 h('td', { className: 'py-2 px-1 text-right font-bold text-amber-500' }, disc),
                                                 h('td', { className: 'py-2 px-1 text-xs text-gray-500 break-all' }, emailStr)
@@ -797,7 +799,8 @@
                 
                 var resetScores = function() {
                     if (!confirm('Isto vai apagar toda a pontuação. Continuar?')) return;
-                    setSavedScores({}); setDiscoveredScores({}); setExitedTeams([]);
+                    var zeros = {}; tables.forEach(function(t) { zeros[t.id] = 0; });
+                    setSavedScores(zeros); setDiscoveredScores(Object.assign({}, zeros)); setExitedTeams([]);
                     setExpedition(1); setPhase('waiting_start'); setTeamsInExpedition([]);
                     setVotes({}); setBets({}); setRevealedBets(null); setRevealStep(0);
                     setLastCard(null); setLastRevealResult(null); setArtifactValue(0);
@@ -814,7 +817,11 @@
                                 h('span', { className: 'text-amber-300 text-sm' },
                                     phase === 'waiting_start' ? '⏳ À espera' : phase === 'exploring' ? (dangerAwaiting ? '☠️ Confirmar' : '⛏️ Explorar') : phase === 'voting' ? '🗳️ Votação' : '🏁 Fim'
                                 ),
-                                multiplierActive && h('span', { className: 'text-xs bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full font-bold' }, currentMultiplier + 'x')
+                                multiplierActive && h('span', { className: 'text-xs bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full font-bold' }, currentMultiplier + 'x'),
+                                h('span', { className: 'flex items-center gap-1 ml-2 text-xs text-amber-200' }, '⏱️',
+                                    h('input', { type: 'number', min: 0, max: 60, value: votingTimeoutDefault, onChange: function(e) { setVotingTimeoutDefault(Math.max(0, Math.min(60, +e.target.value || 0))); }, title: 'Timeout votação (s)', className: 'w-12 px-1 py-0.5 rounded bg-white/20 text-white text-center font-bold' }),
+                                    's'
+                                )
                             ),
                             mainLogo && h('img', { src: mainLogo, className: 'h-12 object-contain', style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } }),
                             h('div', { className: 'flex items-center gap-2' },
@@ -859,7 +866,7 @@
                         
                         // Grid mesas
                         h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3' },
-                            tables.map(function(table) {
+                            tables.filter(function(t) { return !t.disconnected; }).map(function(table) {
                                 var client = connectedClients[table.id];
                                 var isInExp = teamsInExpedition.indexOf(table.id) >= 0;
                                 var disc = discoveredScores[table.id] || 0;
@@ -926,11 +933,11 @@
                             }, '🚀 Iniciar (' + tables.length + ' eq)'),
                             
                             (phase === 'exploring' && !dangerAwaiting) && h('div', { className: 'flex gap-2 items-center flex-wrap' },
-                                h('button', { onClick: function() { var v = Math.max(1, (parseInt(rubyInputValue) || 0) - 5); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '−5'),
-                                h('button', { onClick: function() { var v = Math.max(1, (parseInt(rubyInputValue) || 0) - 1); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '−1'),
-                                h('input', { type: 'number', min: 1, max: 15, value: rubyInputValue, onChange: function(e) { setRubyInputValue(e.target.value); }, placeholder: '💎', className: 'w-20 px-3 py-2 border-2 border-amber-400 rounded-xl text-center font-bold text-xl' }),
-                                h('button', { onClick: function() { var v = Math.min(15, (parseInt(rubyInputValue) || 0) + 1); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '+1'),
-                                h('button', { onClick: function() { var v = Math.min(15, (parseInt(rubyInputValue) || 0) + 5); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '+5'),
+                                h('button', { onClick: function() { var v = Math.max(0, (parseInt(rubyInputValue) || 0) - 5); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '−5'),
+                                h('button', { onClick: function() { var v = Math.max(0, (parseInt(rubyInputValue) || 0) - 1); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '−1'),
+                                h('input', { type: 'number', min: 0, max: 60, value: rubyInputValue, onChange: function(e) { setRubyInputValue(e.target.value); }, placeholder: '💎', className: 'w-20 px-3 py-2 border-2 border-amber-400 rounded-xl text-center font-bold text-xl' }),
+                                h('button', { onClick: function() { var v = Math.min(60, (parseInt(rubyInputValue) || 0) + 1); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '+1'),
+                                h('button', { onClick: function() { var v = Math.min(60, (parseInt(rubyInputValue) || 0) + 5); setRubyInputValue(String(v)); }, className: 'px-2 py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-bold' }, '+5'),
                                 multiplierActive && h('span', { className: 'text-xs font-bold text-amber-700' }, '×' + currentMultiplier),
                                 h('button', { onClick: drawRubyCard, disabled: !rubyInputValue, className: 'px-4 py-2 rounded-xl font-bold ' + (rubyInputValue ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-300 text-gray-500') }, '💎 Rubis'),
                                 h('div', { className: 'w-px h-10 bg-gray-300 mx-1' }),
