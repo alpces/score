@@ -2,10 +2,18 @@
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Diamant - Cliente</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>input, textarea, select { font-size: 16px !important; }</style>
+    <style>
+      input, textarea, select { font-size: 16px !important; }
+      html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
+      #root { min-height: 100dvh; }
+      .min-h-screen { min-height: 100dvh !important; }
+    </style>
 </head>
 <body>
     <div id="root"></div>
@@ -167,27 +175,22 @@
                     return function() { unsubG(); unsubV(); unsubB(); unsubC(); };
                 }, [connected, sessionCode, tableNumber, resubKey]);
                 
-                // Timer local — corre no cliente para contagem precisa
+                // Timer sincronizado — derivado de votingTimerEndAt (timestamp absoluto do master)
                 useEffect(function() {
-                    var serverTimeout = gameData ? gameData.votingTimeout || 0 : 0;
-                    // Quando o master inicia o timer (valor passa de 0 para >0), sincronizar
-                    if (serverTimeout > 0 && localTimer === 0) {
-                        setLocalTimer(serverTimeout);
+                    var endAt = gameData ? gameData.votingTimerEndAt || 0 : 0;
+                    var phase = gameData ? gameData.phase : null;
+                    var tick = function() {
+                        if (phase !== 'voting' || !endAt) { setLocalTimer(0); return; }
+                        var rem = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+                        setLocalTimer(rem);
+                    };
+                    tick();
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    if (phase === 'voting' && endAt) {
+                        timerRef.current = setInterval(tick, 250);
                     }
-                    // Quando a fase muda de voting, resetar
-                    if (gameData && gameData.phase !== 'voting') {
-                        setLocalTimer(0);
-                    }
-                }, [gameData ? gameData.votingTimeout : 0, gameData ? gameData.phase : null]);
-                
-                useEffect(function() {
-                    if (localTimer > 0) {
-                        timerRef.current = setTimeout(function() {
-                            setLocalTimer(function(p) { return p > 0 ? p - 1 : 0; });
-                        }, 1000);
-                    }
-                    return function() { if (timerRef.current) clearTimeout(timerRef.current); };
-                }, [localTimer]);
+                    return function() { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+                }, [gameData ? gameData.votingTimerEndAt : 0, gameData ? gameData.phase : null]);
                 
                 // Conexão com validação de mesa duplicada
                 var handleConnect = async function(isAuto) {
@@ -225,8 +228,11 @@
                     } catch (e) { setConnectionError('Erro ao conectar.'); setAutoReconnecting(false); }
                 };
                 
-                var handleDisconnect = function() {
+                var handleDisconnect = async function() {
                     if (!confirm('Sair da sessão?')) return;
+                    try { if (sessionCode && tableNumber) await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber)); } catch(e) {}
+                    try { if (sessionCode && tableNumber) await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantVotes/' + tableNumber)); } catch(e) {}
+                    try { if (sessionCode && tableNumber) await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber)); } catch(e) {}
                     clearLocal();
                     setConnected(false); setGameData(null); setVoteSubmitted(false);
                 };
@@ -497,6 +503,9 @@
                         
                         // Aposta — equipa já saiu, pode apostar durante votação
                         canBet && h('div', { className: 'w-full max-w-sm' },
+                            localTimer > 0 && h('div', { className: 'text-center mb-3' },
+                                h('span', { className: 'text-3xl font-bold text-orange-400 animate-pulse' }, '⏱️ ' + localTimer + 's')
+                            ),
                             h('div', { className: 'text-center text-white mb-3' },
                                 h('div', { className: 'text-lg font-semibold' }, '🎲 Aposta da Ronda'),
                                 h('div', { className: 'text-xs opacity-75' }, 'Aposta em quem vai SAIR. Acertas = dobro. Falhas = perdes.')

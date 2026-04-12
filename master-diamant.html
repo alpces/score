@@ -75,6 +75,8 @@
                 var g6 = _s({}); var savedScores = g6[0]; var setSavedScores = g6[1];
                 var g7 = _s({}); var votes = g7[0]; var setVotes = g7[1];
                 var g8 = _s(0); var votingTimeout = g8[0]; var setVotingTimeout = g8[1];
+                var g8b = _s(0); var votingTimerEndAt = g8b[0]; var setVotingTimerEndAt = g8b[1];
+                var g8c = _s({}); var sessionLog = g8c[0]; var setSessionLog = g8c[1];
                 var g9 = _s(false); var votingTimedOut = g9[0]; var setVotingTimedOut = g9[1];
                 var g10 = _s(null); var lastCard = g10[0]; var setLastCard = g10[1];
                 var g11 = _s(null); var lastRevealResult = g11[0]; var setLastRevealResult = g11[1];
@@ -101,7 +103,6 @@
                 var u13 = _s(false); var showEndSessionModal = u13[0]; var setShowEndSessionModal = u13[1];
                 var u14 = _s(null); var sessionDetail = u14[0]; var setSessionDetail = u14[1];
                 
-                var timerRef = useRef(null);
                 
                 // Multiplicador ativo?
                 var multiplierActive = tables.length >= multiplierThreshold;
@@ -160,9 +161,10 @@
                                 phase: phase, expedition: expedition, reserve: reserve,
                                 teamsInExpedition: teamsInExpedition,
                                 discoveredScores: discoveredScores, savedScores: savedScores,
-                                votes: votes, votingTimeout: votingTimeout, votingTimedOut: votingTimedOut,
+                                votes: votes, votingTimeout: votingTimeout, votingTimerEndAt: votingTimerEndAt, votingTimedOut: votingTimedOut,
                                 lastCard: lastCard, lastRevealResult: lastRevealResult,
                                 tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
+                                sessionLog: sessionLog,
                                 selectedLogos: selectedLogos, exitedTeams: exitedTeams,
                                 artifactValue: artifactValue,
                                 revealStep: revealStep, revealedBets: revealedBets,
@@ -171,7 +173,7 @@
                             });
                         } catch (e) { console.error('Sync:', e); }
                     })();
-                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimedOut, lastCard, lastRevealResult, tables, selectedLogos, exitedTeams, artifactValue, revealStep, revealedBets, multiplierThreshold, multiplierValue]);
+                }, [sessionId, phase, expedition, reserve, teamsInExpedition, discoveredScores, savedScores, votes, votingTimeout, votingTimerEndAt, votingTimedOut, lastCard, lastRevealResult, tables, sessionLog, selectedLogos, exitedTeams, artifactValue, revealStep, revealedBets, multiplierThreshold, multiplierValue]);
                 
                 // === LISTENERS ===
                 useEffect(function() {
@@ -180,22 +182,49 @@
                         var data = snap.val();
                         setConnectedClients(data || {});
                         setTables(function(prev) {
-                            var nt = prev.slice();
-                            // Marcar como disconnected as tables que já não estão no snapshot
-                            nt = nt.map(function(t) {
-                                if (data && data[t.id]) return Object.assign({}, t, { disconnected: false });
-                                return Object.assign({}, t, { disconnected: true });
+                            var nt = [];
+                            // Tables que saíram do snapshot → marcar como 'left' no sessionLog
+                            prev.forEach(function(t) {
+                                if (data && data[t.id]) { nt.push(t); }
+                                else {
+                                    setSessionLog(function(prevLog) {
+                                        var nl = Object.assign({}, prevLog);
+                                        var existing = nl[t.id] || { id: t.id, name: t.name, emails: [] };
+                                        nl[t.id] = Object.assign({}, existing, { name: t.name || existing.name, status: 'left', leftAt: Date.now() });
+                                        return nl;
+                                    });
+                                    // Congelar scores actuais no log via functional setters (lê estado actual)
+                                    setSavedScores(function(curSaved) {
+                                        setDiscoveredScores(function(curDisc) {
+                                            setSessionLog(function(prevLog) {
+                                                var nl = Object.assign({}, prevLog);
+                                                if (nl[t.id]) nl[t.id] = Object.assign({}, nl[t.id], { savedScore: curSaved[t.id] || 0, discoveredScore: curDisc[t.id] || 0 });
+                                                return nl;
+                                            });
+                                            return curDisc;
+                                        });
+                                        return curSaved;
+                                    });
+                                }
                             });
+                            // Adicionar novas tables do snapshot
                             if (data) {
                                 Object.entries(data).forEach(function(e) {
                                     var id = parseInt(e[0]), cd = e[1];
                                     var idx = nt.findIndex(function(t) { return t.id === id; });
-                                    if (idx >= 0) { if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName, disconnected: false }); }
+                                    if (idx >= 0) { if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName }); }
                                     else {
-                                        nt.push({ id: id, name: cd.teamName || ('Mesa ' + id), score: 0, disconnected: false });
+                                        nt.push({ id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
                                         setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (!n[id]) n[id] = 0; return n; });
                                         setSavedScores(function(ds) { var n = Object.assign({}, ds); if (!n[id]) n[id] = 0; return n; });
                                     }
+                                    // Registar/actualizar no log com nome e emails frescos (sempre, mesmo se já existir)
+                                    setSessionLog(function(prevLog) {
+                                        var nl = Object.assign({}, prevLog);
+                                        var existing = nl[id] || { savedScore: 0, discoveredScore: 0, joinedAt: Date.now() };
+                                        nl[id] = Object.assign({}, existing, { id: id, name: cd.teamName || existing.name || ('Mesa ' + id), emails: cd.emails || existing.emails || [], status: 'active' });
+                                        return nl;
+                                    });
                                 });
                             }
                             nt.sort(function(a, b) { return a.id - b.id; });
@@ -214,13 +243,17 @@
                 
                 // === TIMER ===
                 useEffect(function() {
-                    if (votingTimeout > 0) {
-                        timerRef.current = setTimeout(function() {
-                            setVotingTimeout(function(p) { if (p <= 1) { setVotingTimedOut(true); return 0; } return p - 1; });
-                        }, 1000);
-                    }
-                    return function() { if (timerRef.current) clearTimeout(timerRef.current); };
-                }, [votingTimeout]);
+                    if (!votingTimerEndAt) return;
+                    var tick = function() {
+                        var rem = Math.max(0, Math.ceil((votingTimerEndAt - Date.now()) / 1000));
+                        setVotingTimeout(rem);
+                        if (rem <= 0) { setVotingTimedOut(true); setVotingTimerEndAt(0); }
+                    };
+                    tick();
+                    var iv = setInterval(tick, 250);
+                    return function() { clearInterval(iv); };
+                }, [votingTimerEndAt]);
+                
                 
                 // === SESSION MGMT ===
                 var genCode = function() { var c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', r = ''; for (var i = 0; i < 6; i++) r += c.charAt(Math.floor(Math.random() * c.length)); return r; };
@@ -242,7 +275,7 @@
                     setSessionId(code); setSetupComplete(true); setPhase('waiting_start');
                     setExpedition(1); setReserve(0); setTeamsInExpedition([]);
                     setVotes({}); setLastCard(null); setLastRevealResult(null);
-                    setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
+                    setVotingTimeout(0); setVotingTimerEndAt(0); setVotingTimedOut(false); setExitedTeams([]);
                     setArtifactValue(0);
                     try {
                         await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
@@ -288,9 +321,9 @@
                     setSetupComplete(false); setSessionId(null); setPhase('waiting_start');
                     setExpedition(1); setReserve(0); setTeamsInExpedition([]);
                     setDiscoveredScores({}); setSavedScores({}); setVotes({});
-                    setVotingTimeout(0); setVotingTimedOut(false);
+                    setVotingTimeout(0); setVotingTimerEndAt(0); setVotingTimedOut(false);
                     setLastCard(null); setLastRevealResult(null);
-                    setTables([]); setConnectedClients({}); setExitedTeams([]);
+                    setTables([]); setConnectedClients({}); setExitedTeams([]); setSessionLog({});
                     setArtifactValue(0);
                     setShowLeaderboard(false); setShowQRCode(false); setShowEndSessionModal(false);
                 };
@@ -306,7 +339,7 @@
                             sessionId: curId, timestamp: Date.now(), gameType: GAME_TYPE,
                             tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
                             discoveredScores: Object.assign({}, discoveredScores), savedScores: Object.assign({}, savedScores),
-                            expedition: expedition, clients: cliData, selectedLogos: selectedLogos, archived: true
+                            expedition: expedition, clients: cliData, selectedLogos: selectedLogos, sessionLog: sessionLog, archived: true
                         };
                         // Marcar inativo PRIMEIRO para clientes detectarem
                         await fm.update(fm.ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
@@ -331,10 +364,11 @@
                     setExpedition(entry.expedition || 1); setReserve(entry.reserve || 0);
                     setTeamsInExpedition(entry.teamsInExpedition || []);
                     setPhase(entry.phase || 'waiting_start');
-                    setVotes({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    setVotes({}); setVotingTimeout(0); setVotingTimerEndAt(0); setVotingTimedOut(false);
                     setLastCard(null); setLastRevealResult(null);
                     setSelectedLogos(entry.selectedLogos || []);
                     setExitedTeams(entry.exitedTeams || []);
+                    setSessionLog(entry.sessionLog || {});
                     setArtifactValue(entry.artifactValue || 0);
                     if (entry.multiplierThreshold) setMultiplierThreshold(entry.multiplierThreshold);
                     if (entry.multiplierValue) setMultiplierValue(entry.multiplierValue);
@@ -378,22 +412,22 @@
                 var disconnectTable = async function(tableId) {
                     if (!confirm('Desconectar Mesa ' + tableId + '?')) return;
                     try {
+                        // Remover do nó clients — o efeito do snapshot trata da migração para sessionLog
                         await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/clients/' + tableId));
-                        setTables(function(prev) { return prev.map(function(t) { return t.id === tableId ? Object.assign({}, t, { disconnected: true }) : t; }); });
                         if (teamsInExpedition.indexOf(tableId) >= 0) {
                             setTeamsInExpedition(function(prev) { return prev.filter(function(id) { return id !== tableId; }); });
                             setDiscoveredScores(function(prev) { var n = Object.assign({}, prev); n[tableId] = 0; return n; });
                             setExitedTeams(function(prev) { return prev.indexOf(tableId) >= 0 ? prev : prev.concat([tableId]); });
                         }
                         await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes/' + tableId));
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets/' + tableId));
                     } catch (e) { console.error(e); }
                 };
                 
                 // === JOGO ===
                 var startExpedition = async function() {
-                    var active = tables.filter(function(t) { return !t.disconnected; });
-                    if (active.length === 0) { alert('Nenhuma equipa registada.'); return; }
-                    var allIds = active.map(function(t) { return t.id; });
+                    if (tables.length === 0) { alert('Nenhuma equipa registada.'); return; }
+                    var allIds = tables.map(function(t) { return t.id; });
                     var nd = {}; allIds.forEach(function(id) { nd[id] = 0; });
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
@@ -414,7 +448,7 @@
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     setDiscoveredScores(nd); setReserve(reserve + leftover);
-                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(votingTimeoutDefault); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
+                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(votingTimeoutDefault); setVotingTimerEndAt(votingTimeoutDefault > 0 ? Date.now() + votingTimeoutDefault*1000 : 0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
                     setLastCard({ type: 'ruby', value: effectiveVal, cardValue: cardVal, perTeam: perTeam, leftover: leftover, multiplier: currentMultiplier });
                     setRubyInputValue('');
                 };
@@ -422,7 +456,7 @@
                 var drawDangerCard = async function() {
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
-                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
+                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimerEndAt(0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
                     setLastCard({ type: 'danger', awaitingConfirmation: true });
                 };
                 
@@ -432,7 +466,7 @@
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantBets'));
                     setArtifactValue(newArtifact);
-                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(votingTimeoutDefault); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
+                    setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(votingTimeoutDefault); setVotingTimerEndAt(votingTimeoutDefault > 0 ? Date.now() + votingTimeoutDefault*1000 : 0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
                     setLastCard({ type: 'artifact', value: val, totalArtifact: newArtifact });
                 };
                 
@@ -455,7 +489,7 @@
                         setLastCard({ type: 'danger', isRepeated: true });
                         setLastRevealResult({ staying: [], leaving: [], dangerRepeated: true });
                     } else {
-                        setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(votingTimeoutDefault); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
+                        setPhase('voting'); setVotes({}); setBets({}); setVotingTimeout(votingTimeoutDefault); setVotingTimerEndAt(votingTimeoutDefault > 0 ? Date.now() + votingTimeoutDefault*1000 : 0); setVotingTimedOut(false); setRevealStep(0); setRevealedBets(null);
                         setLastCard({ type: 'danger', isRepeated: false });
                     }
                 };
@@ -535,7 +569,7 @@
                     setDiscoveredScores(nd);
                     setReserve(nr);
                     setTeamsInExpedition(staying);
-                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimedOut(false);
+                    setVotes({}); setBets({}); setVotingTimeout(0); setVotingTimerEndAt(0); setVotingTimedOut(false);
                     setRevealStep(2);
                     setLastRevealResult({ staying: staying, leaving: leaving, reserveDistributed: rpl, reserveRemaining: nr, artifactCollected: artifactCollected, artifactCollectorId: artifactCollectorId, betOutcomes: betOutcomes });
                     
@@ -558,7 +592,7 @@
                     setPhase('waiting_start'); setExpedition(expedition + 1);
                     setReserve(0); setTeamsInExpedition([]); setDiscoveredScores({});
                     setVotes({}); setBets({}); setLastCard(null); setLastRevealResult(null);
-                    setVotingTimeout(0); setVotingTimedOut(false); setExitedTeams([]);
+                    setVotingTimeout(0); setVotingTimerEndAt(0); setVotingTimedOut(false); setExitedTeams([]);
                     setArtifactValue(0); setRevealStep(0); setRevealedBets(null);
                 };
                 
@@ -675,7 +709,7 @@
                                                     // Para sessões ativas, buscar clients do Firebase
                                                     try {
                                                         var cs = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + s.sessionId + '/clients'), r, { onlyOnce: true }); });
-                                                        setSessionDetail(Object.assign({}, s, { clients: cs.val() || {} }));
+                                                        setSessionDetail(Object.assign({}, s, { clients: cs.val() || {}, sessionLog: sessionLog }));
                                                     } catch (e) { setSessionDetail(s); }
                                                 }, className: 'px-3 py-2 bg-gray-500 text-white text-sm rounded font-semibold' }, 'ℹ️'),
                                                 h('button', { onClick: function() { loadSession(Object.assign({ sessionId: s.sessionId }, s), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded font-semibold' }, '🔄 Abrir'),
@@ -712,7 +746,7 @@
                                     'Expedição: ' + (sessionDetail.expedition || 1) + ' · ' + fmtDate(sessionDetail.timestamp)
                                 ),
                                 // Tabela de equipas
-                                (sessionDetail.tables && sessionDetail.tables.length > 0)
+                                (sessionDetail.tables && sessionDetail.tables.length > 0 || (sessionDetail.sessionLog && Object.keys(sessionDetail.sessionLog).length > 0))
                                     ? h('table', { className: 'w-full text-sm' },
                                         h('thead', null, h('tr', { className: 'border-b-2 border-gray-200' },
                                             h('th', { className: 'text-left py-2 px-1' }, 'Mesa'),
@@ -721,19 +755,43 @@
                                             h('th', { className: 'text-right py-2 px-1' }, 'Desc.'),
                                             h('th', { className: 'text-left py-2 px-1' }, 'Email')
                                         )),
-                                        h('tbody', null, sessionDetail.tables.map(function(t) {
-                                            var cli = sessionDetail.clients ? (sessionDetail.clients[t.id] || sessionDetail.clients[String(t.id)] || null) : null;
-                                            var emailStr = cli && cli.emails ? (Array.isArray(cli.emails) ? cli.emails.join(', ') : cli.emails) : '';
-                                            var disc = sessionDetail.discoveredScores ? (sessionDetail.discoveredScores[t.id] || 0) : 0;
-                                            var sav = sessionDetail.savedScores ? (sessionDetail.savedScores[t.id] || t.score || 0) : (t.score || 0);
-                                            return h('tr', { key: t.id, className: 'border-b border-gray-100' },
-                                                h('td', { className: 'py-2 px-1 font-mono' }, t.id),
-                                                h('td', { className: 'py-2 px-1 font-semibold' }, (t.name || 'Mesa ' + t.id) + (t.disconnected ? ' (saiu)' : '')),
-                                                h('td', { className: 'py-2 px-1 text-right font-bold text-purple-600' }, sav),
-                                                h('td', { className: 'py-2 px-1 text-right font-bold text-amber-500' }, disc),
-                                                h('td', { className: 'py-2 px-1 text-xs text-gray-500 break-all' }, emailStr)
-                                            );
-                                        }))
+                                        h('tbody', null, (function() {
+                                            // Construir lista unificada: activas (tables) + saídas (sessionLog que não estão em tables)
+                                            var activeIds = {};
+                                            var rows = [];
+                                            (sessionDetail.tables || []).forEach(function(t) { activeIds[t.id] = true; rows.push({ kind: 'active', t: t }); });
+                                            var log = sessionDetail.sessionLog || {};
+                                            Object.keys(log).forEach(function(k) {
+                                                var L = log[k]; if (!activeIds[L.id]) rows.push({ kind: 'left', L: L });
+                                            });
+                                            rows.sort(function(a, b) { var ai = a.kind === 'active' ? a.t.id : a.L.id; var bi = b.kind === 'active' ? b.t.id : b.L.id; return ai - bi; });
+                                            return rows.map(function(row) {
+                                                if (row.kind === 'active') {
+                                                    var t = row.t;
+                                                    var cli = sessionDetail.clients ? (sessionDetail.clients[t.id] || sessionDetail.clients[String(t.id)] || null) : null;
+                                                    var emailStr = cli && cli.emails ? (Array.isArray(cli.emails) ? cli.emails.join(', ') : cli.emails) : '';
+                                                    var disc = sessionDetail.discoveredScores ? (sessionDetail.discoveredScores[t.id] || 0) : 0;
+                                                    var sav = sessionDetail.savedScores ? (sessionDetail.savedScores[t.id] || t.score || 0) : (t.score || 0);
+                                                    return h('tr', { key: 'a' + t.id, className: 'border-b border-gray-100' },
+                                                        h('td', { className: 'py-2 px-1 font-mono' }, t.id),
+                                                        h('td', { className: 'py-2 px-1 font-semibold' }, t.name || 'Mesa ' + t.id),
+                                                        h('td', { className: 'py-2 px-1 text-right font-bold text-purple-600' }, sav),
+                                                        h('td', { className: 'py-2 px-1 text-right font-bold text-amber-500' }, disc),
+                                                        h('td', { className: 'py-2 px-1 text-xs text-gray-500 break-all' }, emailStr)
+                                                    );
+                                                } else {
+                                                    var L = row.L;
+                                                    var emailStr2 = L.emails ? (Array.isArray(L.emails) ? L.emails.join(', ') : L.emails) : '';
+                                                    return h('tr', { key: 'l' + L.id, className: 'border-b border-gray-100 bg-gray-50 text-gray-500' },
+                                                        h('td', { className: 'py-2 px-1 font-mono' }, L.id),
+                                                        h('td', { className: 'py-2 px-1 font-semibold italic' }, (L.name || 'Mesa ' + L.id) + ' (saiu)'),
+                                                        h('td', { className: 'py-2 px-1 text-right font-bold' }, L.savedScore || 0),
+                                                        h('td', { className: 'py-2 px-1 text-right font-bold' }, L.discoveredScore || 0),
+                                                        h('td', { className: 'py-2 px-1 text-xs break-all' }, emailStr2)
+                                                    );
+                                                }
+                                            });
+                                        })())
                                     )
                                     : h('p', { className: 'text-gray-500 italic' }, 'Sem equipas registadas'),
                                 h('button', { onClick: function() { setSessionDetail(null); }, className: 'w-full mt-4 py-2 bg-gray-200 rounded-lg font-bold text-gray-700' }, 'Fechar')
@@ -804,7 +862,7 @@
                     setExpedition(1); setPhase('waiting_start'); setTeamsInExpedition([]);
                     setVotes({}); setBets({}); setRevealedBets(null); setRevealStep(0);
                     setLastCard(null); setLastRevealResult(null); setArtifactValue(0);
-                    setReserve(0); setVotingTimeout(0); setVotingTimedOut(false);
+                    setReserve(0); setVotingTimeout(0); setVotingTimerEndAt(0); setVotingTimedOut(false);
                     setRubyInputValue('');
                 };
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 flex flex-col' },
@@ -866,7 +924,7 @@
                         
                         // Grid mesas
                         h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3' },
-                            tables.filter(function(t) { return !t.disconnected; }).map(function(table) {
+                            tables.map(function(table) {
                                 var client = connectedClients[table.id];
                                 var isInExp = teamsInExpedition.indexOf(table.id) >= 0;
                                 var disc = discoveredScores[table.id] || 0;
