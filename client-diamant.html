@@ -269,6 +269,10 @@
                 var saved = gameData && gameData.savedScores ? gameData.savedScores[tableId] || 0 : 0;
                 var myVote = gameData && gameData.votes ? gameData.votes[tableId] : null;
                 var votingTimedOut = gameData ? gameData.votingTimedOut || false : false;
+                // Local timeout: timer chegou a 0 mas ainda estamos em voting com endAt definido
+                var hasTimer = gameData && gameData.votingTimerEndAt ? gameData.votingTimerEndAt > 0 : false;
+                var localTimedOut = hasTimer && localTimer === 0 && phase === 'voting';
+                var timerActive = !votingTimedOut && !localTimedOut;
                 var teamsInExp = gameData ? gameData.teamsInExpedition || [] : [];
                 var reserve = gameData ? gameData.reserve || 0 : 0;
                 var lastCard = gameData ? gameData.lastCard : null;
@@ -283,9 +287,9 @@
                 var revealedBets = gameData ? gameData.revealedBets || [] : [];
                 var mainLogo = selLogos.indexOf('logo1.png') >= 0 ? 'logo1.png' : null;
                 var secLogos = selLogos.filter(function(l) { return l !== 'logo1.png'; });
-                var canVote = phase === 'voting' && isInExp && !voteSubmitted && !votingTimedOut && revealStep === 0;
+                var canVote = phase === 'voting' && isInExp && !voteSubmitted && timerActive && revealStep === 0;
                 var isExited = exitedTeams.indexOf(tableId) >= 0;
-                var canBet = phase === 'voting' && isExited && !isInExp && discovered > 0 && revealStep === 0;
+                var canBet = phase === 'voting' && isExited && !isInExp && discovered > 0 && timerActive;
                 
                 // === SESSÃO PERDIDA ===
                 if (sessionLost) {
@@ -550,7 +554,7 @@
                         ),
                         
                         // Equipa saiu mas não pode apostar (sem rubis ou apostas bloqueadas)
-                        !isInExp && isExited && phase === 'voting' && !canBet && revealStep === 0 && h('div', { className: 'text-center text-white' },
+                        !isInExp && isExited && phase === 'voting' && !canBet && timerActive && h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-6xl mb-4' }, '🏕️'),
                             h('div', { className: 'text-xl font-semibold' }, 'No acampamento'),
                             discovered <= 0 && h('div', { className: 'text-sm opacity-75 mt-2' }, 'Sem rubis para apostar')

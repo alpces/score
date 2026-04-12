@@ -77,6 +77,14 @@
                 var g8 = _s(0); var votingTimeout = g8[0]; var setVotingTimeout = g8[1];
                 var g8b = _s(0); var votingTimerEndAt = g8b[0]; var setVotingTimerEndAt = g8b[1];
                 var g8c = _s({}); var sessionLog = g8c[0]; var setSessionLog = g8c[1];
+                
+                // Refs para o callback do onValue ler valores frescos sem closure stale
+                var savedScoresRef = useRef({});
+                var discoveredScoresRef = useRef({});
+                var connectedClientsRef = useRef({});
+                useEffect(function() { savedScoresRef.current = savedScores; }, [savedScores]);
+                useEffect(function() { discoveredScoresRef.current = discoveredScores; }, [discoveredScores]);
+                useEffect(function() { connectedClientsRef.current = connectedClients; }, [connectedClients]);
                 var g9 = _s(false); var votingTimedOut = g9[0]; var setVotingTimedOut = g9[1];
                 var g10 = _s(null); var lastCard = g10[0]; var setLastCard = g10[1];
                 var g11 = _s(null); var lastRevealResult = g11[0]; var setLastRevealResult = g11[1];
@@ -179,54 +187,66 @@
                 useEffect(function() {
                     if (!sessionId) return;
                     var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
-                        var data = snap.val();
-                        setConnectedClients(data || {});
-                        setTables(function(prev) {
-                            var nt = [];
-                            // Tables que saíram do snapshot → marcar como 'left' no sessionLog
-                            prev.forEach(function(t) {
-                                if (data && data[t.id]) { nt.push(t); }
-                                else {
-                                    setSessionLog(function(prevLog) {
-                                        var nl = Object.assign({}, prevLog);
-                                        var existing = nl[t.id] || { id: t.id, name: t.name, emails: [] };
-                                        nl[t.id] = Object.assign({}, existing, { name: t.name || existing.name, status: 'left', leftAt: Date.now() });
-                                        return nl;
+                        var data = snap.val() || {};
+                        var prevClients = connectedClientsRef.current || {};
+                        var curSaved = savedScoresRef.current || {};
+                        var curDisc = discoveredScoresRef.current || {};
+                        
+                        // 1. Detectar IDs que estavam antes e já não estão → marcar 'left' no log
+                        Object.keys(prevClients).forEach(function(k) {
+                            if (!data[k]) {
+                                var id = parseInt(k);
+                                var oldCli = prevClients[k] || {};
+                                setSessionLog(function(prevLog) {
+                                    var nl = Object.assign({}, prevLog);
+                                    var existing = nl[id] || { id: id, joinedAt: Date.now() };
+                                    nl[id] = Object.assign({}, existing, {
+                                        id: id,
+                                        name: oldCli.teamName || existing.name || ('Mesa ' + id),
+                                        emails: oldCli.emails || existing.emails || [],
+                                        savedScore: curSaved[id] || 0,
+                                        discoveredScore: curDisc[id] || 0,
+                                        status: 'left',
+                                        leftAt: Date.now()
                                     });
-                                    // Congelar scores actuais no log via functional setters (lê estado actual)
-                                    setSavedScores(function(curSaved) {
-                                        setDiscoveredScores(function(curDisc) {
-                                            setSessionLog(function(prevLog) {
-                                                var nl = Object.assign({}, prevLog);
-                                                if (nl[t.id]) nl[t.id] = Object.assign({}, nl[t.id], { savedScore: curSaved[t.id] || 0, discoveredScore: curDisc[t.id] || 0 });
-                                                return nl;
-                                            });
-                                            return curDisc;
-                                        });
-                                        return curSaved;
-                                    });
-                                }
-                            });
-                            // Adicionar novas tables do snapshot
-                            if (data) {
-                                Object.entries(data).forEach(function(e) {
-                                    var id = parseInt(e[0]), cd = e[1];
-                                    var idx = nt.findIndex(function(t) { return t.id === id; });
-                                    if (idx >= 0) { if (cd.teamName) nt[idx] = Object.assign({}, nt[idx], { name: cd.teamName }); }
-                                    else {
-                                        nt.push({ id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
-                                        setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (!n[id]) n[id] = 0; return n; });
-                                        setSavedScores(function(ds) { var n = Object.assign({}, ds); if (!n[id]) n[id] = 0; return n; });
-                                    }
-                                    // Registar/actualizar no log com nome e emails frescos (sempre, mesmo se já existir)
-                                    setSessionLog(function(prevLog) {
-                                        var nl = Object.assign({}, prevLog);
-                                        var existing = nl[id] || { savedScore: 0, discoveredScore: 0, joinedAt: Date.now() };
-                                        nl[id] = Object.assign({}, existing, { id: id, name: cd.teamName || existing.name || ('Mesa ' + id), emails: cd.emails || existing.emails || [], status: 'active' });
-                                        return nl;
-                                    });
+                                    return nl;
                                 });
                             }
+                        });
+                        
+                        // 2. Detectar IDs novos ou actualizados → registar/refrescar no log
+                        Object.keys(data).forEach(function(k) {
+                            var id = parseInt(k), cd = data[k];
+                            setSessionLog(function(prevLog) {
+                                var nl = Object.assign({}, prevLog);
+                                var existing = nl[id] || { joinedAt: Date.now(), savedScore: 0, discoveredScore: 0 };
+                                nl[id] = Object.assign({}, existing, {
+                                    id: id,
+                                    name: cd.teamName || existing.name || ('Mesa ' + id),
+                                    emails: cd.emails || existing.emails || [],
+                                    status: 'active'
+                                });
+                                return nl;
+                            });
+                        });
+                        
+                        // 3. Actualizar connectedClients e tables (fonte única do snapshot)
+                        setConnectedClients(data);
+                        // Inicializar scores para IDs novos (fora de setTables callback)
+                        Object.keys(data).forEach(function(k) {
+                            var id = parseInt(k);
+                            if (curSaved[id] == null) setSavedScores(function(ds) { var n = Object.assign({}, ds); if (n[id] == null) n[id] = 0; return n; });
+                            if (curDisc[id] == null) setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (n[id] == null) n[id] = 0; return n; });
+                        });
+                        setTables(function(prev) {
+                            var nt = [];
+                            Object.keys(data).forEach(function(k) {
+                                var id = parseInt(k), cd = data[k];
+                                var existing = prev.find(function(t) { return t.id === id; });
+                                nt.push(existing
+                                    ? Object.assign({}, existing, { name: cd.teamName || existing.name })
+                                    : { id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
+                            });
                             nt.sort(function(a, b) { return a.id - b.id; });
                             return nt;
                         });
