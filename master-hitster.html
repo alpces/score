@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hitster - Master</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .blink { animation: blink 1s ease-in-out infinite; }
+        @keyframes slideIn { from{transform:translateY(-8px);opacity:0} to{transform:translateY(0);opacity:1} }
+        .slide-in { animation: slideIn 0.2s ease-out; }
+    </style>
+</head>
+<body class="bg-slate-900">
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
+            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
+            projectId: "contador-de-pontos-321ee",
+            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
+            messagingSenderId: "817191889469",
+            appId: "1:817191889469:web:cfb88023612f6b37491854",
+            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.db = getFirestore(app);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script>
+    var CLIENT_URL = 'https://alpces.github.io/score/client-hitster.html';
+    var GAME_TYPE = 'hitster';
+
+    var DEFAULT_CATEGORIES = [
+        { id: 'exact_year', name: 'Ano Exato',    description: 'O ano exato em que a música saiu',       points: 5 },
+        { id: 'year_3',     name: 'Ano ±3',       description: 'Dentro de 3 anos do ano certo',           points: 4 },
+        { id: 'title',      name: 'Título',        description: 'O título da canção',                      points: 3 },
+        { id: 'artist',     name: 'Artista',       description: 'O nome do grupo ou solista',              points: 2 },
+        { id: 'decade',     name: 'Década',        description: 'A década em que a música saiu',           points: 1 },
+        { id: 'timeline',   name: 'Timeline Duel', description: 'Final do jogo — posiciona na timeline',   points: 1, isTimeline: true }
+    ];
+
+    function getLastPlace(tables, jokerOrder) {
+        if (!tables || tables.length === 0) return null;
+        var sorted = tables.slice().sort(function(a,b) { return a.score - b.score; });
+        var minScore = sorted[0].score;
+        var tied = sorted.filter(function(t) { return t.score === minScore; });
+        if (tied.length === 1) return tied[0];
+        for (var i = 0; i < jokerOrder.length; i++) {
+            for (var j = 0; j < tied.length; j++) {
+                if (tied[j].id === jokerOrder[i]) return tied[j];
+            }
+        }
+        return tied[0];
+    }
+
+    window.addEventListener('firebaseReady', function() {
+        var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
+        var rtdb = window.rtdb, fm = window.fbModules;
+
+        function App() {
+            var _s = function(v) { return useState(v); };
+
+            /* —— SETUP —— */
+            var s1  = _s(false);   var setupDone = s1[0];          var setSetupDone = s1[1];
+            var s2  = _s(null);    var sessionId = s2[0];          var setSessionId = s2[1];
+            var s3  = _s('');      var codeInput = s3[0];          var setCodeInput = s3[1];
+            var s4  = _s('');      var codeError = s4[0];          var setCodeError = s4[1];
+            var s5  = _s(false);   var codeCopied = s5[0];         var setCodeCopied = s5[1];
+            var s6  = _s(DEFAULT_CATEGORIES);
+            var categories = s6[0]; var setCategories = s6[1];
+            var s7  = _s(10);      var jokerTime = s7[0];          var setJokerTime = s7[1];
+            var s8  = _s(25);      var answerTime = s8[0];         var setAnswerTime = s8[1];
+            var s9  = _s([]);      var availableLogos = s9[0];     var setAvailableLogos = s9[1];
+            var s10 = _s([]);      var selectedLogos = s10[0];     var setSelectedLogos = s10[1];
+            var s11 = _s([]);      var activeSessions = s11[0];    var setActiveSessions = s11[1];
+            var s12 = _s([]);      var sessionHistory = s12[0];    var setSessionHistory = s12[1];
+            var s13 = _s(false);   var showHistory = s13[0];       var setShowHistory = s13[1];
+            var s14 = _s(false);   var showExistDialog = s14[0];   var setShowExistDialog = s14[1];
+            var s15 = _s(null);    var existingData = s15[0];      var setExistingData = s15[1];
+            var s16 = _s(null);    var histInfoId = s16[0];        var setHistInfoId = s16[1];
+
+            /* —— JOGO —— */
+            var g1  = _s([]);      var tables = g1[0];             var setTables = g1[1];
+            var g2  = _s('waiting'); var phase = g2[0];            var setPhase = g2[1];
+            var g3  = _s(null);    var currentCat = g3[0];         var setCurrentCat = g3[1];
+            var g4  = _s(0);       var jokerEndAt = g4[0];         var setJokerEndAt = g4[1];
+            var g5  = _s(0);       var answerEndAt = g5[0];        var setAnswerEndAt = g5[1];
+            var g6  = _s([]);      var jokerOrder = g6[0];         var setJokerOrder = g6[1];
+            var g7  = _s([]);      var roundJokers = g7[0];        var setRoundJokers = g7[1];
+            var g8  = _s(null);    var singingTeam = g8[0];        var setSingingTeam = g8[1];
+            var g9  = _s(true);    var showScores = g9[0];         var setShowScores = g9[1];
+            var g10 = _s(false);   var tablesLocked = g10[0];      var setTablesLocked = g10[1];
+            var g11 = _s(1);       var roundNumber = g11[0];       var setRoundNumber = g11[1];
+
+            /* —— TIMERS (display) —— */
+            var t1  = _s(0);       var jokerDisplay = t1[0];       var setJokerDisplay = t1[1];
+            var t2  = _s(0);       var answerDisplay = t2[0];      var setAnswerDisplay = t2[1];
+
+            /* —— UI —— */
+            var u1  = _s({});      var connectedClients = u1[0];   var setConnectedClients = u1[1];
+            var u2  = _s({});      var textResponses = u2[0];      var setTextResponses = u2[1];
+            var u3  = _s({});      var jokerPresses = u3[0];       var setJokerPresses = u3[1];
+            var u4  = _s(false);   var showNewRound = u4[0];       var setShowNewRound = u4[1];
+            var u5  = _s(false);   var showReview = u5[0];         var setShowReview = u5[1];
+            var u6  = _s({});      var checkedAnswers = u6[0];     var setCheckedAnswers = u6[1];
+            var u7  = _s(false);   var showLeaderboard = u7[0];    var setShowLeaderboard = u7[1];
+            var u8  = _s(false);   var showQR = u8[0];             var setShowQR = u8[1];
+            var u9  = _s(false);   var showEndModal = u9[0];       var setShowEndModal = u9[1];
+            var u10 = _s(false);   var showManage = u10[0];        var setShowManage = u10[1];
+            var u11 = _s(false);   var singToggle = u11[0];        var setSingToggle = u11[1];
+
+            /* —— REFS —— */
+            var phaseRef      = useRef('waiting');
+            var jokerEndRef   = useRef(0);
+            var answerEndRef  = useRef(0);
+            var jokerTimeRef  = useRef(10);
+            var answerTimeRef = useRef(25);
+            var catsLoadedRef = useRef(false);
+
+            useEffect(function() { phaseRef.current = phase; }, [phase]);
+            useEffect(function() { jokerEndRef.current = jokerEndAt; }, [jokerEndAt]);
+            useEffect(function() { answerEndRef.current = answerEndAt; }, [answerEndAt]);
+            useEffect(function() { jokerTimeRef.current = jokerTime; }, [jokerTime]);
+            useEffect(function() { answerTimeRef.current = answerTime; }, [answerTime]);
+
+            /* —— TIMER —— */
+            useEffect(function() {
+                var interval = setInterval(function() {
+                    var p = phaseRef.current, jE = jokerEndRef.current, aE = answerEndRef.current, now = Date.now();
+                    if (p === 'joker_window' && jE > 0) {
+                        var rem = Math.max(0, Math.ceil((jE - now) / 1000));
+                        setJokerDisplay(rem);
+                        if (rem === 0 && now >= jE) {
+                            phaseRef.current = 'answering'; jokerEndRef.current = 0;
+                            var newEnd = now + answerTimeRef.current * 1000;
+                            answerEndRef.current = newEnd;
+                            setPhase('answering'); setJokerEndAt(0); setAnswerEndAt(newEnd);
+                            setAnswerDisplay(answerTimeRef.current);
+                        }
+                    } else if (p === 'answering' && aE > 0) {
+                        var rem2 = Math.max(0, Math.ceil((aE - now) / 1000));
+                        setAnswerDisplay(rem2);
+                        if (rem2 === 0 && now >= aE) {
+                            phaseRef.current = 'reviewing'; answerEndRef.current = 0;
+                            setPhase('reviewing'); setAnswerEndAt(0);
+                        }
+                    }
+                }, 250);
+                return function() { clearInterval(interval); };
+            }, []);
+
+            /* —— LOGOS —— */
+            useEffect(function() {
+                var logos = [], loaded = 0;
+                for (var i = 1; i <= 5; i++) {
+                    (function(idx) {
+                        var img = new Image(), p = 'logo' + idx + '.png';
+                        img.onload  = function() { logos.push(p); loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                        img.onerror = function() { loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                        img.src = p;
+                    })(i);
+                }
+            }, []);
+
+            /* —— CATEGORIAS FIRESTORE (carregar) —— */
+            useEffect(function() {
+                (async function() {
+                    try {
+                        var snap = await fm.getDocs(fm.collection(window.db, 'hitsterCategories'));
+                        if (!snap.empty) {
+                            var cats = [];
+                            snap.forEach(function(d) { cats.push(d.data()); });
+                            cats.sort(function(a,b) { return (a.order||0)-(b.order||0); });
+                            setCategories(cats);
+                        }
+                    } catch(e) { console.error('Cats load:', e); }
+                    catsLoadedRef.current = true;
+                })();
+            }, []);
+
+            /* —— CATEGORIAS FIRESTORE (guardar) —— */
+            var saveCategoriesToFirestore = async function(cats) {
+                if (!catsLoadedRef.current) return;
+                try {
+                    var col = fm.collection(window.db, 'hitsterCategories');
+                    var existSnap = await fm.getDocs(col);
+                    var dels = [];
+                    existSnap.forEach(function(d) { dels.push(fm.deleteDoc(d.ref)); });
+                    await Promise.all(dels);
+                    for (var i = 0; i < cats.length; i++) {
+                        await fm.setDoc(fm.doc(window.db, 'hitsterCategories', cats[i].id), Object.assign({}, cats[i], { order: i }));
+                    }
+                } catch(e) { console.error('Cats save:', e); }
+            };
+
+            /* —— SESSÕES ATIVAS —— */
+            useEffect(function() {
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions'), function(snap) {
+                    var data = snap.val();
+                    if (data) {
+                        var active = Object.keys(data).filter(function(c) {
+                            var gs = data[c] && data[c].gameState;
+                            return gs && gs.gameType === GAME_TYPE && gs.active !== false;
+                        }).map(function(c) {
+                            return Object.assign({ sessionId: c }, data[c].gameState);
+                        }).sort(function(a,b) { return (b.timestamp||0)-(a.timestamp||0); });
+                        setActiveSessions(active);
+                    } else setActiveSessions([]);
+                });
+                return function() { unsub(); };
+            }, []);
+
+            /* —— HISTÓRICO —— */
+            useEffect(function() {
+                if (!showHistory) return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessionHistory'), function(snap) {
+                    var data = snap.val();
+                    if (data) {
+                        var entries = Object.entries(data)
+                            .filter(function(p) { return p[1].gameType === GAME_TYPE; })
+                            .map(function(p) { return Object.assign({ id: p[0] }, p[1]); })
+                            .sort(function(a,b) { return (b.timestamp||0)-(a.timestamp||0); });
+                        setSessionHistory(entries);
+                    } else setSessionHistory([]);
+                });
+                return function() { unsub(); };
+            }, [showHistory]);
+
+            /* —— SYNC FIREBASE —— */
+            useEffect(function() {
+                if (!sessionId) return;
+                (async function() {
+                    try {
+                        await fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
+                            gameType: GAME_TYPE, active: true, timestamp: Date.now(),
+                            phase: phase, currentCategory: currentCat,
+                            jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt,
+                            jokerOrder: jokerOrder, roundJokers: roundJokers,
+                            singingTeamId: singingTeam ? singingTeam.id : null,
+                            showScores: showScores, tablesLocked: tablesLocked,
+                            roundNumber: roundNumber,
+                            tables: tables.map(function(t) {
+                                return { id: t.id, name: t.name, score: t.score, jokerUsed: t.jokerUsed || false };
+                            }),
+                            selectedLogos: selectedLogos
+                        });
+                    } catch(e) { console.error('Sync:', e); }
+                })();
+            }, [sessionId, phase, currentCat, jokerEndAt, answerEndAt, jokerOrder, roundJokers,
+                singingTeam, showScores, tablesLocked, roundNumber, tables, selectedLogos]);
+
+            /* —— LISTENER: CLIENTES —— */
+            useEffect(function() {
+                if (!sessionId) return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
+                    var data = snap.val() || {};
+                    setConnectedClients(data);
+                    setTables(function(prev) {
+                        var merged = prev.slice();
+                        Object.values(data).forEach(function(client) {
+                            var id = client.tableNumber;
+                            var existing = merged.find(function(t) { return t.id === id; });
+                            if (!existing) {
+                                merged.push({ id: id, name: client.teamName || ('Mesa ' + id), score: 0, jokerUsed: false });
+                            } else if (client.teamName && client.teamName !== ('Mesa ' + id)) {
+                                existing.name = client.teamName;
+                            }
+                        });
+                        return merged.slice().sort(function(a,b) { return a.id - b.id; });
+                    });
+                });
+                return function() { unsub(); };
+            }, [sessionId]);
+
+            /* —— LISTENER: RESPOSTAS —— */
+            useEffect(function() {
+                if (!sessionId) return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses'), function(snap) {
+                    setTextResponses(snap.val() || {});
+                });
+                return function() { unsub(); };
+            }, [sessionId]);
+
+            /* —— LISTENER: JOKERS —— */
+            useEffect(function() {
+                if (!sessionId) return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers'), function(snap) {
+                    var data = snap.val() || {};
+                    setJokerPresses(data);
+                    if (phaseRef.current !== 'joker_window') return;
+                    Object.keys(data).forEach(function(key) {
+                        var tableId = parseInt(key);
+                        var entry = data[key];
+                        if (!entry || !entry.activated) return;
+                        setJokerOrder(function(prev) {
+                            if (prev.indexOf(tableId) >= 0) return prev;
+                            return prev.concat([tableId]);
+                        });
+                        setRoundJokers(function(prev) {
+                            if (prev.indexOf(tableId) >= 0) return prev;
+                            return prev.concat([tableId]);
+                        });
+                        setTables(function(prev) {
+                            return prev.map(function(t) {
+                                return t.id === tableId ? Object.assign({}, t, { jokerUsed: true }) : t;
+                            });
+                        });
+                    });
+                });
+                return function() { unsub(); };
+            }, [sessionId]);
+
+            /* —— INICIAR SESSÃO —— */
+            var initSession = async function() {
+                setCodeError('');
+                var code = codeInput.trim().toUpperCase() || Math.random().toString(36).substring(2, 8).toUpperCase();
+                if (codeInput.trim()) {
+                    if (codeInput.length > 10 || !/^[A-Z0-9]+$/i.test(codeInput.trim())) {
+                        setCodeError('Código inválido (máx 10 caracteres alfanuméricos)'); return;
+                    }
+                    var snap = await new Promise(function(r) {
+                        fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/gameState'), r, { onlyOnce: true });
+                    });
+                    var existing = snap.val();
+                    if (existing && existing.active !== false) {
+                        setExistingData({ code: code, data: existing });
+                        setShowExistDialog(true); return;
+                    }
+                }
+                await startNewSession(code);
+            };
+
+            var startNewSession = async function(code) {
+                setSessionId(code); setSetupDone(true);
+                setTimeout(async function() {
+                    try {
+                        await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
+                            gameType: GAME_TYPE, active: true, timestamp: Date.now(),
+                            phase: 'waiting', currentCategory: null,
+                            jokerTimerEndAt: 0, answerTimerEndAt: 0,
+                            jokerOrder: [], roundJokers: [], singingTeamId: null,
+                            showScores: true, tablesLocked: false, roundNumber: 1,
+                            tables: [], selectedLogos: selectedLogos
+                        });
+                    } catch(e) { console.error('Init:', e); }
+                }, 100);
+            };
+
+            var handleExistingChoice = async function(choice) {
+                var code = existingData.code, data = existingData.data;
+                setShowExistDialog(false);
+                if (choice === 'resume') {
+                    var loadedTables = (data.tables || []).map(function(t) {
+                        return { id: t.id, name: t.name, score: t.score || 0, jokerUsed: t.jokerUsed || false };
+                    });
+                    setTables(loadedTables); setPhase(data.phase || 'waiting');
+                    setCurrentCat(data.currentCategory || null);
+                    setJokerEndAt(data.jokerTimerEndAt || 0); setAnswerEndAt(data.answerTimerEndAt || 0);
+                    setJokerOrder(data.jokerOrder || []); setRoundJokers(data.roundJokers || []);
+                    setSingingTeam(null); setShowScores(data.showScores !== false);
+                    setTablesLocked(data.tablesLocked || false); setRoundNumber(data.roundNumber || 1);
+                    setSelectedLogos(data.selectedLogos || []); setSessionId(code); setSetupDone(true);
+                } else if (choice === 'new') {
+                    try {
+                        await fm.update(fm.ref(rtdb, 'sessions/' + code + '/gameState'), { active: false });
+                        await new Promise(function(r) { setTimeout(r, 200); });
+                        var hid = Math.random().toString(36).substring(2, 12);
+                        await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), Object.assign({}, data, {
+                            sessionId: code, archived: true, timestamp: Date.now(), gameType: GAME_TYPE
+                        }));
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + code));
+                        await new Promise(function(r) { setTimeout(r, 200); });
+                        await startNewSession(code);
+                    } catch(e) { alert('Erro ao arquivar: ' + e.message); }
+                }
+            };
+
+            /* —— INICIAR RONDA —— */
+            var startRound = function(cat, singing) {
+                setShowNewRound(false); setSingToggle(false);
+                var now = Date.now(), jEnd = now + jokerTime * 1000;
+                setCurrentCat(cat); setSingingTeam(singing || null); setRoundJokers([]);
+                setPhase('joker_window'); setJokerEndAt(jEnd); setAnswerEndAt(0); setJokerDisplay(jokerTime);
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function() {});
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')).catch(function() {});
+                setTextResponses({}); setCheckedAnswers({});
+            };
+
+            /* —— CONFIRMAR RESPOSTAS —— */
+            var confirmValidation = async function() {
+                if (!currentCat) return;
+                var pts = currentCat.points, singingId = singingTeam ? singingTeam.id : null;
+                var correctIds = Object.keys(checkedAnswers).filter(function(k) { return checkedAnswers[k]; }).map(Number);
+                var correctNonSinging = correctIds.filter(function(id) { return id !== singingId; });
+                var newTables = tables.map(function(t) {
+                    if (t.id === singingId) return t;
+                    if (correctIds.indexOf(t.id) < 0) return t;
+                    var mult = roundJokers.indexOf(t.id) >= 0 ? 2 : 1;
+                    return Object.assign({}, t, { score: t.score + pts * mult });
+                });
+                if (singingId !== null) {
+                    var sp = Math.min(correctNonSinging.length, 3) * pts;
+                    newTables = newTables.map(function(t) {
+                        return t.id === singingId ? Object.assign({}, t, { score: t.score + sp }) : t;
+                    });
+                }
+                setTables(newTables); setPhase('waiting'); setCurrentCat(null); setSingingTeam(null);
+                setRoundJokers([]); setJokerEndAt(0); setAnswerEndAt(0);
+                setRoundNumber(function(n) { return n + 1; }); setCheckedAnswers({}); setShowReview(false);
+                try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')); } catch(e) {}
+            };
+
+            /* —— CANCELAR RONDA —— */
+            var cancelRound = function() {
+                if (!confirm('Cancelar esta ronda sem pontuar?')) return;
+                setPhase('waiting'); setCurrentCat(null); setSingingTeam(null);
+                setRoundJokers([]); setJokerEndAt(0); setAnswerEndAt(0); setShowReview(false);
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')).catch(function(){});
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function(){});
+            };
+
+            /* —— TERMINAR SESSÃO —— */
+            var endSessionArchive = async function() {
+                if (!sessionId) return;
+                try {
+                    await fm.update(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), { active: false });
+                    await new Promise(function(r) { setTimeout(r, 200); });
+                    var hid = Math.random().toString(36).substring(2, 12);
+                    await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), {
+                        gameType: GAME_TYPE, sessionId: sessionId, timestamp: Date.now(),
+                        tables: tables.map(function(t) { return { id: t.id, name: t.name, score: t.score }; }),
+                        jokerOrder: jokerOrder, roundNumber: roundNumber, archived: true
+                    });
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId));
+                    resetToSetup();
+                } catch(e) { alert('Erro: ' + e.message); }
+            };
+
+            var endSessionPause = function() { resetToSetup(); };
+
+            var resetToSetup = function() {
+                setSetupDone(false); setSessionId(null); setTables([]);
+                setPhase('waiting'); setCurrentCat(null); setJokerEndAt(0); setAnswerEndAt(0);
+                setJokerOrder([]); setRoundJokers([]); setSingingTeam(null);
+                setShowScores(true); setTablesLocked(false); setRoundNumber(1);
+                setTextResponses({}); setJokerPresses({}); setConnectedClients({});
+                setShowNewRound(false); setShowReview(false); setCheckedAnswers({});
+                setShowLeaderboard(false); setShowQR(false); setShowEndModal(false);
+                setShowManage(false); setCodeInput(''); setCodeError('');
+            };
+
+            /* —— REMOVER MESA —— */
+            var removeTable = async function(tableId) {
+                if (!confirm('Remover Mesa ' + tableId + '?')) return;
+                try {
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/clients/' + tableId));
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses/' + tableId));
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers/' + tableId));
+                    setTables(function(prev) { return prev.filter(function(t) { return t.id !== tableId; }); });
+                } catch(e) { alert('Erro ao remover mesa.'); }
+            };
+
+            var qrUrl = sessionId
+                ? 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId)
+                : '';
+
+            /* ====================== RENDER ====================== */
+
+            var lastPlace = getLastPlace(tables, jokerOrder);
+            var responseCount = Object.keys(textResponses).length;
+            var tableCount = tables.length;
+
+            /* —— ECRÃ DE HISTÓRICO (full-screen, estilo Diamant) —— */
+            if (showHistory) {
+                var infoSession = histInfoId
+                    ? (activeSessions.find(function(s) { return s.sessionId === histInfoId; }) ||
+                       sessionHistory.find(function(s) { return s.sessionId === histInfoId || s.id === histInfoId; }))
+                    : null;
+
+                return h('div', { className: 'min-h-screen bg-slate-900 text-white' },
+                    h('div', { className: 'bg-violet-900 px-6 py-4 flex items-center justify-between shadow-xl' },
+                        h('div', { className: 'flex items-center gap-3' },
+                            h('div', { className: 'text-2xl' }, '🎵'),
+                            h('div', null,
+                                h('div', { className: 'text-lg font-black' }, 'Hitster'),
+                                h('div', { className: 'text-xs text-violet-300' }, 'Gestão de Sessões')
+                            )
+                        ),
+                        h('button', {
+                            onClick: function() { setShowHistory(false); },
+                            className: 'px-4 py-2 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-xl font-bold text-sm'
+                        }, '✕ Fechar')
+                    ),
+                    h('div', { className: 'max-w-3xl mx-auto p-6 space-y-8' },
+                        h('div', null,
+                            h('h2', { className: 'text-xs font-black uppercase tracking-widest text-green-400 mb-3' }, '● Sessões Ativas'),
+                            activeSessions.length === 0
+                                ? h('div', { className: 'bg-slate-800 rounded-xl p-4 text-slate-500 text-sm text-center italic' }, 'Nenhuma sessão ativa')
+                                : h('div', { className: 'space-y-2' },
+                                    activeSessions.map(function(s) {
+                                        return h('div', { key: s.sessionId, className: 'bg-slate-800 border border-green-800/50 rounded-xl p-4 flex items-center gap-3' },
+                                            h('div', { className: 'w-2 h-2 bg-green-400 rounded-full flex-shrink-0 mt-0.5' }),
+                                            h('div', { className: 'flex-1 min-w-0' },
+                                                h('div', { className: 'font-mono font-black text-lg' }, s.sessionId),
+                                                h('div', { className: 'text-xs text-slate-400 mt-0.5' },
+                                                    (s.tables ? s.tables.length : 0) + ' mesas • Ronda ' + (s.roundNumber || 1) +
+                                                    ' • ' + new Date(s.timestamp || Date.now()).toLocaleString('pt-PT', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+                                                )
+                                            ),
+                                            h('button', {
+                                                onClick: function(sid) { return function() { setHistInfoId(histInfoId === sid ? null : sid); }; }(s.sessionId),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-slate-700 hover:bg-slate-600 flex-shrink-0 text-sm'
+                                            }, 'ℹ️'),
+                                            h('button', {
+                                                onClick: function(sid, sd) { return function() {
+                                                    setExistingData({ code: sid, data: sd });
+                                                    setShowExistDialog(true);
+                                                    setShowHistory(false);
+                                                }; }(s.sessionId, s),
+                                                className: 'px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-bold flex-shrink-0'
+                                            }, '▶ Abrir')
+                                        );
+                                    })
+                                )
+                        ),
+                        h('div', null,
+                            h('h2', { className: 'text-xs font-black uppercase tracking-widest text-slate-500 mb-3' }, '📦 Histórico Arquivado'),
+                            sessionHistory.length === 0
+                                ? h('div', { className: 'bg-slate-800 rounded-xl p-4 text-slate-500 text-sm text-center italic' }, 'Nenhum histórico arquivado')
+                                : h('div', { className: 'space-y-2' },
+                                    sessionHistory.map(function(s) {
+                                        return h('div', { key: s.id, className: 'bg-slate-800 rounded-xl p-4 flex items-center gap-3' },
+                                            h('div', { className: 'flex-1 min-w-0' },
+                                                h('div', { className: 'font-mono font-bold text-slate-300' }, s.sessionId || s.id),
+                                                h('div', { className: 'text-xs text-slate-500 mt-0.5' },
+                                                    (s.tables ? s.tables.length : 0) + ' mesas • ' +
+                                                    new Date(s.timestamp || 0).toLocaleString('pt-PT', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+                                                )
+                                            ),
+                                            h('button', {
+                                                onClick: function(sid) { return function() { setHistInfoId(histInfoId === sid ? null : sid); }; }(s.sessionId || s.id),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-slate-700 hover:bg-slate-600 flex-shrink-0 text-sm'
+                                            }, 'ℹ️'),
+                                            h('button', {
+                                                onClick: function(sid) { return async function() {
+                                                    if (!confirm('Eliminar este registo do histórico?')) return;
+                                                    try { await fm.remove(fm.ref(rtdb, 'sessionHistory/' + sid)); } catch(e) {}
+                                                }; }(s.id),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-red-900/60 hover:bg-red-800 flex-shrink-0 text-sm'
+                                            }, '🗑️')
+                                        );
+                                    })
+                                )
+                        )
+                    ),
+                    infoSession && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4', onClick: function() { setHistInfoId(null); } },
+                        h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
+                            h('div', { className: 'flex items-center justify-between mb-4' },
+                                h('div', null,
+                                    h('div', { className: 'font-mono font-black text-xl text-white' }, infoSession.sessionId || infoSession.id),
+                                    h('div', { className: 'text-xs text-slate-400' }, 'Ronda ' + (infoSession.roundNumber || '?'))
+                                ),
+                                h('button', { onClick: function() { setHistInfoId(null); }, className: 'text-slate-400 hover:text-white text-xl font-bold' }, '✕')
+                            ),
+                            (infoSession.tables || []).length === 0
+                                ? h('p', { className: 'text-slate-400 text-sm text-center italic' }, 'Sem equipas registadas')
+                                : h('div', { className: 'space-y-1.5' },
+                                    (infoSession.tables || []).slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
+                                        var medal = ['🥇','🥈','🥉'][idx] || '';
+                                        return h('div', { key: t.id, className: 'flex items-center justify-between py-2 px-3 rounded-lg bg-slate-700' },
+                                            h('div', { className: 'flex items-center gap-2' },
+                                                medal && h('span', null, medal),
+                                                h('span', { className: 'font-semibold text-sm text-white' }, t.name || ('Mesa ' + t.id))
+                                            ),
+                                            h('span', { className: 'font-black text-violet-400' }, t.score + ' pts')
+                                        );
+                                    })
+                                )
+                        )
+                    )
+                );
+            }
+
+            /* —— ECRÃ DE SETUP —— */
+            if (!setupDone) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 p-4' },
+                    h('div', { className: 'max-w-3xl mx-auto' },
+                        h('div', { className: 'text-center py-6' },
+                            h('div', { className: 'text-5xl mb-2' }, '🎵'),
+                            h('h1', { className: 'text-3xl font-black text-white' }, 'Hitster'),
+                            h('p', { className: 'text-violet-300 mt-1' }, 'Configuração da Sessão')
+                        ),
+                        activeSessions.length > 0 && h('div', { className: 'bg-white bg-opacity-10 rounded-2xl p-4 mb-4' },
+                            h('div', { className: 'flex items-center justify-between mb-3' },
+                                h('h3', { className: 'text-white font-bold' }, '▶ Sessões Ativas'),
+                                h('button', {
+                                    onClick: function() { setShowHistory(true); },
+                                    className: 'text-violet-300 hover:text-white text-xs font-semibold'
+                                }, '📋 Ver todas')
+                            ),
+                            activeSessions.map(function(s) {
+                                return h('div', { key: s.sessionId, className: 'flex items-center justify-between bg-white bg-opacity-10 rounded-xl p-3 mb-2' },
+                                    h('div', { className: 'text-white' },
+                                        h('div', { className: 'font-bold font-mono' }, s.sessionId),
+                                        h('div', { className: 'text-xs text-violet-300' }, (s.tables ? s.tables.length : 0) + ' mesas • Ronda ' + (s.roundNumber || 1))
+                                    ),
+                                    h('button', {
+                                        onClick: function() { setExistingData({ code: s.sessionId, data: s }); setShowExistDialog(true); },
+                                        className: 'px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-sm'
+                                    }, '▶ Retomar')
+                                );
+                            })
+                        ),
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 space-y-6' },
+                            h('div', null,
+                                h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, 'Código da Sessão (opcional)'),
+                                h('input', {
+                                    type: 'text', value: codeInput, maxLength: 10,
+                                    onChange: function(e) { setCodeInput(e.target.value.toUpperCase()); },
+                                    placeholder: 'Deixar vazio para gerar automaticamente',
+                                    className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none font-mono uppercase'
+                                }),
+                                codeError && h('p', { className: 'text-red-600 text-sm mt-1' }, codeError)
+                            ),
+                            h('div', { className: 'grid grid-cols-2 gap-4' },
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, '⏱️ Tempo do Joker (s)'),
+                                    h('input', {
+                                        type: 'number', min: 5, max: 30, value: jokerTime,
+                                        onChange: function(e) { setJokerTime(Math.max(5, Math.min(30, parseInt(e.target.value) || 10))); },
+                                        className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, '⏱️ Tempo de Resposta (s)'),
+                                    h('input', {
+                                        type: 'number', min: 10, max: 60, value: answerTime,
+                                        onChange: function(e) { setAnswerTime(Math.max(10, Math.min(60, parseInt(e.target.value) || 25))); },
+                                        className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
+                                    })
+                                )
+                            ),
+                            h('div', null,
+                                h('div', { className: 'flex items-center justify-between mb-2' },
+                                    h('label', { className: 'block text-sm font-bold text-gray-700' }, '🏷️ Categorias e Pontuações'),
+                                    h('button', {
+                                        onClick: function() { setCategories(DEFAULT_CATEGORIES); saveCategoriesToFirestore(DEFAULT_CATEGORIES); },
+                                        className: 'text-xs text-violet-600 hover:text-violet-800 font-semibold'
+                                    }, '↺ Repor padrão')
+                                ),
+                                h('div', { className: 'space-y-2' },
+                                    categories.map(function(cat, idx) {
+                                        return h('div', { key: cat.id, className: 'flex gap-2 items-center' },
+                                            h('input', {
+                                                type: 'text', value: cat.name,
+                                                onChange: function(e) {
+                                                    var nc = categories.slice();
+                                                    nc[idx] = Object.assign({}, nc[idx], { name: e.target.value });
+                                                    setCategories(nc); saveCategoriesToFirestore(nc);
+                                                },
+                                                className: 'flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:border-violet-500 outline-none'
+                                            }),
+                                            h('input', {
+                                                type: 'number', min: 1, max: 20, value: cat.points,
+                                                onChange: function(e) {
+                                                    var nc = categories.slice();
+                                                    nc[idx] = Object.assign({}, nc[idx], { points: Math.max(1, parseInt(e.target.value) || 1) });
+                                                    setCategories(nc); saveCategoriesToFirestore(nc);
+                                                },
+                                                className: 'w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center font-bold focus:border-violet-500 outline-none'
+                                            }),
+                                            h('span', { className: 'text-xs text-gray-500 w-6' }, 'pts'),
+                                            cat.isTimeline && h('span', { className: 'text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full' }, 'Final')
+                                        );
+                                    })
+                                )
+                            ),
+                            availableLogos.length > 0 && h('div', null,
+                                h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, '🖼️ Logotipos'),
+                                h('div', { className: 'bg-gray-800 p-3 rounded-xl flex gap-3 flex-wrap' },
+                                    availableLogos.map(function(logo) {
+                                        var sel = selectedLogos.indexOf(logo) >= 0;
+                                        return h('div', {
+                                            key: logo,
+                                            onClick: function() {
+                                                setSelectedLogos(function(prev) {
+                                                    return sel ? prev.filter(function(l) { return l !== logo; }) : prev.concat([logo]);
+                                                });
+                                            },
+                                            className: 'cursor-pointer rounded-xl border-2 p-1.5 bg-gray-700 transition-all ' + (sel ? 'border-violet-400 ring-2 ring-violet-400' : 'border-gray-600 hover:border-gray-400')
+                                        },
+                                            h('img', { src: logo, alt: logo, className: 'h-10 w-16 object-contain', onError: function(e) { e.target.parentElement.style.display='none'; } })
+                                        );
+                                    })
+                                )
+                            ),
+                            h('button', {
+                                onClick: initSession,
+                                className: 'w-full py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-black text-xl shadow-lg active:scale-95 transition-transform'
+                            }, '🎵 Iniciar Sessão')
+                        ),
+                        h('div', { className: 'mt-4 text-center' },
+                            h('button', {
+                                onClick: function() { setShowHistory(true); },
+                                className: 'text-violet-300 hover:text-white text-sm font-semibold'
+                            }, '📋 Ver Histórico de Sessões')
+                        )
+                    ),
+                    showExistDialog && existingData && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full' },
+                            h('div', { className: 'text-3xl text-center mb-3' }, '⚠️'),
+                            h('h3', { className: 'text-lg font-black text-gray-800 text-center mb-2' }, 'Sessão Ativa Encontrada'),
+                            h('p', { className: 'text-gray-600 text-sm text-center mb-5' },
+                                'O código "' + existingData.code + '" tem uma sessão ativa com ' +
+                                (existingData.data.tables ? existingData.data.tables.length : 0) + ' mesas.'
+                            ),
+                            h('div', { className: 'space-y-3' },
+                                h('button', { onClick: function() { handleExistingChoice('resume'); }, className: 'w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold' }, '▶ Retomar Sessão'),
+                                h('button', { onClick: function() { handleExistingChoice('new'); }, className: 'w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold' }, '🗂️ Arquivar e Criar Nova'),
+                                h('button', { onClick: function() { setShowExistDialog(false); }, className: 'w-full py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold' }, 'Cancelar')
+                            )
+                        )
+                    )
+                );
+            }
+
+            /* ===================== ECRÃ DE JOGO ===================== */
+
+            var NewRoundModal = function() {
+                var lp = lastPlace, canSing = !!lp && tables.length > 1;
+                return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function(e) { if (e.target === e.currentTarget) setShowNewRound(false); } },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 w-full max-w-lg slide-in max-h-[90vh] overflow-y-auto' },
+                        h('div', { className: 'flex justify-between items-center mb-4' },
+                            h('h2', { className: 'text-xl font-black text-gray-800' }, '🎵 Ronda #' + roundNumber),
+                            h('button', { onClick: function() { setShowNewRound(false); }, className: 'w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full text-xl' }, '✕')
+                        ),
+                        lp && h('div', { className: 'bg-amber-50 border-2 border-amber-300 rounded-xl p-3 mb-4' },
+                            h('div', { className: 'flex items-center justify-between' },
+                                h('div', null,
+                                    h('div', { className: 'text-xs text-amber-600 font-semibold' }, '🔻 Equipa em último lugar'),
+                                    h('div', { className: 'font-black text-gray-800' }, lp.name || ('Mesa ' + lp.id)),
+                                    h('div', { className: 'text-sm text-gray-500' }, lp.score + ' pontos')
+                                ),
+                                canSing && h('div', { className: 'flex items-center gap-2' },
+                                    h('label', { className: 'text-sm font-bold text-gray-700' }, '🎤 Canta?'),
+                                    h('input', { type: 'checkbox', checked: singToggle, onChange: function(e) { setSingToggle(e.target.checked); }, className: 'w-5 h-5 accent-violet-600' })
+                                )
+                            )
+                        ),
+                        h('p', { className: 'text-sm text-gray-500 mb-3 font-semibold' }, 'Escolhe a categoria:'),
+                        h('div', { className: 'grid grid-cols-2 gap-3' },
+                            categories.map(function(cat) {
+                                return h('button', {
+                                    key: cat.id,
+                                    onClick: function() { startRound(cat, singToggle ? lp : null); },
+                                    className: 'text-left p-3 rounded-xl border-2 border-gray-200 hover:border-violet-400 hover:bg-violet-50 transition-all active:scale-95 ' + (cat.isTimeline ? 'border-purple-300 bg-purple-50' : '')
+                                },
+                                    h('div', { className: 'font-black text-gray-800 text-sm' }, cat.name),
+                                    h('div', { className: 'text-xs text-gray-500 mt-0.5' }, cat.description),
+                                    h('div', { className: 'mt-2 inline-block bg-violet-100 text-violet-700 text-xs font-bold px-2 py-0.5 rounded-full' },
+                                        cat.points + (cat.points === 1 ? ' pt' : ' pts') + (cat.isTimeline ? ' • Sem Joker' : '')
+                                    )
+                                );
+                            })
+                        )
+                    )
+                );
+            };
+
+            var ReviewModal = function() {
+                var cat = currentCat;
+                if (!cat) return null;
+                var pts = cat.points, singingId = singingTeam ? singingTeam.id : null;
+                var correctIds = Object.keys(checkedAnswers).filter(function(k) { return checkedAnswers[k]; }).map(Number);
+                var correctNonSinging = correctIds.filter(function(id) { return id !== singingId; });
+                var singingPreview = singingId !== null ? Math.min(correctNonSinging.length, 3) * pts : 0;
+                return h('div', { className: 'fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4' },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 w-full max-w-2xl max-h-[90vh] flex flex-col slide-in' },
+                        h('div', { className: 'flex items-center justify-between mb-4 flex-shrink-0' },
+                            h('div', null,
+                                h('h2', { className: 'text-lg font-black text-gray-800' }, '✅ Validar Respostas'),
+                                h('div', { className: 'text-sm text-gray-500' }, cat.name + ' — ' + pts + ' pts')
+                            ),
+                            h('button', { onClick: cancelRound, className: 'text-xs text-red-500 hover:text-red-700 font-semibold' }, '✕ Cancelar ronda')
+                        ),
+                        singingTeam && h('div', { className: 'bg-purple-50 border-2 border-purple-300 rounded-xl p-3 mb-4 flex-shrink-0' },
+                            h('div', { className: 'flex justify-between items-center' },
+                                h('div', null,
+                                    h('div', { className: 'text-xs text-purple-600 font-semibold' }, '🎤 Equipa Cantora'),
+                                    h('div', { className: 'font-black text-gray-800' }, singingTeam.name || ('Mesa ' + singingTeam.id))
+                                ),
+                                h('div', { className: 'text-right' },
+                                    h('div', { className: 'text-xs text-gray-500' }, 'Ganha por respostas certas das outras (máx. 3)'),
+                                    h('div', { className: 'font-black text-purple-700 text-xl' }, '+' + singingPreview + ' pts')
+                                )
+                            )
+                        ),
+                        h('div', { className: 'overflow-y-auto flex-1 space-y-2 mb-4' },
+                            tables.map(function(table) {
+                                if (table.id === singingId) return null;
+                                var resp = textResponses[table.id], text = resp ? resp.text : null;
+                                var checked = !!checkedAnswers[table.id];
+                                var usedJoker = roundJokers.indexOf(table.id) >= 0;
+                                var pts_gain = checked ? (pts * (usedJoker ? 2 : 1)) : 0;
+                                return h('div', {
+                                    key: table.id,
+                                    onClick: function() {
+                                        if (!text) return;
+                                        setCheckedAnswers(function(prev) {
+                                            var next = Object.assign({}, prev);
+                                            next[table.id] = !next[table.id];
+                                            return next;
+                                        });
+                                    },
+                                    className: 'flex items-center gap-3 p-3 rounded-xl border-2 transition-all ' + (
+                                        checked ? 'border-green-400 bg-green-50 cursor-pointer' :
+                                        text ? 'border-gray-200 hover:border-green-300 cursor-pointer' :
+                                        'border-gray-100 bg-gray-50 opacity-60'
+                                    )
+                                },
+                                    h('div', { className: 'w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ' + (checked ? 'bg-green-500 border-green-500' : 'border-gray-300') },
+                                        checked && h('span', { className: 'text-white text-xs font-bold' }, '✓')
+                                    ),
+                                    h('div', { className: 'flex-1 min-w-0' },
+                                        h('div', { className: 'font-bold text-gray-800 text-sm' },
+                                            (table.name || ('Mesa ' + table.id)),
+                                            usedJoker && h('span', { className: 'ml-2 text-xs bg-yellow-200 text-yellow-800 px-1.5 py-0.5 rounded-full' }, '🃏 Joker ×2')
+                                        ),
+                                        text ? h('div', { className: 'text-gray-600 text-sm truncate' }, '"' + text + '"')
+                                             : h('div', { className: 'text-gray-400 text-xs italic' }, 'Sem resposta')
+                                    ),
+                                    h('div', { className: 'font-black text-lg ' + (checked ? 'text-green-600' : 'text-gray-300') }, checked ? ('+' + pts_gain) : '—')
+                                );
+                            })
+                        ),
+                        h('button', {
+                            onClick: confirmValidation,
+                            className: 'w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-lg shadow-lg active:scale-95 transition-transform flex-shrink-0'
+                        }, '✅ Confirmar e Pontuar (' + correctIds.filter(function(id) { return id !== singingId; }).length + ' certas)')
+                    )
+                );
+            };
+
+            var phaseLabel = {
+                'waiting':      '⏸ A aguardar ronda',
+                'joker_window': '🃏 Janela do Joker — ' + jokerDisplay + 's',
+                'answering':    '✍️ A responder — ' + answerDisplay + 's',
+                'reviewing':    '✅ A validar respostas'
+            }[phase] || phase;
+
+            var phaseColor = {
+                'waiting':      'bg-slate-700 text-slate-300',
+                'joker_window': 'bg-yellow-500 text-yellow-900',
+                'answering':    'bg-blue-600 text-white',
+                'reviewing':    'bg-green-600 text-white'
+            }[phase] || 'bg-slate-700 text-slate-300';
+
+            return h('div', { className: 'min-h-screen bg-slate-900 flex flex-col text-white' },
+
+                /* —— HEADER —— */
+                h('div', { className: 'bg-violet-900 px-4 py-2 flex items-center gap-3 flex-shrink-0 shadow-xl' },
+                    h('div', { className: 'text-lg font-black' }, '🎵 Hitster'),
+                    h('div', { className: 'flex items-center gap-2 bg-violet-800 rounded-lg px-3 py-1' },
+                        h('span', { className: 'text-xs opacity-60' }, 'Sessão'),
+                        h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId),
+                        h('button', {
+                            onClick: function() {
+                                navigator.clipboard.writeText(CLIENT_URL + '?session=' + sessionId);
+                                setCodeCopied(true);
+                                setTimeout(function() { setCodeCopied(false); }, 2000);
+                            },
+                            className: 'text-xs bg-violet-700 hover:bg-violet-600 px-2 py-0.5 rounded'
+                        }, codeCopied ? '✓' : '📋')
+                    ),
+                    h('button', {
+                        onClick: function() { setShowQR(true); },
+                        className: 'bg-white text-violet-900 hover:bg-violet-100 px-3 py-1.5 rounded-lg font-bold text-sm'
+                    }, '📱 QR'),
+                    h('div', { className: 'flex items-center gap-2 ml-auto' },
+                        h('div', { className: 'text-xs opacity-70' }, tableCount + ' mesas • ' + Object.keys(connectedClients).length + ' online'),
+                        h('button', {
+                            onClick: function() { setShowScores(!showScores); },
+                            className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                        }, showScores ? '👁️ Ocultar pts' : '👁️ Mostrar pts'),
+                        h('button', {
+                            onClick: function() { setShowEndModal(true); },
+                            className: 'bg-red-700 hover:bg-red-600 px-3 py-1.5 rounded-lg text-sm font-bold'
+                        }, '✕ Sair')
+                    )
+                ),
+
+                /* —— BARRA DE FASE —— */
+                h('div', { className: 'px-4 py-2 flex items-center gap-2 flex-wrap bg-slate-800 border-b border-slate-700 flex-shrink-0' },
+                    h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm ' + phaseColor + (phase === 'joker_window' || phase === 'answering' ? ' blink' : '') },
+                        phaseLabel
+                    ),
+                    currentCat && h('div', { className: 'bg-yellow-500 text-yellow-900 font-black px-3 py-1 rounded-full text-sm' }, currentCat.name),
+                    singingTeam && h('div', { className: 'bg-purple-700 text-purple-100 px-3 py-1 rounded-full text-sm font-bold' },
+                        '🎤 ' + (singingTeam.name || ('Mesa ' + singingTeam.id)) + ' canta'
+                    ),
+                    phase === 'answering' && Object.keys(textResponses).length > 0 && h('div', { className: 'flex items-center gap-1 flex-wrap' },
+                        h('span', { className: 'text-xs text-slate-400 mr-1' }, 'Responderam:'),
+                        Object.keys(textResponses).map(function(tid) {
+                            var t = tables.find(function(tb) { return tb.id === parseInt(tid); });
+                            var name = t ? t.name : ('Mesa ' + tid);
+                            return h('span', { key: tid, className: 'bg-blue-700 text-blue-100 text-xs font-bold px-2 py-0.5 rounded-full' },
+                                name.length > 10 ? name.slice(0,10)+'…' : name
+                            );
+                        })
+                    ),
+                    phase === 'reviewing' && responseCount > 0 && h('span', { className: 'bg-green-700 text-green-100 text-xs px-2 py-1 rounded-full font-bold' },
+                        responseCount + ' respostas'
+                    )
+                ),
+
+                /* —— CONTEÚDO PRINCIPAL —— */
+                h('div', { className: 'flex-1 flex overflow-hidden' },
+
+                    /* —— GRELHA DE MESAS —— */
+                    h('div', { className: 'flex-1 overflow-y-auto p-4' },
+                        tables.length === 0
+                            ? h('div', { className: 'text-center text-slate-500 mt-16' },
+                                h('div', { className: 'text-5xl mb-3' }, '⏳'),
+                                h('div', { className: 'text-lg font-semibold' }, 'A aguardar que as mesas se conectem...'),
+                                h('div', { className: 'text-sm mt-1' }, 'Partilha o código QR com as equipas')
+                              )
+                            : h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3' },
+                                tables.map(function(table) {
+                                    var client = connectedClients[table.id];
+                                    var resp = textResponses[table.id];
+                                    var hasJokerThisRound = roundJokers.indexOf(table.id) >= 0;
+                                    var isSinging = singingTeam && singingTeam.id === table.id;
+                                    return h('div', {
+                                        key: table.id,
+                                        className: 'bg-slate-800 rounded-xl border p-3 transition-all ' + (
+                                            isSinging ? 'border-purple-500 bg-purple-900/30' :
+                                            hasJokerThisRound ? 'border-yellow-500' :
+                                            resp ? 'border-blue-600' :
+                                            'border-slate-700'
+                                        )
+                                    },
+                                        h('div', { className: 'flex justify-between items-start mb-1' },
+                                            h('div', null,
+                                                h('div', { className: 'text-xs text-slate-500' }, 'Mesa ' + table.id),
+                                                client && h('span', { className: 'text-xs text-green-400' }, ' ● online')
+                                            ),
+                                            h('div', { className: 'flex gap-1' },
+                                                hasJokerThisRound && h('span', { className: 'text-sm' }, '🃏'),
+                                                isSinging && h('span', { className: 'text-sm' }, '🎤'),
+                                                resp && h('span', { className: 'text-sm' }, '✍️')
+                                            )
+                                        ),
+                                        h('div', { className: 'font-bold text-white text-sm truncate mb-2' }, table.name || ('Mesa ' + table.id)),
+                                        showScores && h('div', { className: 'text-3xl font-black text-violet-400 text-center mb-2' }, table.score),
+                                        !showScores && h('div', { className: 'text-3xl font-black text-slate-600 text-center mb-2' }, '—'),
+                                        h('div', { className: 'flex gap-1 justify-center' },
+                                            h('button', {
+                                                onClick: function(id) { return function() { setTables(function(prev) { return prev.map(function(t) { return t.id === id ? Object.assign({}, t, { score: Math.max(0, t.score - 1) }) : t; }); }); }; }(table.id),
+                                                className: 'px-2 py-1 bg-red-900/50 hover:bg-red-800 text-red-300 rounded font-bold text-xs'
+                                            }, '-1'),
+                                            h('button', {
+                                                onClick: function(id) { return function() { setTables(function(prev) { return prev.map(function(t) { return t.id === id ? Object.assign({}, t, { score: t.score + 1 }) : t; }); }); }; }(table.id),
+                                                className: 'px-2 py-1 bg-green-900/50 hover:bg-green-800 text-green-300 rounded font-bold text-xs'
+                                            }, '+1'),
+                                            h('button', {
+                                                onClick: function(id) { return function() { setTables(function(prev) { return prev.map(function(t) { return t.id === id ? Object.assign({}, t, { score: t.score + 5 }) : t; }); }); }; }(table.id),
+                                                className: 'px-2 py-1 bg-blue-900/50 hover:bg-blue-800 text-blue-300 rounded font-bold text-xs'
+                                            }, '+5')
+                                        )
+                                    );
+                                })
+                              )
+                    ),
+
+                    /* —— PAINEL LATERAL —— */
+                    h('div', { className: 'w-60 bg-slate-800 border-l border-slate-700 flex flex-col overflow-hidden flex-shrink-0' },
+                        h('div', { className: 'p-3 bg-amber-900/30 border-b border-amber-700/40' },
+                            h('div', { className: 'text-xs font-bold text-amber-400 mb-1 uppercase tracking-wide' }, '🔻 Último Lugar'),
+                            lastPlace
+                                ? h('div', null,
+                                    h('div', { className: 'font-black text-white text-sm' }, lastPlace.name || ('Mesa ' + lastPlace.id)),
+                                    h('div', { className: 'text-lg font-black text-amber-400' }, lastPlace.score + ' pts')
+                                  )
+                                : h('div', { className: 'text-slate-500 text-xs italic' }, 'Sem mesas')
+                        ),
+                        h('div', { className: 'p-3 border-b border-slate-700 flex-shrink-0' },
+                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, '🃏 Jokers Usados'),
+                            jokerOrder.length === 0
+                                ? h('div', { className: 'text-slate-500 text-xs italic' }, 'Nenhum joker usado')
+                                : h('div', { className: 'space-y-1' },
+                                    jokerOrder.map(function(tableId, idx) {
+                                        var t = tables.find(function(tb) { return tb.id === tableId; });
+                                        return h('div', { key: tableId, className: 'flex items-center gap-2' },
+                                            h('div', { className: 'w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center text-xs font-black text-yellow-900' }, idx + 1),
+                                            h('div', { className: 'text-sm font-semibold text-slate-300 truncate' }, t ? (t.name || ('Mesa ' + tableId)) : ('Mesa ' + tableId))
+                                        );
+                                    })
+                                )
+                        ),
+                        showScores && h('div', { className: 'flex-1 overflow-y-auto p-3' },
+                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, '🏆 Ranking'),
+                            h('div', { className: 'space-y-1' },
+                                tables.slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
+                                    var medal = ['🥇','🥈','🥉'][idx] || '';
+                                    return h('div', { key: t.id, className: 'flex items-center justify-between text-sm' },
+                                        h('div', { className: 'flex items-center gap-1' },
+                                            h('span', null, medal || (idx + 1) + '.'),
+                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, t.name || ('Mesa ' + t.id))
+                                        ),
+                                        h('span', { className: 'font-black text-violet-400' }, t.score)
+                                    );
+                                })
+                            )
+                        )
+                    )
+                ),
+
+                /* —— BARRA INFERIOR —— */
+                h('div', { className: 'bg-slate-800 border-t border-slate-700 px-4 py-3 flex items-center gap-3 flex-shrink-0 flex-wrap' },
+                    phase === 'waiting' && h('button', {
+                        onClick: function() { setShowNewRound(true); },
+                        className: 'px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
+                    }, '🎵 Nova Ronda #' + roundNumber),
+                    (phase === 'joker_window' || phase === 'answering') && h('button', {
+                        onClick: cancelRound,
+                        className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
+                    }, '✕ Cancelar Ronda'),
+                    phase === 'reviewing' && h('button', {
+                        onClick: function() { setShowReview(true); },
+                        className: 'px-6 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl font-black text-base shadow-lg blink active:scale-95 transition-transform flex items-center gap-2'
+                    },
+                        h('span', null, '✅ Ver Respostas'),
+                        responseCount > 0 && h('span', { className: 'bg-white text-green-700 text-xs font-black px-2 py-0.5 rounded-full' }, responseCount)
+                    ),
+                    h('div', { className: 'flex items-center gap-2 ml-auto' },
+                        h('button', {
+                            onClick: function() { setTablesLocked(!tablesLocked); },
+                            className: 'px-3 py-2 rounded-lg font-bold text-sm ' + (tablesLocked ? 'bg-red-800 text-red-200' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')
+                        }, tablesLocked ? '🔒 Bloqueado' : '🔓 Aberto'),
+                        h('button', {
+                            onClick: function() { setShowManage(!showManage); },
+                            className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
+                        }, '⚙️ Mesas'),
+                        h('button', {
+                            onClick: function() {
+                                if (!confirm('Repor TODAS as pontuações a 0?')) return;
+                                setTables(function(prev) { return prev.map(function(t) { return Object.assign({}, t, { score: 0 }); }); });
+                            },
+                            className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
+                        }, '↺ Reset'),
+                        h('button', {
+                            onClick: function() { setShowLeaderboard(true); },
+                            className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
+                        }, '🏆 Ranking')
+                    )
+                ),
+
+                /* —— MODAIS —— */
+
+                // QR full-screen
+                showQR && h('div', {
+                    className: 'fixed inset-0 bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex flex-col items-center justify-center z-50 cursor-pointer',
+                    onClick: function() { setShowQR(false); }
+                },
+                    h('img', {
+                        src: qrUrl, alt: 'QR Code',
+                        className: 'w-72 h-72 bg-white p-4 rounded-2xl shadow-2xl',
+                        onClick: function(e) { e.stopPropagation(); }
+                    }),
+                    h('div', { className: 'text-6xl font-black text-white mt-6 tracking-widest' }, sessionId),
+                    h('div', { className: 'text-violet-300 mt-3 text-sm' }, 'Toca para voltar')
+                ),
+
+                // Leaderboard
+                showLeaderboard && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowLeaderboard(false); } },
+                    h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
+                        h('h3', { className: 'text-xl font-black text-white mb-4 text-center' }, '🏆 Ranking'),
+                        h('div', { className: 'space-y-2' },
+                            tables.slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
+                                var isLast = lastPlace && t.id === lastPlace.id;
+                                var medal = ['🥇','🥈','🥉'][idx] || (idx + 1) + '.';
+                                return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl ' + (isLast ? 'bg-amber-900/40 border border-amber-600' : 'bg-slate-700') },
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('span', { className: 'text-xl' }, medal),
+                                        h('div', null,
+                                            h('div', { className: 'font-bold text-white' }, t.name || ('Mesa ' + t.id)),
+                                            isLast && h('div', { className: 'text-xs text-amber-400 font-semibold' }, '🔻 Último lugar')
+                                        )
+                                    ),
+                                    h('div', { className: 'text-2xl font-black text-violet-400' }, t.score)
+                                );
+                            })
+                        ),
+                        h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, 'Fechar')
+                    )
+                ),
+
+                // Gerir Mesas
+                showManage && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowManage(false); } },
+                    h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
+                        h('h3', { className: 'text-lg font-black text-white mb-4' }, '⚙️ Gerir Mesas'),
+                        tables.length === 0
+                            ? h('p', { className: 'text-slate-400 text-center italic' }, 'Nenhuma mesa conectada.')
+                            : h('div', { className: 'space-y-2 max-h-80 overflow-y-auto' },
+                                tables.map(function(table) {
+                                    var online = !!connectedClients[table.id];
+                                    return h('div', { key: table.id, className: 'flex items-center justify-between p-2 rounded-lg border border-slate-600' },
+                                        h('div', null,
+                                            h('div', { className: 'font-bold text-sm text-white' }, table.name || ('Mesa ' + table.id)),
+                                            h('div', { className: 'text-xs ' + (online ? 'text-green-400' : 'text-slate-500') }, online ? '● Online' : '○ Offline')
+                                        ),
+                                        h('button', {
+                                            onClick: function(id) { return function() { removeTable(id); }; }(table.id),
+                                            className: 'px-3 py-1 bg-red-900/50 hover:bg-red-800 text-red-300 rounded-lg text-xs font-bold'
+                                        }, '✕ Remover')
+                                    );
+                                })
+                              ),
+                        h('button', { onClick: function() { setShowManage(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, 'Fechar')
+                    )
+                ),
+
+                // Terminar sessão
+                showEndModal && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4' },
+                    h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in' },
+                        h('div', { className: 'text-4xl text-center mb-3' }, '🎵'),
+                        h('h3', { className: 'text-xl font-black text-white text-center mb-2' }, 'Terminar Sessão'),
+                        h('p', { className: 'text-slate-400 text-sm text-center mb-5' }, 'O que queres fazer com a sessão "' + sessionId + '"?'),
+                        h('div', { className: 'space-y-3' },
+                            h('button', { onClick: endSessionArchive, className: 'w-full py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold' }, '📦 Arquivar e Sair'),
+                            h('button', { onClick: endSessionPause, className: 'w-full py-3 bg-amber-700 hover:bg-amber-600 text-white rounded-xl font-bold' }, '⏸️ Pausar (retomar depois)'),
+                            h('button', { onClick: function() { setShowEndModal(false); }, className: 'w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold' }, 'Cancelar')
+                        )
+                    )
+                ),
+
+                showNewRound && h(NewRoundModal, null),
+                showReview && h(ReviewModal, null)
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+    });
+    </script>
+</body>
+</html>
