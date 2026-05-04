@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Hitster - Mesa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        input, textarea { font-size: 16px !important; }
+        html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
+        #root { min-height: 100dvh; }
+        .min-h-screen { min-height: 100dvh !important; }
+
+        @keyframes jokerGlow {
+            0%, 100% {
+                box-shadow: 0 0 20px 6px #f59e0b, 0 0 45px 12px rgba(245,158,11,0.5);
+                transform: scale(1);
+            }
+            50% {
+                box-shadow: 0 0 35px 12px #fbbf24, 0 0 70px 25px rgba(251,191,36,0.65);
+                transform: scale(1.04);
+            }
+        }
+        .joker-glow { animation: jokerGlow 1.1s ease-in-out infinite; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
+            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
+            projectId: "contador-de-pontos-321ee",
+            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
+            messagingSenderId: "817191889469",
+            appId: "1:817191889469:web:cfb88023612f6b37491854",
+            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { ref, onValue, set, remove };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script>
+    window.addEventListener('firebaseReady', function() {
+        var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
+        var rtdb = window.rtdb, fm = window.fbModules;
+
+        var EXPIRY_MS = 12 * 60 * 60 * 1000;
+
+        var clearLocal = function() {
+            ['hitster_session','hitster_table','hitster_team','hitster_emails','hitster_ts']
+                .forEach(function(k) { localStorage.removeItem(k); });
+        };
+
+        function App() {
+            var _s = function(v) { return useState(v); };
+
+            // — conexão —
+            var r1 = _s(false);  var connected = r1[0];       var setConnected = r1[1];
+            var r2 = _s('');     var sessionCode = r2[0];     var setSessionCode = r2[1];
+            var r3 = _s('');     var tableNumber = r3[0];     var setTableNumber = r3[1];
+            var r4 = _s('');     var teamName = r4[0];        var setTeamName = r4[1];
+            var r5 = _s('');     var emails = r5[0];          var setEmails = r5[1];
+            var r6 = _s('');     var connError = r6[0];       var setConnError = r6[1];
+            var r7 = _s(false);  var autoRecon = r7[0];       var setAutoRecon = r7[1];
+            var r8 = _s(false);  var sessionLost = r8[0];     var setSessionLost = r8[1];
+
+            // — jogo —
+            var g1 = _s(null);   var gameData = g1[0];        var setGameData = g1[1];
+            var g2 = _s('');     var textInput = g2[0];       var setTextInput = g2[1];
+            var g3 = _s(false);  var textSubmitted = g3[0];   var setTextSubmitted = g3[1];
+            var g4 = _s(false);  var sending = g4[0];         var setSending = g4[1];
+            var g5 = _s(0);      var jokerTimer = g5[0];      var setJokerTimer = g5[1];
+            var g6 = _s(0);      var answerTimer = g6[0];     var setAnswerTimer = g6[1];
+            var g7 = _s(0);      var resubKey = g7[0];        var setResubKey = g7[1];
+
+            var timerRef = useRef(null);
+            var prevPhaseRef = useRef('waiting');
+
+            // — re-subscrever ao voltar do background —
+            useEffect(function() {
+                var fn = function() {
+                    if (document.visibilityState === 'visible')
+                        setResubKey(function(k) { return k + 1; });
+                };
+                document.addEventListener('visibilitychange', fn);
+                return function() { document.removeEventListener('visibilitychange', fn); };
+            }, []);
+
+            // — restaurar sessão local —
+            useEffect(function() {
+                var ss = localStorage.getItem('hitster_session');
+                var st = localStorage.getItem('hitster_table');
+                var ts = parseInt(localStorage.getItem('hitster_ts') || '0');
+
+                if (ss && (Date.now() - ts) > EXPIRY_MS) { clearLocal(); ss = null; st = null; }
+
+                if (ss && st) {
+                    setSessionCode(ss); setTableNumber(st);
+                    var sn = localStorage.getItem('hitster_team');
+                    var se = localStorage.getItem('hitster_emails');
+                    if (sn) setTeamName(sn);
+                    if (se) setEmails(se);
+                    setAutoRecon(true);
+                } else {
+                    var p = new URLSearchParams(window.location.search);
+                    var u = p.get('session');
+                    if (u) setSessionCode(u.toUpperCase());
+                }
+            }, []);
+
+            useEffect(function() {
+                if (autoRecon && sessionCode && tableNumber) handleConnect(true);
+            }, [autoRecon, sessionCode, tableNumber]);
+
+            // — listeners firebase —
+            useEffect(function() {
+                if (!connected || !sessionCode) return;
+
+                var unsubG = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), function(snap) {
+                    var data = snap.val();
+                    if (!data) return;
+                    if (data.active === false) {
+                        setSessionLost(true); setConnected(false); setGameData(null);
+                        clearLocal(); return;
+                    }
+                    setGameData(data);
+                });
+
+                var unsubTxt = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/textResponses/' + tableNumber), function(snap) {
+                    if (!snap.val()) setTextSubmitted(false);
+                });
+
+                var firstC = true;
+                var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber), function(snap) {
+                    if (firstC) { firstC = false; return; }
+                    if (!snap.val()) {
+                        setSessionLost(true); setConnected(false); setGameData(null);
+                        clearLocal();
+                    }
+                });
+
+                return function() { unsubG(); unsubTxt(); unsubC(); };
+            }, [connected, sessionCode, tableNumber, resubKey]);
+
+            // — timers locais derivados de timestamps absolutos —
+            useEffect(function() {
+                var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
+                var jEnd = gameData ? (gameData.jokerTimerEndAt || 0) : 0;
+                var aEnd = gameData ? (gameData.answerTimerEndAt || 0) : 0;
+
+                if (timerRef.current) clearInterval(timerRef.current);
+
+                var tick = function() {
+                    var now = Date.now();
+                    if (phase === 'joker_window' && jEnd > 0)
+                        setJokerTimer(Math.max(0, Math.ceil((jEnd - now) / 1000)));
+                    else if (phase === 'answering' && aEnd > 0)
+                        setAnswerTimer(Math.max(0, Math.ceil((aEnd - now) / 1000)));
+                };
+                tick();
+
+                if ((phase === 'joker_window' && jEnd > 0) || (phase === 'answering' && aEnd > 0))
+                    timerRef.current = setInterval(tick, 250);
+
+                return function() { if (timerRef.current) clearInterval(timerRef.current); };
+            }, [
+                gameData ? gameData.phase : null,
+                gameData ? gameData.jokerTimerEndAt : 0,
+                gameData ? gameData.answerTimerEndAt : 0
+            ]);
+
+            // — limpar input quando fase muda para answering (nova ronda) —
+            useEffect(function() {
+                var newPhase = gameData ? (gameData.phase || 'waiting') : 'waiting';
+                if (prevPhaseRef.current !== 'answering' && newPhase === 'answering') {
+                    setTextInput('');
+                    setTextSubmitted(false);
+                }
+                prevPhaseRef.current = newPhase;
+            }, [gameData ? gameData.phase : null]);
+
+            // — conexão —
+            var handleConnect = async function(isAuto) {
+                var code = sessionCode.trim().toUpperCase();
+                var table = parseInt(tableNumber);
+                if (!code || !table || table < 1 || table > 50) {
+                    setConnError('Código e número de mesa são obrigatórios (1-50)');
+                    setAutoRecon(false); return;
+                }
+                if (!isAuto && !teamName.trim()) {
+                    setConnError('O nome da equipa é obrigatório'); return;
+                }
+                try {
+                    var gsSnap = await new Promise(function(r) {
+                        fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/gameState'), r, { onlyOnce: true });
+                    });
+                    var gs = gsSnap.val();
+                    if (!gs) { setConnError('Sessão "' + code + '" não encontrada.'); setAutoRecon(false); return; }
+                    if (gs.active === false) { setConnError('Sessão "' + code + '" já não está ativa.'); setAutoRecon(false); return; }
+                    if (gs.gameType && gs.gameType !== 'hitster') { setConnError('Esta sessão pertence a outro jogo. Usa a aplicação correta.'); setAutoRecon(false); return; }
+
+                    if (gs.tablesLocked && !isAuto) {
+                        var exSnap = await new Promise(function(r) {
+                            fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), r, { onlyOnce: true });
+                        });
+                        if (!exSnap.val()) {
+                            setConnError('Novas entradas estão bloqueadas pelo anfitrião.');
+                            setAutoRecon(false); return;
+                        }
+                    }
+
+                    if (!isAuto) {
+                        var cSnap = await new Promise(function(r) {
+                            fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), r, { onlyOnce: true });
+                        });
+                        if (cSnap.val()) {
+                            setConnError('A Mesa ' + table + ' já está conectada! Escolhe outro número.');
+                            setAutoRecon(false); return;
+                        }
+                    }
+
+                    await fm.set(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), {
+                        tableNumber: table,
+                        teamName: teamName.trim() || ('Mesa ' + table),
+                        emails: emails.trim() ? emails.split(',').map(function(e) { return e.trim(); }) : [],
+                        connectedAt: Date.now()
+                    });
+
+                    localStorage.setItem('hitster_session', code);
+                    localStorage.setItem('hitster_table', table.toString());
+                    localStorage.setItem('hitster_ts', Date.now().toString());
+                    if (teamName) localStorage.setItem('hitster_team', teamName);
+                    if (emails) localStorage.setItem('hitster_emails', emails);
+
+                    setConnected(true); setAutoRecon(false); setConnError(''); setSessionLost(false);
+                } catch(e) {
+                    setConnError('Erro ao conectar. Tenta novamente.');
+                    setAutoRecon(false);
+                }
+            };
+
+            var handleDisconnect = async function() {
+                if (!confirm('Sair da sessão?')) return;
+                try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber)); } catch(e) {}
+                clearLocal();
+                setConnected(false); setGameData(null); setTextInput(''); setTextSubmitted(false);
+            };
+
+            var pressJoker = async function() {
+                if (!sessionCode || !tableNumber || !gameData) return;
+                var tableId = parseInt(tableNumber);
+                var jokerOrder = gameData.jokerOrder || [];
+                if (jokerOrder.indexOf(tableId) >= 0) return;
+                if (gameData.phase !== 'joker_window') return;
+                if (gameData.currentCategory && gameData.currentCategory.isTimeline) return;
+                try {
+                    await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/histerJokers/' + tableNumber), {
+                        activated: true, timestamp: Date.now()
+                    });
+                } catch(e) { console.error('Joker:', e); }
+            };
+
+            var submitText = async function() {
+                if (!textInput.trim() || sending || !gameData) return;
+                if (gameData.phase !== 'answering') return;
+                var aEnd = gameData.answerTimerEndAt || 0;
+                if (aEnd > 0 && Date.now() > aEnd) return;
+                setSending(true);
+                try {
+                    await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/textResponses/' + tableNumber), {
+                        text: textInput.trim(), timestamp: Date.now()
+                    });
+                    setTextSubmitted(true);
+                    setTimeout(function() { setSending(false); }, 500);
+                } catch(e) { setSending(false); }
+            };
+
+            // — dados derivados —
+            var tableId = parseInt(tableNumber || '0');
+            var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
+            var cat = gameData ? gameData.currentCategory : null;
+            var jokerOrder = gameData ? (gameData.jokerOrder || []) : [];
+            var myJokerUsed = jokerOrder.indexOf(tableId) >= 0;
+            var singingId = gameData ? (gameData.singingTeamId || null) : null;
+            var isSinging = singingId === tableId;
+            var allTables = gameData ? (gameData.tables || []) : [];
+            var myTable = allTables.find(function(t) { return t.id === tableId; });
+            var myScore = myTable ? myTable.score : 0;
+            var showScores = gameData ? (gameData.showScores !== false) : true;
+            var selLogos = gameData ? (gameData.selectedLogos || []) : [];
+            var mainLogo = selLogos.length > 0 ? selLogos[0] : null;
+            var secLogos = selLogos.slice(1);
+
+            var jokerWindowOpen = phase === 'joker_window';
+            var isTimeline = cat && cat.isTimeline;
+            // Joker desativado: se janela fechada, joker já usado, timeline, OU equipa canta
+            var jokerEnabled = jokerWindowOpen && !myJokerUsed && !isTimeline && !isSinging;
+            var showInput = phase === 'answering' && !isSinging;
+            var timeUp = answerTimer === 0 && phase === 'answering' && (gameData ? (gameData.answerTimerEndAt || 0) : 0) > 0;
+            var showCat = cat && (phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
+
+            // — sessão perdida —
+            if (sessionLost) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4' },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center' },
+                        h('div', { className: 'text-5xl mb-4' }, '🎵'),
+                        h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, 'Sessão Terminada'),
+                        h('p', { className: 'text-gray-600 mb-4' }, 'A sessão foi terminada pelo anfitrião.'),
+                        h('button', {
+                            onClick: function() { setSessionLost(false); setSessionCode(''); setTableNumber(''); },
+                            className: 'w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold'
+                        }, 'Voltar ao Início')
+                    )
+                );
+            }
+
+            // — a reconectar —
+            if (autoRecon) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex items-center justify-center' },
+                    h('div', { className: 'text-center text-white' },
+                        h('div', { className: 'text-5xl mb-4 animate-spin' }, '🎵'),
+                        h('div', { className: 'text-xl font-semibold' }, 'A reconectar...')
+                    )
+                );
+            }
+
+            // — login —
+            if (!connected) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 p-4 flex items-center justify-center' },
+                    h('div', { className: 'w-full max-w-sm' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
+                            h('div', { className: 'text-center mb-6' },
+                                h('div', { className: 'text-5xl mb-2' }, '🎵'),
+                                h('h1', { className: 'text-2xl font-black text-violet-800' }, 'Hitster')
+                            ),
+                            connError && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm font-semibold' }, connError),
+                            h('div', { className: 'space-y-4' },
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Código da Sessão'),
+                                    h('input', {
+                                        type: 'text', value: sessionCode,
+                                        onChange: function(e) { setSessionCode(e.target.value.toUpperCase()); },
+                                        placeholder: 'ABC123',
+                                        className: 'w-full px-4 py-3 border-2 rounded-xl text-center font-mono text-xl uppercase focus:border-violet-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Número da Mesa'),
+                                    h('input', {
+                                        type: 'number', min: 1, max: 50,
+                                        value: tableNumber,
+                                        onChange: function(e) { setTableNumber(e.target.value); },
+                                        placeholder: '1-20',
+                                        className: 'w-full px-4 py-3 border-2 rounded-xl text-center text-xl focus:border-violet-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Nome da Equipa *'),
+                                    h('input', {
+                                        type: 'text', value: teamName,
+                                        onChange: function(e) { setTeamName(e.target.value); },
+                                        placeholder: 'Nome da vossa equipa',
+                                        className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-violet-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Email(s) *'),
+                                    h('input', {
+                                        type: 'text', value: emails,
+                                        onChange: function(e) { setEmails(e.target.value); },
+                                        placeholder: 'email1@ex.com, email2@ex.com',
+                                        className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-violet-500 outline-none text-sm'
+                                    })
+                                ),
+                                h('button', {
+                                    onClick: function() { handleConnect(false); },
+                                    className: 'w-full py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform'
+                                }, '🎵 Entrar')
+                            )
+                        )
+                    )
+                );
+            }
+
+            // — jogo —
+            return h('div', { className: 'h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex flex-col overflow-hidden' },
+
+                // header
+                h('div', { className: 'relative z-10 bg-white bg-opacity-10 backdrop-blur-sm px-4 py-2 flex items-center justify-between flex-shrink-0' },
+                    h('div', { className: 'text-white' },
+                        h('div', { className: 'text-xs opacity-70' }, 'Mesa ' + tableNumber),
+                        h('div', { className: 'font-bold text-sm leading-tight truncate max-w-32' }, teamName || ('Mesa ' + tableNumber))
+                    ),
+                    mainLogo
+                        ? h('img', { src: mainLogo, alt: 'logo', className: 'h-8 object-contain', onError: function(e) { e.target.style.display = 'none'; } })
+                        : h('div', { className: 'text-2xl' }, '🎵'),
+                    h('div', { className: 'flex items-center gap-2' },
+                        h('div', { className: 'text-xs text-white opacity-60 font-mono' }, sessionCode),
+                        h('button', {
+                            onClick: handleDisconnect,
+                            className: 'w-7 h-7 flex items-center justify-center text-white opacity-50 hover:opacity-100 hover:bg-white hover:bg-opacity-20 rounded-full text-sm transition-all'
+                        }, '✕')
+                    )
+                ),
+
+                // pontuação — sempre visível para o cliente (ocultar pontos só aplica no master)
+                h('div', { className: 'relative z-10 mx-4 mt-3 bg-white bg-opacity-15 rounded-2xl p-3 text-center flex-shrink-0' },
+                    h('div', { className: 'text-5xl font-black text-white' }, myScore),
+                    h('div', { className: 'text-xs text-white opacity-70 mt-0.5' }, 'pontos')
+                ),
+
+                // área principal
+                h('div', { className: 'relative z-10 flex-1 flex flex-col items-center justify-center gap-4 p-4 overflow-hidden' },
+
+                    // categoria
+                    showCat && h('div', { className: 'bg-yellow-400 text-yellow-900 rounded-2xl px-5 py-4 w-full max-w-sm text-center shadow-xl' },
+                        h('div', { className: 'text-xl font-black mb-1' }, cat.name),
+                        h('div', { className: 'text-sm font-semibold opacity-75' }, cat.description),
+                        h('div', { className: 'mt-2 inline-block bg-yellow-300 bg-opacity-70 rounded-lg px-3 py-0.5' },
+                            h('span', { className: 'font-black' }, cat.points + (cat.points === 1 ? ' ponto' : ' pontos'))
+                        )
+                    ),
+
+                    // timer joker
+                    phase === 'joker_window' &&
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-3xl font-bold animate-pulse' }, '⏱️ ' + jokerTimer + 's'),
+                            h('div', { className: 'text-sm opacity-75' }, 'Janela do Joker')
+                        ),
+
+                    // timer resposta
+                    phase === 'answering' && !isSinging &&
+                        h('div', { className: 'text-center' },
+                            h('div', {
+                                className: 'text-3xl font-bold ' + (answerTimer <= 5 ? 'text-red-300 animate-pulse' : 'text-white')
+                            }, timeUp ? '⏱️ Tempo esgotado' : ('⏱️ ' + answerTimer + 's'))
+                        ),
+
+                    // aguardar
+                    phase === 'waiting' &&
+                        h('div', { className: 'text-center text-white opacity-75' },
+                            h('div', { className: 'text-5xl mb-3' }, '🎵'),
+                            h('div', { className: 'text-lg font-semibold' }, 'A aguardar ronda...')
+                        ),
+
+                    // revisão
+                    phase === 'reviewing' &&
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-5xl mb-3' }, '✅'),
+                            h('div', { className: 'text-lg font-semibold' }, 'Respostas em revisão...'),
+                            h('div', { className: 'text-sm opacity-70 mt-1' }, 'O anfitrião está a validar')
+                        ),
+
+                    // equipa canta
+                    isSinging && (phase === 'joker_window' || phase === 'answering') &&
+                        h('div', { className: 'bg-purple-500 bg-opacity-80 rounded-2xl p-5 w-full max-w-sm text-center text-white shadow-xl' },
+                            h('div', { className: 'text-4xl mb-2' }, '🎤'),
+                            h('div', { className: 'font-black text-xl' }, 'A vossa equipa canta!'),
+                            h('div', { className: 'text-sm opacity-80 mt-1' }, 'Não precisam de responder')
+                        ),
+
+                    // campo de resposta
+                    showInput &&
+                        h('div', { className: 'w-full max-w-sm' },
+                            h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                                h('textarea', {
+                                    value: textInput,
+                                    onChange: function(e) {
+                                        setTextInput(e.target.value);
+                                        if (textSubmitted) setTextSubmitted(false);
+                                    },
+                                    disabled: timeUp,
+                                    maxLength: 200,
+                                    placeholder: timeUp ? 'Tempo esgotado!' : 'Escreve a tua resposta...',
+                                    autoFocus: true,
+                                    className: 'w-full h-24 px-3 py-2 text-base border-2 rounded-lg resize-none focus:outline-none ' +
+                                        (timeUp ? 'border-gray-300 bg-gray-100 cursor-not-allowed' : 'border-violet-400 focus:border-violet-600')
+                                }),
+                                h('div', { className: 'flex justify-between items-center mt-2' },
+                                    h('span', { className: 'text-xs text-gray-400' }, textInput.length + '/200'),
+                                    h('button', {
+                                        onClick: submitText,
+                                        disabled: !textInput.trim() || timeUp || sending,
+                                        className: 'px-6 py-2 rounded-lg font-bold text-white text-sm transition-all active:scale-95 ' + (
+                                            sending ? 'bg-yellow-500 cursor-wait' :
+                                            textSubmitted ? 'bg-green-500' :
+                                            (!textInput.trim() || timeUp) ? 'bg-gray-400 cursor-not-allowed' :
+                                            'bg-green-600 hover:bg-green-700 shadow-md'
+                                        )
+                                    }, sending ? '⏳' : (textSubmitted ? '✓ Enviado' : '📤 Enviar'))
+                                )
+                            )
+                        ),
+
+                    // botão joker — desaparece após uso
+                    !myJokerUsed &&
+                        h('button', {
+                            onClick: jokerEnabled ? pressJoker : undefined,
+                            disabled: !jokerEnabled,
+                            className: 'relative w-36 h-36 rounded-full font-black text-lg shadow-2xl transition-all transform select-none ' + (
+                                jokerEnabled
+                                    ? 'bg-yellow-500 text-yellow-900 joker-glow hover:scale-105 active:scale-95 cursor-pointer'
+                                    : 'bg-gray-600 text-gray-400 cursor-not-allowed opacity-40'
+                            )
+                        },
+                            h('div', { className: 'flex flex-col items-center gap-1' },
+                                h('div', { className: 'text-4xl' }, '🃏'),
+                                h('div', { className: 'text-sm font-black tracking-wider' }, jokerEnabled ? 'JOKER!' : 'JOKER')
+                            )
+                        )
+                ),
+
+                // barra de logos secundários
+                secLogos.length > 0 && h('div', { className: 'flex-shrink-0 bg-black bg-opacity-20 px-4 py-2 flex items-center justify-center gap-6 flex-wrap' },
+                    secLogos.map(function(logo, idx) {
+                        return h('img', {
+                            key: idx, src: logo, alt: '',
+                            className: 'h-8 object-contain opacity-75',
+                            onError: function(e) { e.target.style.display = 'none'; }
+                        });
+                    })
+                )
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+    });
+    </script>
+</body>
+</html>
