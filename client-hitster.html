@@ -8,6 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Hitster - Mesa</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuração Firebase e módulo Hitster partilhados -->
+    <script src="shared/firebase-config.js"></script>
+    <script src="games/hitster.js"></script>
     <style>
         input, textarea { font-size: 16px !important; }
         html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
@@ -34,15 +37,7 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getDatabase, ref, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
-            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
-            projectId: "contador-de-pontos-321ee",
-            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
-            messagingSenderId: "817191889469",
-            appId: "1:817191889469:web:cfb88023612f6b37491854",
-            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
-        };
+        const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
         window.rtdb = getDatabase(app);
@@ -89,6 +84,7 @@
 
             var timerRef = useRef(null);
             var prevPhaseRef = useRef('waiting');
+            var wakeLockRef = useRef(null);
 
             // — re-subscrever ao voltar do background —
             useEffect(function() {
@@ -99,6 +95,26 @@
                 document.addEventListener('visibilitychange', fn);
                 return function() { document.removeEventListener('visibilitychange', fn); };
             }, []);
+
+            // — wake lock: manter ecrã ligado enquanto conectado —
+            useEffect(function() {
+                if (!connected) return;
+                var acquire = async function() {
+                    try {
+                        if ('wakeLock' in navigator)
+                            wakeLockRef.current = await navigator.wakeLock.request('screen');
+                    } catch(e) {}
+                };
+                acquire();
+                var onVisible = function() {
+                    if (document.visibilityState === 'visible') acquire();
+                };
+                document.addEventListener('visibilitychange', onVisible);
+                return function() {
+                    document.removeEventListener('visibilitychange', onVisible);
+                    if (wakeLockRef.current) { wakeLockRef.current.release().catch(function(){}); wakeLockRef.current = null; }
+                };
+            }, [connected]);
 
             // — restaurar sessão local —
             useEffect(function() {
@@ -197,8 +213,8 @@
             var handleConnect = async function(isAuto) {
                 var code = sessionCode.trim().toUpperCase();
                 var table = parseInt(tableNumber);
-                if (!code || !table || table < 1 || table > 50) {
-                    setConnError('Código e número de mesa são obrigatórios (1-50)');
+                if (!code || !table || table < 1) {
+                    setConnError('Código e número de mesa são obrigatórios');
                     setAutoRecon(false); return;
                 }
                 if (!isAuto && !teamName.trim()) {
@@ -305,6 +321,7 @@
             var mainLogo = selLogos.length > 0 ? selLogos[0] : null;
             var secLogos = selLogos.slice(1);
 
+            var allJokersUsed = gameData ? (gameData.allJokersUsed || false) : false;
             var jokerWindowOpen = phase === 'joker_window';
             var isTimeline = cat && cat.isTimeline;
             // Joker desativado: se janela fechada, joker já usado, timeline, OU equipa canta
@@ -361,10 +378,10 @@
                                 h('div', null,
                                     h('label', { className: 'block text-sm font-semibold mb-1' }, 'Número da Mesa'),
                                     h('input', {
-                                        type: 'number', min: 1, max: 50,
+                                        type: 'number', min: 1,
                                         value: tableNumber,
                                         onChange: function(e) { setTableNumber(e.target.value); },
-                                        placeholder: '1-20',
+                                        placeholder: 'Ex: 1',
                                         className: 'w-full px-4 py-3 border-2 rounded-xl text-center text-xl focus:border-violet-500 outline-none'
                                     })
                                 ),
@@ -439,7 +456,7 @@
                     phase === 'joker_window' &&
                         h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-3xl font-bold animate-pulse' }, '⏱️ ' + jokerTimer + 's'),
-                            h('div', { className: 'text-sm opacity-75' }, 'Janela do Joker')
+                            h('div', { className: 'text-sm opacity-75' }, allJokersUsed ? 'Prepara a música!' : 'Janela do Joker')
                         ),
 
                     // timer resposta
@@ -506,9 +523,14 @@
                             )
                         ),
 
-                    // botão joker — desaparece após uso
-                    !myJokerUsed &&
-                        h('button', {
+                    // botão joker — indicador "já usado" durante janela, desaparece fora da janela
+                    (jokerWindowOpen && myJokerUsed)
+                        ? h('div', { className: 'w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 bg-gray-700 bg-opacity-60 border-2 border-gray-600 select-none' },
+                            h('div', { className: 'text-4xl opacity-40' }, '🃏'),
+                            h('div', { className: 'text-xs font-black tracking-wider text-gray-400' }, 'JOKER'),
+                            h('div', { className: 'text-xs text-gray-500 font-semibold' }, 'já usado')
+                          )
+                        : (!myJokerUsed && h('button', {
                             onClick: jokerEnabled ? pressJoker : undefined,
                             disabled: !jokerEnabled,
                             className: 'relative w-36 h-36 rounded-full font-black text-lg shadow-2xl transition-all transform select-none ' + (
@@ -521,15 +543,15 @@
                                 h('div', { className: 'text-4xl' }, '🃏'),
                                 h('div', { className: 'text-sm font-black tracking-wider' }, jokerEnabled ? 'JOKER!' : 'JOKER')
                             )
-                        )
+                        ))
                 ),
 
                 // barra de logos secundários
-                secLogos.length > 0 && h('div', { className: 'flex-shrink-0 bg-black bg-opacity-20 px-4 py-2 flex items-center justify-center gap-6 flex-wrap' },
+                secLogos.length > 0 && h('div', { className: 'flex-shrink-0 bg-black bg-opacity-20 px-4 py-1.5 flex items-center justify-center gap-4 overflow-hidden' },
                     secLogos.map(function(logo, idx) {
                         return h('img', {
                             key: idx, src: logo, alt: '',
-                            className: 'h-8 object-contain opacity-75',
+                            className: 'h-6 object-contain opacity-75 flex-shrink-0',
                             onError: function(e) { e.target.style.display = 'none'; }
                         });
                     })

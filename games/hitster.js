@@ -41,6 +41,9 @@ const HitsterGame = {
     description: 'Adivinha o ano, artista ou título de músicas com joker e modo cantora',
     icon: '🎵',
 
+    // Segundos da janela de preparação quando todos os jokers já foram usados
+    JOKER_PREP_SECONDS: 5,
+
     // =========================================================================
     // CATEGORIAS PADRÃO
     // =========================================================================
@@ -774,6 +777,34 @@ const HitsterGame = {
                 )
         );
     }
+};
+
+// =============================================================================
+// UTILITÁRIOS EXPORTADOS (usados diretamente pelas apps HTML)
+// =============================================================================
+
+/**
+ * Determina a equipa em último lugar para o modo cantora.
+ * Em caso de empate, usa jokerOrder como desempate (quem usou joker primeiro
+ * fica com prioridade, garantindo rotação entre as equipas empatadas).
+ *
+ * @param {Array}  tables     - Lista de mesas [{ id, score, ... }]
+ * @param {Array}  jokerOrder - IDs na ordem em que usaram joker (global, todo o jogo)
+ * @returns {Object|null}     - Mesa em último lugar, ou null se não houver mesas
+ */
+HitsterGame.getLastPlace = function(tables, jokerOrder) {
+    if (!tables || tables.length === 0) return null;
+    var sorted   = tables.slice().sort(function(a, b) { return a.score - b.score; });
+    var minScore = sorted[0].score;
+    var tied     = sorted.filter(function(t) { return t.score === minScore; });
+    if (tied.length === 1) return tied[0];
+    // Desempate: quem usou joker mais cedo (jokerOrder[0] tem prioridade para cantar)
+    for (var i = 0; i < jokerOrder.length; i++) {
+        for (var j = 0; j < tied.length; j++) {
+            if (tied[j].id === jokerOrder[i]) return tied[j];
+        }
+    }
+    return tied[0];
 };
 
 // =============================================================================

@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hitster - Master</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuração Firebase e módulo Hitster partilhados -->
+    <script src="shared/firebase-config.js"></script>
+    <script src="games/hitster.js"></script>
     <style>
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .blink { animation: blink 1s ease-in-out infinite; }
@@ -20,15 +23,7 @@
         import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
-            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
-            projectId: "contador-de-pontos-321ee",
-            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
-            messagingSenderId: "817191889469",
-            appId: "1:817191889469:web:cfb88023612f6b37491854",
-            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
-        };
+        const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
         window.db = getFirestore(app);
@@ -41,31 +36,9 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
     <script>
-    var CLIENT_URL = 'https://alpces.github.io/score/client-hitster.html';
-    var GAME_TYPE = 'hitster';
-
-    var DEFAULT_CATEGORIES = [
-        { id: 'exact_year', name: 'Ano Exato',    description: 'O ano exato em que a música saiu',       points: 5 },
-        { id: 'year_3',     name: 'Ano ±3',       description: 'Dentro de 3 anos do ano certo',           points: 4 },
-        { id: 'title',      name: 'Título',        description: 'O título da canção',                      points: 3 },
-        { id: 'artist',     name: 'Artista',       description: 'O nome do grupo ou solista',              points: 2 },
-        { id: 'decade',     name: 'Década',        description: 'A década em que a música saiu',           points: 1 },
-        { id: 'timeline',   name: 'Timeline Duel', description: 'Final do jogo — posiciona na timeline',   points: 1, isTimeline: true }
-    ];
-
-    function getLastPlace(tables, jokerOrder) {
-        if (!tables || tables.length === 0) return null;
-        var sorted = tables.slice().sort(function(a,b) { return a.score - b.score; });
-        var minScore = sorted[0].score;
-        var tied = sorted.filter(function(t) { return t.score === minScore; });
-        if (tied.length === 1) return tied[0];
-        for (var i = 0; i < jokerOrder.length; i++) {
-            for (var j = 0; j < tied.length; j++) {
-                if (tied[j].id === jokerOrder[i]) return tied[j];
-            }
-        }
-        return tied[0];
-    }
+    // URLs e constantes lidas dos scripts partilhados
+    var CLIENT_URL = window.AppConfig.CLIENT_HITSTER_URL;
+    var GAME_TYPE  = window.HitsterGame.id;
 
     window.addEventListener('firebaseReady', function() {
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
@@ -80,7 +53,7 @@
             var s3  = _s('');      var codeInput = s3[0];          var setCodeInput = s3[1];
             var s4  = _s('');      var codeError = s4[0];          var setCodeError = s4[1];
             var s5  = _s(false);   var codeCopied = s5[0];         var setCodeCopied = s5[1];
-            var s6  = _s(DEFAULT_CATEGORIES);
+            var s6  = _s(window.HitsterGame.DEFAULT_CATEGORIES);
             var categories = s6[0]; var setCategories = s6[1];
             var s7  = _s(10);      var jokerTime = s7[0];          var setJokerTime = s7[1];
             var s8  = _s(25);      var answerTime = s8[0];         var setAnswerTime = s8[1];
@@ -269,6 +242,7 @@
                             singingTeamId: singingTeam ? singingTeam.id : null,
                             showScores: showScores, tablesLocked: tablesLocked,
                             roundNumber: roundNumber,
+                            allJokersUsed: tables.length > 0 && tables.every(function(t) { return t.jokerUsed; }),
                             tables: tables.map(function(t) {
                                 return { id: t.id, name: t.name, score: t.score, jokerUsed: t.jokerUsed || false };
                             }),
@@ -452,9 +426,11 @@
             /* —— INICIAR RONDA —— */
             var startRound = function(cat, singing) {
                 setShowNewRound(false); setSingToggle(false);
-                var now = Date.now(), jEnd = now + jokerTime * 1000;
+                var allUsed = tables.length > 0 && tables.every(function(t) { return t.jokerUsed; });
+                var jTime = allUsed ? window.HitsterGame.JOKER_PREP_SECONDS : jokerTime;
+                var now = Date.now(), jEnd = now + jTime * 1000;
                 setCurrentCat(cat); setSingingTeam(singing || null); setRoundJokers([]);
-                setPhase('joker_window'); setJokerEndAt(jEnd); setAnswerEndAt(0); setJokerDisplay(jokerTime);
+                setPhase('joker_window'); setJokerEndAt(jEnd); setAnswerEndAt(0); setJokerDisplay(jTime);
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function() {});
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')).catch(function() {});
                 setTextResponses({}); setCheckedAnswers({});
@@ -556,12 +532,13 @@
             };
 
             var qrUrl = sessionId
-                ? 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId)
+                ? 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId)
                 : '';
 
             /* ====================== RENDER ====================== */
 
-            var lastPlace = getLastPlace(tables, jokerOrder);
+            var allJokersUsed = tables.length > 0 && tables.every(function(t) { return t.jokerUsed; });
+            var lastPlace = window.HitsterGame.getLastPlace(tables, jokerOrder);
             var responseCount = Object.keys(textResponses).length;
             var tableCount = tables.length;
 
@@ -750,7 +727,7 @@
                                 h('div', { className: 'flex items-center justify-between mb-2' },
                                     h('label', { className: 'block text-sm font-bold text-gray-700' }, '🏷️ Categorias e Pontuações'),
                                     h('button', {
-                                        onClick: function() { setCategories(DEFAULT_CATEGORIES); saveCategoriesToFirestore(DEFAULT_CATEGORIES); },
+                                        onClick: function() { setCategories(window.HitsterGame.DEFAULT_CATEGORIES); saveCategoriesToFirestore(window.HitsterGame.DEFAULT_CATEGORIES); },
                                         className: 'text-xs text-violet-600 hover:text-violet-800 font-semibold'
                                     }, '↺ Repor padrão')
                                 ),
@@ -949,7 +926,7 @@
 
             var phaseLabel = {
                 'waiting':      '⏸ A aguardar ronda',
-                'joker_window': '🃏 Janela do Joker — ' + jokerDisplay + 's',
+                'joker_window': allJokersUsed ? ('🎵 Prepara a música! — ' + jokerDisplay + 's') : ('🃏 Janela do Joker — ' + jokerDisplay + 's'),
                 'answering':    '✍️ A responder — ' + answerDisplay + 's',
                 'reviewing':    '✅ A validar respostas'
             }[phase] || phase;
@@ -1131,6 +1108,15 @@
                         onClick: cancelRound,
                         className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
                     }, '✕ Cancelar Ronda'),
+                    phase === 'answering' && h('button', {
+                        onClick: function() {
+                            var newEnd = Date.now() + answerTimeRef.current * 1000;
+                            answerEndRef.current = newEnd;
+                            setAnswerEndAt(newEnd);
+                            setAnswerDisplay(answerTimeRef.current);
+                        },
+                        className: 'px-4 py-2.5 bg-blue-700 hover:bg-blue-600 text-white rounded-xl font-bold text-sm'
+                    }, '↺ ' + answerTime + 's'),
                     phase === 'reviewing' && h('button', {
                         onClick: function() { setShowReview(true); },
                         className: 'px-6 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl font-black text-base shadow-lg blink active:scale-95 transition-transform flex items-center gap-2'
@@ -1172,7 +1158,7 @@
                 },
                     h('img', {
                         src: qrUrl, alt: 'QR Code',
-                        className: 'w-72 h-72 bg-white p-4 rounded-2xl shadow-2xl',
+                        className: 'w-[min(80vw,80vh)] h-[min(80vw,80vh)] bg-white p-4 rounded-2xl shadow-2xl',
                         onClick: function(e) { e.stopPropagation(); }
                     }),
                     h('div', { className: 'text-6xl font-black text-white mt-6 tracking-widest' }, sessionId),
