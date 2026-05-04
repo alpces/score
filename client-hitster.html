@@ -211,6 +211,7 @@
                     var gs = gsSnap.val();
                     if (!gs) { setConnError('Sessão "' + code + '" não encontrada.'); setAutoRecon(false); return; }
                     if (gs.active === false) { setConnError('Sessão "' + code + '" já não está ativa.'); setAutoRecon(false); return; }
+                    if (gs.gameType && gs.gameType !== 'hitster') { setConnError('Esta sessão pertence a outro jogo. Usa a aplicação correta.'); setAutoRecon(false); return; }
 
                     if (gs.tablesLocked && !isAuto) {
                         var exSnap = await new Promise(function(r) {
@@ -306,7 +307,8 @@
 
             var jokerWindowOpen = phase === 'joker_window';
             var isTimeline = cat && cat.isTimeline;
-            var jokerEnabled = jokerWindowOpen && !myJokerUsed && !isTimeline;
+            // Joker desativado: se janela fechada, joker já usado, timeline, OU equipa canta
+            var jokerEnabled = jokerWindowOpen && !myJokerUsed && !isTimeline && !isSinging;
             var showInput = phase === 'answering' && !isSinging;
             var timeUp = answerTimer === 0 && phase === 'answering' && (gameData ? (gameData.answerTimerEndAt || 0) : 0) > 0;
             var showCat = cat && (phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
@@ -415,8 +417,8 @@
                     )
                 ),
 
-                // pontuação
-                showScores && h('div', { className: 'relative z-10 mx-4 mt-3 bg-white bg-opacity-15 rounded-2xl p-3 text-center flex-shrink-0' },
+                // pontuação — sempre visível para o cliente (ocultar pontos só aplica no master)
+                h('div', { className: 'relative z-10 mx-4 mt-3 bg-white bg-opacity-15 rounded-2xl p-3 text-center flex-shrink-0' },
                     h('div', { className: 'text-5xl font-black text-white' }, myScore),
                     h('div', { className: 'text-xs text-white opacity-70 mt-0.5' }, 'pontos')
                 ),

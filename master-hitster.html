@@ -92,6 +92,7 @@
             var s14 = _s(false);   var showExistDialog = s14[0];   var setShowExistDialog = s14[1];
             var s15 = _s(null);    var existingData = s15[0];      var setExistingData = s15[1];
             var s16 = _s(null);    var histInfoId = s16[0];        var setHistInfoId = s16[1];
+            var s17 = _s({});      var histInfoClients = s17[0];   var setHistInfoClients = s17[1];
 
             /* —— JOGO —— */
             var g1  = _s([]);      var tables = g1[0];             var setTables = g1[1];
@@ -130,6 +131,7 @@
             var jokerTimeRef  = useRef(10);
             var answerTimeRef = useRef(25);
             var catsLoadedRef = useRef(false);
+            var archivingRef  = useRef(false); // previne sync durante arquivo
 
             useEffect(function() { phaseRef.current = phase; }, [phase]);
             useEffect(function() { jokerEndRef.current = jokerEndAt; }, [jokerEndAt]);
@@ -240,9 +242,23 @@
                 return function() { unsub(); };
             }, [showHistory]);
 
+            /* —— CLIENTES DO POPUP DE INFO (para mostrar emails) —— */
+            useEffect(function() {
+                if (!histInfoId) { setHistInfoClients({}); return; }
+                // Sessões ativas têm emails nos clientes do Firebase
+                var isActive = activeSessions.some(function(s) { return s.sessionId === histInfoId; });
+                if (isActive) {
+                    fm.onValue(fm.ref(rtdb, 'sessions/' + histInfoId + '/clients'), function(snap) {
+                        setHistInfoClients(snap.val() || {});
+                    }, { onlyOnce: true });
+                } else {
+                    setHistInfoClients({});
+                }
+            }, [histInfoId]);
+
             /* —— SYNC FIREBASE —— */
             useEffect(function() {
-                if (!sessionId) return;
+                if (!sessionId || archivingRef.current) return;
                 (async function() {
                     try {
                         await fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
@@ -376,17 +392,61 @@
                     setSelectedLogos(data.selectedLogos || []); setSessionId(code); setSetupDone(true);
                 } else if (choice === 'new') {
                     try {
-                        await fm.update(fm.ref(rtdb, 'sessions/' + code + '/gameState'), { active: false });
-                        await new Promise(function(r) { setTimeout(r, 200); });
+                        // PASSO 1: marcar inativo PRIMEIRO (sem active:true bleed)
+                        await fm.update(fm.ref(rtdb, 'sessions/' + code + '/gameState'), { active: false, closedAt: Date.now() });
+                        await new Promise(function(r) { setTimeout(r, 500); });
+                        // Obter emails dos clientes
+                        var clientsSnapN = await new Promise(function(r) {
+                            fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients'), r, { onlyOnce: true });
+                        });
+                        var clientsDataN = clientsSnapN.val() || {};
+                        // PASSO 2: guardar no histórico com emails das equipas
                         var hid = Math.random().toString(36).substring(2, 12);
-                        await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), Object.assign({}, data, {
-                            sessionId: code, archived: true, timestamp: Date.now(), gameType: GAME_TYPE
-                        }));
+                        await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), {
+                            gameType: GAME_TYPE, sessionId: code, timestamp: Date.now(),
+                            tables: (data.tables || []).map(function(t) {
+                                var cl = clientsDataN[t.id];
+                                return Object.assign({}, t, { emails: cl ? (cl.emails || []) : (t.emails || []) });
+                            }),
+                            jokerOrder: data.jokerOrder || [],
+                            roundNumber: data.roundNumber || 1, selectedLogos: data.selectedLogos || [],
+                            archived: true
+                        });
+                        // PASSO 3: remover de sessions/
                         await fm.remove(fm.ref(rtdb, 'sessions/' + code));
                         await new Promise(function(r) { setTimeout(r, 200); });
                         await startNewSession(code);
                     } catch(e) { alert('Erro ao arquivar: ' + e.message); }
                 }
+            };
+
+            /* —— ARQUIVAR SESSÃO ATIVA SEM ABRIR (para sessões órfãs na history page) —— */
+            var closeActiveSession = async function(sc) {
+                if (!confirm('Arquivar sessão "' + sc + '"?')) return;
+                try {
+                    var snap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sc + '/gameState'), r, { onlyOnce: true }); });
+                    var sd = snap.val();
+                    if (!sd) { alert('Sessão não encontrada.'); return; }
+                    await fm.update(fm.ref(rtdb, 'sessions/' + sc + '/gameState'), { active: false, closedAt: Date.now() });
+                    await new Promise(function(r) { setTimeout(r, 500); });
+                    // Obter emails dos clientes
+                    var clientsSnapC = await new Promise(function(r) {
+                        fm.onValue(fm.ref(rtdb, 'sessions/' + sc + '/clients'), r, { onlyOnce: true });
+                    });
+                    var clientsDataC = clientsSnapC.val() || {};
+                    var hid = Math.random().toString(36).substring(2, 12);
+                    await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), {
+                        gameType: GAME_TYPE, sessionId: sc, timestamp: Date.now(),
+                        tables: (sd.tables || []).map(function(t) {
+                            var cl = clientsDataC[t.id];
+                            return Object.assign({}, t, { emails: cl ? (cl.emails || []) : (t.emails || []) });
+                        }),
+                        jokerOrder: sd.jokerOrder || [],
+                        roundNumber: sd.roundNumber || 1, selectedLogos: sd.selectedLogos || [],
+                        archived: true
+                    });
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sc));
+                } catch(e) { alert('Erro: ' + e.message); }
             };
 
             /* —— INICIAR RONDA —— */
@@ -436,23 +496,43 @@
             /* —— TERMINAR SESSÃO —— */
             var endSessionArchive = async function() {
                 if (!sessionId) return;
+                // Capturar valores locais antes de qualquer state reset
+                var curId          = sessionId;
+                var curTables      = tables.slice();
+                var curJokerOrder  = jokerOrder.slice();
+                var curRoundNumber = roundNumber;
+                // Bloquear sync effect para evitar active:true bleed durante o arquivo
+                archivingRef.current = true;
                 try {
-                    await fm.update(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), { active: false });
-                    await new Promise(function(r) { setTimeout(r, 200); });
+                    // PASSO 1: marcar inativo PRIMEIRO para clientes detetarem
+                    await fm.update(fm.ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
+                    // Esperar 500ms para clientes processarem (padrão Diamant)
+                    await new Promise(function(r) { setTimeout(r, 500); });
+                    // Obter emails dos clientes do Firebase
+                    var clientsSnap = await new Promise(function(r) {
+                        fm.onValue(fm.ref(rtdb, 'sessions/' + curId + '/clients'), r, { onlyOnce: true });
+                    });
+                    var clientsData = clientsSnap.val() || {};
+                    // PASSO 2: guardar no histórico com emails das equipas
                     var hid = Math.random().toString(36).substring(2, 12);
                     await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), {
-                        gameType: GAME_TYPE, sessionId: sessionId, timestamp: Date.now(),
-                        tables: tables.map(function(t) { return { id: t.id, name: t.name, score: t.score }; }),
-                        jokerOrder: jokerOrder, roundNumber: roundNumber, archived: true
+                        gameType: GAME_TYPE, sessionId: curId, timestamp: Date.now(),
+                        tables: curTables.map(function(t) {
+                            var cl = clientsData[t.id];
+                            return { id: t.id, name: t.name, score: t.score, emails: cl ? (cl.emails || []) : [] };
+                        }),
+                        jokerOrder: curJokerOrder, roundNumber: curRoundNumber, archived: true
                     });
-                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId));
-                    resetToSetup();
+                    // PASSO 3: remover de sessions/
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + curId));
                 } catch(e) { alert('Erro: ' + e.message); }
+                resetToSetup();
             };
 
             var endSessionPause = function() { resetToSetup(); };
 
             var resetToSetup = function() {
+                archivingRef.current = false;
                 setSetupDone(false); setSessionId(null); setTables([]);
                 setPhase('waiting'); setCurrentCat(null); setJokerEndAt(0); setAnswerEndAt(0);
                 setJokerOrder([]); setRoundJokers([]); setSingingTeam(null);
@@ -461,6 +541,7 @@
                 setShowNewRound(false); setShowReview(false); setCheckedAnswers({});
                 setShowLeaderboard(false); setShowQR(false); setShowEndModal(false);
                 setShowManage(false); setCodeInput(''); setCodeError('');
+                setHistInfoClients({});
             };
 
             /* —— REMOVER MESA —— */
@@ -532,7 +613,12 @@
                                                     setShowHistory(false);
                                                 }; }(s.sessionId, s),
                                                 className: 'px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-bold flex-shrink-0'
-                                            }, '▶ Abrir')
+                                            }, '▶ Abrir'),
+                                            h('button', {
+                                                onClick: function(sid) { return function() { closeActiveSession(sid); }; }(s.sessionId),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-slate-700 hover:bg-amber-700 flex-shrink-0 text-sm',
+                                                title: 'Arquivar sem abrir'
+                                            }, '📦')
                                         );
                                     })
                                 )
@@ -581,12 +667,18 @@
                                 : h('div', { className: 'space-y-1.5' },
                                     (infoSession.tables || []).slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
                                         var medal = ['🥇','🥈','🥉'][idx] || '';
-                                        return h('div', { key: t.id, className: 'flex items-center justify-between py-2 px-3 rounded-lg bg-slate-700' },
-                                            h('div', { className: 'flex items-center gap-2' },
-                                                medal && h('span', null, medal),
-                                                h('span', { className: 'font-semibold text-sm text-white' }, t.name || ('Mesa ' + t.id))
+                                        // Emails: de histInfoClients (sessões ativas) ou de t.emails (arquivo)
+                                        var clientData = histInfoClients[t.id];
+                                        var emails = (clientData && clientData.emails) || t.emails || [];
+                                        return h('div', { key: t.id, className: 'py-2 px-3 rounded-lg bg-slate-700' },
+                                            h('div', { className: 'flex items-center justify-between' },
+                                                h('div', { className: 'flex items-center gap-2' },
+                                                    medal && h('span', null, medal),
+                                                    h('span', { className: 'font-semibold text-sm text-white' }, t.name || ('Mesa ' + t.id))
+                                                ),
+                                                h('span', { className: 'font-black text-violet-400' }, t.score + ' pts')
                                             ),
-                                            h('span', { className: 'font-black text-violet-400' }, t.score + ' pts')
+                                            emails.length > 0 && h('div', { className: 'text-xs text-slate-400 mt-0.5 truncate' }, emails.join(', '))
                                         );
                                     })
                                 )
@@ -1057,8 +1149,10 @@
                         }, '⚙️ Mesas'),
                         h('button', {
                             onClick: function() {
-                                if (!confirm('Repor TODAS as pontuações a 0?')) return;
-                                setTables(function(prev) { return prev.map(function(t) { return Object.assign({}, t, { score: 0 }); }); });
+                                if (!confirm('Repor TODAS as pontuações e jokers a 0?')) return;
+                                setTables(function(prev) { return prev.map(function(t) { return Object.assign({}, t, { score: 0, jokerUsed: false }); }); });
+                                setJokerOrder([]); setRoundJokers([]);
+                                if (sessionId) fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function(){});
                             },
                             className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
                         }, '↺ Reset'),
