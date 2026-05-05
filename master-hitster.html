@@ -178,7 +178,10 @@
                     existSnap.forEach(function(d) { dels.push(fm.deleteDoc(d.ref)); });
                     await Promise.all(dels);
                     for (var i = 0; i < cats.length; i++) {
-                        await fm.setDoc(fm.doc(window.db, 'hitsterCategories', cats[i].id), Object.assign({}, cats[i], { order: i }));
+                        var data = Object.assign({}, cats[i], { order: i });
+                        // Firestore rejeita valores undefined — removê-los antes de gravar
+                        Object.keys(data).forEach(function(k) { if (data[k] === undefined) delete data[k]; });
+                        await fm.setDoc(fm.doc(window.db, 'hitsterCategories', cats[i].id), data);
                     }
                 } catch(e) { console.error('Cats save:', e); }
             };
