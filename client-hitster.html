@@ -474,7 +474,7 @@
                         h('div', { className: 'text-center' },
                             h('div', {
                                 className: 'text-3xl font-bold ' + (answerTimer <= 5 ? 'text-red-300 animate-pulse' : 'text-white')
-                            }, timeUp ? '⏱️ Tempo esgotado' : ('⏱️ ' + answerTimer + 's'))
+                            }, answerTimer <= 0 ? '⏱️ Tempo esgotado' : ('⏱️ ' + answerTimer + 's'))
                         ),
 
                     // aguardar
