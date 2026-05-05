@@ -20,15 +20,13 @@
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
         const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
-        window.db = getFirestore(app);
         window.rtdb = getDatabase(app);
-        window.fbModules = { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update };
+        window.fbModules = { ref, set, remove, onValue, update };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -152,37 +150,30 @@
                 }
             }, []);
 
-            /* —— CATEGORIAS FIRESTORE (carregar) —— */
+            /* —— CATEGORIAS RTDB (carregar) —— */
             useEffect(function() {
-                (async function() {
-                    try {
-                        var snap = await fm.getDocs(fm.collection(window.db, 'hitsterCategories'));
-                        if (!snap.empty) {
-                            var cats = [];
-                            snap.forEach(function(d) { cats.push(d.data()); });
-                            cats.sort(function(a,b) { return (a.order||0)-(b.order||0); });
-                            setCategories(cats);
-                        }
-                    } catch(e) { console.error('Cats load:', e); }
+                fm.onValue(fm.ref(rtdb, 'hitsterConfig/categories'), function(snap) {
+                    var data = snap.val();
+                    if (data) {
+                        var cats = Object.values(data)
+                            .sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+                        setCategories(cats);
+                    }
                     catsLoadedRef.current = true;
-                })();
+                }, { onlyOnce: true });
             }, []);
 
-            /* —— CATEGORIAS FIRESTORE (guardar) —— */
-            var saveCategoriesToFirestore = async function(cats) {
+            /* —— CATEGORIAS RTDB (guardar) —— */
+            var saveCategories = async function(cats) {
                 if (!catsLoadedRef.current) return;
                 try {
-                    var col = fm.collection(window.db, 'hitsterCategories');
-                    var existSnap = await fm.getDocs(col);
-                    var dels = [];
-                    existSnap.forEach(function(d) { dels.push(fm.deleteDoc(d.ref)); });
-                    await Promise.all(dels);
-                    for (var i = 0; i < cats.length; i++) {
-                        var data = Object.assign({}, cats[i], { order: i });
-                        // Firestore rejeita valores undefined — removê-los antes de gravar
-                        Object.keys(data).forEach(function(k) { if (data[k] === undefined) delete data[k]; });
-                        await fm.setDoc(fm.doc(window.db, 'hitsterCategories', cats[i].id), data);
-                    }
+                    var data = {};
+                    cats.forEach(function(cat, i) {
+                        var entry = Object.assign({}, cat, { order: i });
+                        Object.keys(entry).forEach(function(k) { if (entry[k] === undefined) delete entry[k]; });
+                        data[cat.id] = entry;
+                    });
+                    await fm.set(fm.ref(rtdb, 'hitsterConfig/categories'), data);
                 } catch(e) { console.error('Cats save:', e); }
             };
 
@@ -735,7 +726,7 @@
                                             onClick: function() {
                                                 var def = window.HitsterGame.DEFAULT_CATEGORIES;
                                                 setCategories(def);
-                                                saveCategoriesToFirestore(def);
+                                                saveCategories(def);
                                                 setCatsSaved(true);
                                                 setTimeout(function() { setCatsSaved(false); }, 2000);
                                             },
@@ -743,7 +734,7 @@
                                         }, '↺ Repor padrão'),
                                         h('button', {
                                             onClick: async function() {
-                                                await saveCategoriesToFirestore(categories);
+                                                await saveCategories(categories);
                                                 setCatsSaved(true);
                                                 setTimeout(function() { setCatsSaved(false); }, 2000);
                                             },
