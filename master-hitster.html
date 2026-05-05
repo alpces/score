@@ -102,7 +102,7 @@
             var answerEndRef  = useRef(0);
             var jokerTimeRef  = useRef(10);
             var answerTimeRef = useRef(25);
-            var catsLoadedRef = useRef(false);
+            var catsLoadedRef = useRef(true); // sempre true — localStorage é síncrono
             var archivingRef  = useRef(false); // previne sync durante arquivo
 
             useEffect(function() { phaseRef.current = phase; }, [phase]);
@@ -150,31 +150,23 @@
                 }
             }, []);
 
-            /* —— CATEGORIAS RTDB (carregar) —— */
+            /* —— CATEGORIAS localStorage (carregar) —— */
             useEffect(function() {
-                fm.onValue(fm.ref(rtdb, 'hitsterConfig/categories'), function(snap) {
-                    var data = snap.val();
-                    if (data) {
-                        var cats = Object.values(data)
-                            .sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
-                        setCategories(cats);
+                try {
+                    var saved = localStorage.getItem('hitsterCategories');
+                    if (saved) {
+                        var cats = JSON.parse(saved);
+                        if (Array.isArray(cats) && cats.length > 0) setCategories(cats);
                     }
-                    catsLoadedRef.current = true;
-                }, { onlyOnce: true });
+                } catch(e) { console.error('Cats load:', e); }
             }, []);
 
-            /* —— CATEGORIAS RTDB (guardar) —— */
-            var saveCategories = async function(cats) {
-                if (!catsLoadedRef.current) return;
+            /* —— CATEGORIAS localStorage (guardar) —— */
+            var saveCategories = function(cats) {
                 try {
-                    var data = {};
-                    cats.forEach(function(cat, i) {
-                        var entry = Object.assign({}, cat, { order: i });
-                        Object.keys(entry).forEach(function(k) { if (entry[k] === undefined) delete entry[k]; });
-                        data[cat.id] = entry;
-                    });
-                    await fm.set(fm.ref(rtdb, 'hitsterConfig/categories'), data);
-                } catch(e) { console.error('Cats save:', e); }
+                    localStorage.setItem('hitsterCategories', JSON.stringify(cats));
+                    return true;
+                } catch(e) { console.error('Cats save:', e); return false; }
             };
 
             /* —— SESSÕES ATIVAS —— */
@@ -733,8 +725,8 @@
                                             className: 'text-xs text-violet-600 hover:text-violet-800 font-semibold'
                                         }, '↺ Repor padrão'),
                                         h('button', {
-                                            onClick: async function() {
-                                                await saveCategories(categories);
+                                            onClick: function() {
+                                                saveCategories(categories);
                                                 setCatsSaved(true);
                                                 setTimeout(function() { setCatsSaved(false); }, 2000);
                                             },
