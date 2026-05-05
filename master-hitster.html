@@ -731,29 +731,41 @@
                                         className: 'text-xs text-violet-600 hover:text-violet-800 font-semibold'
                                     }, '↺ Repor padrão')
                                 ),
-                                h('div', { className: 'space-y-2' },
+                                h('div', { className: 'space-y-3' },
                                     categories.map(function(cat, idx) {
-                                        return h('div', { key: cat.id, className: 'flex gap-2 items-center' },
+                                        return h('div', { key: cat.id, className: 'flex flex-col gap-1' },
+                                            h('div', { className: 'flex gap-2 items-center' },
+                                                h('input', {
+                                                    type: 'text', value: cat.name,
+                                                    onChange: function(e) {
+                                                        var nc = categories.slice();
+                                                        nc[idx] = Object.assign({}, nc[idx], { name: e.target.value });
+                                                        setCategories(nc); saveCategoriesToFirestore(nc);
+                                                    },
+                                                    className: 'flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-semibold focus:border-violet-500 outline-none'
+                                                }),
+                                                h('input', {
+                                                    type: 'number', min: 1, max: 20, value: cat.points,
+                                                    onChange: function(e) {
+                                                        var nc = categories.slice();
+                                                        nc[idx] = Object.assign({}, nc[idx], { points: Math.max(1, parseInt(e.target.value) || 1) });
+                                                        setCategories(nc); saveCategoriesToFirestore(nc);
+                                                    },
+                                                    className: 'w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center font-bold focus:border-violet-500 outline-none'
+                                                }),
+                                                h('span', { className: 'text-xs text-gray-500 w-6' }, 'pts'),
+                                                cat.isTimeline && h('span', { className: 'text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full flex-shrink-0' }, 'Final')
+                                            ),
                                             h('input', {
-                                                type: 'text', value: cat.name,
+                                                type: 'text', value: cat.description || '',
                                                 onChange: function(e) {
                                                     var nc = categories.slice();
-                                                    nc[idx] = Object.assign({}, nc[idx], { name: e.target.value });
+                                                    nc[idx] = Object.assign({}, nc[idx], { description: e.target.value });
                                                     setCategories(nc); saveCategoriesToFirestore(nc);
                                                 },
-                                                className: 'flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:border-violet-500 outline-none'
-                                            }),
-                                            h('input', {
-                                                type: 'number', min: 1, max: 20, value: cat.points,
-                                                onChange: function(e) {
-                                                    var nc = categories.slice();
-                                                    nc[idx] = Object.assign({}, nc[idx], { points: Math.max(1, parseInt(e.target.value) || 1) });
-                                                    setCategories(nc); saveCategoriesToFirestore(nc);
-                                                },
-                                                className: 'w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center font-bold focus:border-violet-500 outline-none'
-                                            }),
-                                            h('span', { className: 'text-xs text-gray-500 w-6' }, 'pts'),
-                                            cat.isTimeline && h('span', { className: 'text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full' }, 'Final')
+                                                placeholder: 'Descrição (aparece no ecrã das equipas)',
+                                                className: 'px-3 py-1 border border-gray-200 rounded-lg text-xs text-gray-500 focus:border-violet-400 outline-none'
+                                            })
                                         );
                                     })
                                 )
