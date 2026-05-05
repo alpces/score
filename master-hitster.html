@@ -96,6 +96,7 @@
             var u9  = _s(false);   var showEndModal = u9[0];       var setShowEndModal = u9[1];
             var u10 = _s(false);   var showManage = u10[0];        var setShowManage = u10[1];
             var u11 = _s(false);   var singToggle = u11[0];        var setSingToggle = u11[1];
+            var u12 = _s(false);   var catsSaved = u12[0];         var setCatsSaved = u12[1];
 
             /* —— REFS —— */
             var phaseRef      = useRef('waiting');
@@ -726,10 +727,26 @@
                             h('div', null,
                                 h('div', { className: 'flex items-center justify-between mb-2' },
                                     h('label', { className: 'block text-sm font-bold text-gray-700' }, '🏷️ Categorias e Pontuações'),
-                                    h('button', {
-                                        onClick: function() { setCategories(window.HitsterGame.DEFAULT_CATEGORIES); saveCategoriesToFirestore(window.HitsterGame.DEFAULT_CATEGORIES); },
-                                        className: 'text-xs text-violet-600 hover:text-violet-800 font-semibold'
-                                    }, '↺ Repor padrão')
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('button', {
+                                            onClick: function() {
+                                                var def = window.HitsterGame.DEFAULT_CATEGORIES;
+                                                setCategories(def);
+                                                saveCategoriesToFirestore(def);
+                                                setCatsSaved(true);
+                                                setTimeout(function() { setCatsSaved(false); }, 2000);
+                                            },
+                                            className: 'text-xs text-violet-600 hover:text-violet-800 font-semibold'
+                                        }, '↺ Repor padrão'),
+                                        h('button', {
+                                            onClick: async function() {
+                                                await saveCategoriesToFirestore(categories);
+                                                setCatsSaved(true);
+                                                setTimeout(function() { setCatsSaved(false); }, 2000);
+                                            },
+                                            className: 'text-xs px-3 py-1 rounded-lg font-bold transition-colors ' + (catsSaved ? 'bg-green-100 text-green-700' : 'bg-violet-600 text-white hover:bg-violet-700')
+                                        }, catsSaved ? '✓ Guardado!' : '💾 Guardar')
+                                    )
                                 ),
                                 h('div', { className: 'space-y-3' },
                                     categories.map(function(cat, idx) {
@@ -740,7 +757,7 @@
                                                     onChange: function(e) {
                                                         var nc = categories.slice();
                                                         nc[idx] = Object.assign({}, nc[idx], { name: e.target.value });
-                                                        setCategories(nc); saveCategoriesToFirestore(nc);
+                                                        setCategories(nc); setCatsSaved(false);
                                                     },
                                                     className: 'flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-semibold focus:border-violet-500 outline-none'
                                                 }),
@@ -749,7 +766,7 @@
                                                     onChange: function(e) {
                                                         var nc = categories.slice();
                                                         nc[idx] = Object.assign({}, nc[idx], { points: Math.max(1, parseInt(e.target.value) || 1) });
-                                                        setCategories(nc); saveCategoriesToFirestore(nc);
+                                                        setCategories(nc); setCatsSaved(false);
                                                     },
                                                     className: 'w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center font-bold focus:border-violet-500 outline-none'
                                                 }),
@@ -761,7 +778,7 @@
                                                 onChange: function(e) {
                                                     var nc = categories.slice();
                                                     nc[idx] = Object.assign({}, nc[idx], { description: e.target.value });
-                                                    setCategories(nc); saveCategoriesToFirestore(nc);
+                                                    setCategories(nc); setCatsSaved(false);
                                                 },
                                                 placeholder: 'Descrição (aparece no ecrã das equipas)',
                                                 className: 'px-3 py-1 border border-gray-200 rounded-lg text-xs text-gray-500 focus:border-violet-400 outline-none'
