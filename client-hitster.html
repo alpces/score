@@ -16,6 +16,8 @@
         html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
         #root { min-height: 100dvh; }
         .min-h-screen { min-height: 100dvh !important; }
+        /* h-screen usa 100dvh para contabilizar a barra do browser no mobile */
+        .h-screen { height: 100dvh !important; }
 
         @keyframes jokerGlow {
             0%, 100% {
@@ -85,6 +87,7 @@
             var timerRef = useRef(null);
             var prevPhaseRef = useRef('waiting');
             var wakeLockRef = useRef(null);
+            var localAnswerEndRef = useRef(0);
 
             // — re-subscrever ao voltar do background —
             useEffect(function() {
@@ -173,24 +176,35 @@
             }, [connected, sessionCode, tableNumber, resubKey]);
 
             // — timers locais derivados de timestamps absolutos —
+            // localAnswerEndRef persiste durante answering→reviewing para que o contador
+            // do cliente nunca desapareça antes de chegar a 0, mesmo com desfasamento de relógio
             useEffect(function() {
                 var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
                 var jEnd = gameData ? (gameData.jokerTimerEndAt || 0) : 0;
                 var aEnd = gameData ? (gameData.answerTimerEndAt || 0) : 0;
 
+                if (phase === 'answering' && aEnd > 0) {
+                    localAnswerEndRef.current = aEnd;
+                } else if (phase === 'waiting' || phase === 'joker_window') {
+                    localAnswerEndRef.current = 0;
+                    setAnswerTimer(0);
+                }
+                // 'reviewing': mantém localAnswerEndRef para o contador terminar naturalmente
+
                 if (timerRef.current) clearInterval(timerRef.current);
 
                 var tick = function() {
                     var now = Date.now();
-                    if (phase === 'joker_window' && jEnd > 0)
+                    if (phase === 'joker_window' && jEnd > 0) {
                         setJokerTimer(Math.max(0, Math.ceil((jEnd - now) / 1000)));
-                    else if (phase === 'answering' && aEnd > 0)
-                        setAnswerTimer(Math.max(0, Math.ceil((aEnd - now) / 1000)));
+                    } else if (localAnswerEndRef.current > 0) {
+                        var rem = Math.max(0, Math.ceil((localAnswerEndRef.current - now) / 1000));
+                        setAnswerTimer(rem);
+                        if (rem === 0) localAnswerEndRef.current = 0;
+                    }
                 };
                 tick();
-
-                if ((phase === 'joker_window' && jEnd > 0) || (phase === 'answering' && aEnd > 0))
-                    timerRef.current = setInterval(tick, 250);
+                timerRef.current = setInterval(tick, 250);
 
                 return function() { if (timerRef.current) clearInterval(timerRef.current); };
             }, [
@@ -291,10 +305,7 @@
             };
 
             var submitText = async function() {
-                if (!textInput.trim() || sending || !gameData) return;
-                if (gameData.phase !== 'answering') return;
-                var aEnd = gameData.answerTimerEndAt || 0;
-                if (aEnd > 0 && Date.now() > aEnd) return;
+                if (!textInput.trim() || sending || answerTimer <= 0) return;
                 setSending(true);
                 try {
                     await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/textResponses/' + tableNumber), {
@@ -326,8 +337,7 @@
             var isTimeline = cat && cat.isTimeline;
             // Joker desativado: se janela fechada, joker já usado, timeline, OU equipa canta
             var jokerEnabled = jokerWindowOpen && !myJokerUsed && !isTimeline && !isSinging;
-            var showInput = phase === 'answering' && !isSinging;
-            var timeUp = answerTimer === 0 && phase === 'answering' && (gameData ? (gameData.answerTimerEndAt || 0) : 0) > 0;
+            var showInput = !isSinging && answerTimer > 0;
             var showCat = cat && (phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
 
             // — sessão perdida —
@@ -456,7 +466,7 @@
                     phase === 'joker_window' &&
                         h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-3xl font-bold animate-pulse' }, '⏱️ ' + jokerTimer + 's'),
-                            h('div', { className: 'text-sm opacity-75' }, allJokersUsed ? 'Prepara a música!' : 'Janela do Joker')
+                            h('div', { className: 'text-sm opacity-75' }, allJokersUsed ? 'A preparar a música...' : 'Tempo para usar o Joker')
                         ),
 
                     // timer resposta
@@ -500,22 +510,20 @@
                                         setTextInput(e.target.value);
                                         if (textSubmitted) setTextSubmitted(false);
                                     },
-                                    disabled: timeUp,
                                     maxLength: 200,
-                                    placeholder: timeUp ? 'Tempo esgotado!' : 'Escreve a tua resposta...',
+                                    placeholder: 'Escreve a tua resposta...',
                                     autoFocus: true,
-                                    className: 'w-full h-24 px-3 py-2 text-base border-2 rounded-lg resize-none focus:outline-none ' +
-                                        (timeUp ? 'border-gray-300 bg-gray-100 cursor-not-allowed' : 'border-violet-400 focus:border-violet-600')
+                                    className: 'w-full h-24 px-3 py-2 text-base border-2 border-violet-400 focus:border-violet-600 rounded-lg resize-none focus:outline-none'
                                 }),
                                 h('div', { className: 'flex justify-between items-center mt-2' },
                                     h('span', { className: 'text-xs text-gray-400' }, textInput.length + '/200'),
                                     h('button', {
                                         onClick: submitText,
-                                        disabled: !textInput.trim() || timeUp || sending,
+                                        disabled: !textInput.trim() || sending,
                                         className: 'px-6 py-2 rounded-lg font-bold text-white text-sm transition-all active:scale-95 ' + (
                                             sending ? 'bg-yellow-500 cursor-wait' :
                                             textSubmitted ? 'bg-green-500' :
-                                            (!textInput.trim() || timeUp) ? 'bg-gray-400 cursor-not-allowed' :
+                                            !textInput.trim() ? 'bg-gray-400 cursor-not-allowed' :
                                             'bg-green-600 hover:bg-green-700 shadow-md'
                                         )
                                     }, sending ? '⏳' : (textSubmitted ? '✓ Enviado' : '📤 Enviar'))
