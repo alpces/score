@@ -102,8 +102,10 @@
             var answerEndRef  = useRef(0);
             var jokerTimeRef  = useRef(10);
             var answerTimeRef = useRef(25);
-            var catsLoadedRef = useRef(true); // sempre true — localStorage é síncrono
-            var archivingRef  = useRef(false); // previne sync durante arquivo
+            var catsLoadedRef     = useRef(true);  // sempre true — localStorage é síncrono
+            var archivingRef      = useRef(false); // previne sync durante arquivo
+            var syncTimerRef      = useRef(null);  // debounce do sync Firebase
+            var jokerProcessedRef = useRef({});    // jokers já processados nesta ronda
 
             useEffect(function() { phaseRef.current = phase; }, [phase]);
             useEffect(function() { jokerEndRef.current = jokerEndAt; }, [jokerEndAt]);
@@ -169,8 +171,9 @@
                 } catch(e) { console.error('Cats save:', e); return false; }
             };
 
-            /* —— SESSÕES ATIVAS —— */
+            /* —— SESSÕES ATIVAS (só no setup, desliga durante o jogo) —— */
             useEffect(function() {
+                if (setupDone) return;
                 var unsub = fm.onValue(fm.ref(rtdb, 'sessions'), function(snap) {
                     var data = snap.val();
                     if (data) {
@@ -184,7 +187,7 @@
                     } else setActiveSessions([]);
                 });
                 return function() { unsub(); };
-            }, []);
+            }, [setupDone]);
 
             /* —— HISTÓRICO —— */
             useEffect(function() {
@@ -216,27 +219,27 @@
                 }
             }, [histInfoId]);
 
-            /* —— SYNC FIREBASE —— */
+            /* —— SYNC FIREBASE (debounced 200ms para colapsar rajadas de writes) —— */
             useEffect(function() {
                 if (!sessionId || archivingRef.current) return;
-                (async function() {
-                    try {
-                        await fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
-                            gameType: GAME_TYPE, active: true, timestamp: Date.now(),
-                            phase: phase, currentCategory: currentCat,
-                            jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt,
-                            jokerOrder: jokerOrder, roundJokers: roundJokers,
-                            singingTeamId: singingTeam ? singingTeam.id : null,
-                            showScores: showScores, tablesLocked: tablesLocked,
-                            roundNumber: roundNumber,
-                            allJokersUsed: tables.length > 0 && tables.every(function(t) { return t.jokerUsed; }),
-                            tables: tables.map(function(t) {
-                                return { id: t.id, name: t.name, score: t.score, jokerUsed: t.jokerUsed || false };
-                            }),
-                            selectedLogos: selectedLogos
-                        });
-                    } catch(e) { console.error('Sync:', e); }
-                })();
+                if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+                syncTimerRef.current = setTimeout(function() {
+                    fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
+                        gameType: GAME_TYPE, active: true, timestamp: Date.now(),
+                        phase: phase, currentCategory: currentCat,
+                        jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt,
+                        jokerOrder: jokerOrder, roundJokers: roundJokers,
+                        singingTeamId: singingTeam ? singingTeam.id : null,
+                        showScores: showScores, tablesLocked: tablesLocked,
+                        roundNumber: roundNumber,
+                        allJokersUsed: tables.length > 0 && tables.every(function(t) { return t.jokerUsed; }),
+                        tables: tables.map(function(t) {
+                            return { id: t.id, name: t.name, score: t.score, jokerUsed: t.jokerUsed || false };
+                        }),
+                        selectedLogos: selectedLogos
+                    }).catch(function(e) { console.error('Sync:', e); });
+                }, 200);
+                return function() { clearTimeout(syncTimerRef.current); };
             }, [sessionId, phase, currentCat, jokerEndAt, answerEndAt, jokerOrder, roundJokers,
                 singingTeam, showScores, tablesLocked, roundNumber, tables, selectedLogos]);
 
@@ -250,14 +253,14 @@
                         var merged = prev.slice();
                         Object.values(data).forEach(function(client) {
                             var id = client.tableNumber;
-                            var existing = merged.find(function(t) { return t.id === id; });
-                            if (!existing) {
+                            var idx = merged.findIndex(function(t) { return t.id === id; });
+                            if (idx < 0) {
                                 merged.push({ id: id, name: client.teamName || ('Mesa ' + id), score: 0, jokerUsed: false });
                             } else if (client.teamName && client.teamName !== ('Mesa ' + id)) {
-                                existing.name = client.teamName;
+                                merged[idx] = Object.assign({}, merged[idx], { name: client.teamName });
                             }
                         });
-                        return merged.slice().sort(function(a,b) { return a.id - b.id; });
+                        return merged.sort(function(a,b) { return a.id - b.id; });
                     });
                 });
                 return function() { unsub(); };
@@ -272,29 +275,35 @@
                 return function() { unsub(); };
             }, [sessionId]);
 
-            /* —— LISTENER: JOKERS —— */
+            /* —— LISTENER: JOKERS (dedup por ronda — processa só jokers novos em batch) —— */
             useEffect(function() {
                 if (!sessionId) return;
                 var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers'), function(snap) {
                     var data = snap.val() || {};
                     setJokerPresses(data);
                     if (phaseRef.current !== 'joker_window') return;
+                    var newIds = [];
                     Object.keys(data).forEach(function(key) {
-                        var tableId = parseInt(key);
+                        if (jokerProcessedRef.current[key]) return;
                         var entry = data[key];
                         if (!entry || !entry.activated) return;
-                        setJokerOrder(function(prev) {
-                            if (prev.indexOf(tableId) >= 0) return prev;
-                            return prev.concat([tableId]);
-                        });
-                        setRoundJokers(function(prev) {
-                            if (prev.indexOf(tableId) >= 0) return prev;
-                            return prev.concat([tableId]);
-                        });
-                        setTables(function(prev) {
-                            return prev.map(function(t) {
-                                return t.id === tableId ? Object.assign({}, t, { jokerUsed: true }) : t;
-                            });
+                        jokerProcessedRef.current[key] = true;
+                        newIds.push(parseInt(key));
+                    });
+                    if (newIds.length === 0) return;
+                    setJokerOrder(function(prev) {
+                        var next = prev.slice();
+                        newIds.forEach(function(id) { if (next.indexOf(id) < 0) next.push(id); });
+                        return next;
+                    });
+                    setRoundJokers(function(prev) {
+                        var next = prev.slice();
+                        newIds.forEach(function(id) { if (next.indexOf(id) < 0) next.push(id); });
+                        return next;
+                    });
+                    setTables(function(prev) {
+                        return prev.map(function(t) {
+                            return newIds.indexOf(t.id) >= 0 ? Object.assign({}, t, { jokerUsed: true }) : t;
                         });
                     });
                 });
@@ -413,6 +422,7 @@
             /* —— INICIAR RONDA —— */
             var startRound = function(cat, singing) {
                 setShowNewRound(false); setSingToggle(false);
+                jokerProcessedRef.current = {};
                 var allUsed = tables.length > 0 && tables.every(function(t) { return t.jokerUsed; });
                 var jTime = allUsed ? window.HitsterGame.JOKER_PREP_SECONDS : jokerTime;
                 var now = Date.now(), jEnd = now + jTime * 1000;
