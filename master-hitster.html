@@ -875,7 +875,7 @@
                                                 var sid = parseInt(e.target.value);
                                                 setSelectedSinger(tiedAtLast.find(function(t) { return t.id === sid; }) || null);
                                             },
-                                            className: 'w-full px-2 py-1.5 border-2 border-amber-300 rounded-lg text-sm font-bold focus:border-violet-500 outline-none bg-white'
+                                            className: 'w-full px-2 py-1.5 border-2 border-amber-300 rounded-lg text-sm font-bold focus:border-violet-500 outline-none bg-white text-gray-800'
                                         },
                                             tiedAtLast.map(function(t) {
                                                 return h('option', { key: t.id, value: t.id },
