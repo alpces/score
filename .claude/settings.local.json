@@ -3,7 +3,8 @@
     "allow": [
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git commit -m 'fix\\(hitster\\): dropdown option text color \\(text-gray-800 on select\\) *)"
     ]
   }
 }
