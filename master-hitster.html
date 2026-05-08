@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hitster - Master</title>
+    <title>Mega Hitster - Master</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Configuração Firebase e módulo Hitster partilhados -->
     <script src="shared/firebase-config.js"></script>
@@ -95,6 +95,7 @@
             var u10 = _s(false);   var showManage = u10[0];        var setShowManage = u10[1];
             var u11 = _s(false);   var singToggle = u11[0];        var setSingToggle = u11[1];
             var u12 = _s(false);   var catsSaved = u12[0];         var setCatsSaved = u12[1];
+            var u13 = _s(null);    var selectedSinger = u13[0];    var setSelectedSinger = u13[1];
 
             /* —— REFS —— */
             var phaseRef      = useRef('waiting');
@@ -551,7 +552,7 @@
                         h('div', { className: 'flex items-center gap-3' },
                             h('div', { className: 'text-2xl' }, '🎵'),
                             h('div', null,
-                                h('div', { className: 'text-lg font-black' }, 'Hitster'),
+                                h('div', { className: 'text-lg font-black' }, 'Mega Hitster'),
                                 h('div', { className: 'text-xs text-violet-300' }, 'Gestão de Sessões')
                             )
                         ),
@@ -667,7 +668,7 @@
                     h('div', { className: 'max-w-3xl mx-auto' },
                         h('div', { className: 'text-center py-6' },
                             h('div', { className: 'text-5xl mb-2' }, '🎵'),
-                            h('h1', { className: 'text-3xl font-black text-white' }, 'Hitster'),
+                            h('h1', { className: 'text-3xl font-black text-white' }, 'Mega Hitster'),
                             h('p', { className: 'text-violet-300 mt-1' }, 'Configuração da Sessão')
                         ),
                         activeSessions.length > 0 && h('div', { className: 'bg-white bg-opacity-10 rounded-2xl p-4 mb-4' },
@@ -835,32 +836,83 @@
             /* ===================== ECRÃ DE JOGO ===================== */
 
             var NewRoundModal = function() {
-                var lp = lastPlace, canSing = !!lp && tables.length > 1;
+                // Todas as equipas empatadas no mínimo
+                var minScore = tables.length > 0 ? Math.min.apply(null, tables.map(function(t) { return t.score; })) : 0;
+                var tiedAtLast = tables.filter(function(t) { return t.score === minScore; });
+                // Verifica se alguma das empatadas usou joker (desempate claro)
+                var jokerWinner = null;
+                for (var ji = 0; ji < jokerOrder.length; ji++) {
+                    var jid = jokerOrder[ji];
+                    jokerWinner = tiedAtLast.find(function(t) { return t.id === jid; }) || null;
+                    if (jokerWinner) break;
+                }
+                // lp = último lugar inequívoco; ambiguous = empate sem joker a desempatar
+                var lp = tiedAtLast.length === 1 ? tiedAtLast[0] : jokerWinner;
+                var ambiguous = !lp && tiedAtLast.length > 1;
+                var canSing = tables.length > 1 && (!!lp || ambiguous);
+                // Equipa cantora efectiva
+                var effectiveSinger = singToggle ? (ambiguous ? (selectedSinger || tiedAtLast[0]) : lp) : null;
+
                 return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function(e) { if (e.target === e.currentTarget) setShowNewRound(false); } },
                     h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 w-full max-w-lg slide-in max-h-[90vh] overflow-y-auto' },
                         h('div', { className: 'flex justify-between items-center mb-4' },
                             h('h2', { className: 'text-xl font-black text-gray-800' }, '🎵 Ronda #' + roundNumber),
                             h('button', { onClick: function() { setShowNewRound(false); }, className: 'w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full text-xl' }, '✕')
                         ),
-                        lp && h('div', { className: 'bg-amber-50 border-2 border-amber-300 rounded-xl p-3 mb-4' },
-                            h('div', { className: 'flex items-center justify-between' },
-                                h('div', null,
-                                    h('div', { className: 'text-xs text-amber-600 font-semibold' }, '🔻 Equipa em último lugar'),
-                                    h('div', { className: 'font-black text-gray-800' }, lp.name || ('Mesa ' + lp.id)),
-                                    h('div', { className: 'text-sm text-gray-500' }, lp.score + ' pontos')
-                                ),
-                                canSing && h('div', { className: 'flex items-center gap-2' },
-                                    h('label', { className: 'text-sm font-bold text-gray-700' }, '🎤 Canta?'),
-                                    h('input', { type: 'checkbox', checked: singToggle, onChange: function(e) { setSingToggle(e.target.checked); }, className: 'w-5 h-5 accent-violet-600' })
-                                )
-                            )
+
+                        // — Último lugar —
+                        (lp || ambiguous) && h('div', { className: 'bg-amber-50 border-2 border-amber-300 rounded-xl p-3 mb-4' },
+                            ambiguous
+                                // Empate sem desempate → lista de equipas + dropdown ao cantar
+                                ? h('div', null,
+                                    h('div', { className: 'text-xs text-amber-600 font-semibold mb-2' }, '🔻 Empatadas em último lugar'),
+                                    h('div', { className: 'space-y-1 mb-3' },
+                                        tiedAtLast.map(function(t) {
+                                            return h('div', { key: t.id, className: 'text-sm font-bold text-gray-800' },
+                                                'Mesa ' + t.id + ' — ' + (t.name || ('Mesa ' + t.id)) +
+                                                (showScores ? (' · ' + t.score + ' pts') : '')
+                                            );
+                                        })
+                                    ),
+                                    canSing && h('div', { className: 'flex items-center gap-2 flex-wrap' },
+                                        h('label', { className: 'text-sm font-bold text-gray-700' }, '🎤 Canta?'),
+                                        h('input', { type: 'checkbox', checked: singToggle, onChange: function(e) { setSingToggle(e.target.checked); }, className: 'w-5 h-5 accent-violet-600' }),
+                                        singToggle && h('select', {
+                                            value: (selectedSinger || tiedAtLast[0]).id,
+                                            onChange: function(e) {
+                                                var sid = parseInt(e.target.value);
+                                                setSelectedSinger(tiedAtLast.find(function(t) { return t.id === sid; }) || null);
+                                            },
+                                            className: 'flex-1 min-w-0 px-2 py-1 border-2 border-amber-300 rounded-lg text-sm font-bold focus:border-violet-500 outline-none bg-white'
+                                        },
+                                            tiedAtLast.map(function(t) {
+                                                return h('option', { key: t.id, value: t.id },
+                                                    'Mesa ' + t.id + ' — ' + (t.name || ('Mesa ' + t.id))
+                                                );
+                                            })
+                                        )
+                                    )
+                                  )
+                                // Último lugar inequívoco → comportamento anterior
+                                : h('div', { className: 'flex items-center justify-between' },
+                                    h('div', null,
+                                        h('div', { className: 'text-xs text-amber-600 font-semibold' }, '🔻 Equipa em último lugar'),
+                                        h('div', { className: 'font-black text-gray-800' }, lp.name || ('Mesa ' + lp.id)),
+                                        showScores && h('div', { className: 'text-sm text-gray-500' }, lp.score + ' pontos')
+                                    ),
+                                    canSing && h('div', { className: 'flex items-center gap-2' },
+                                        h('label', { className: 'text-sm font-bold text-gray-700' }, '🎤 Canta?'),
+                                        h('input', { type: 'checkbox', checked: singToggle, onChange: function(e) { setSingToggle(e.target.checked); }, className: 'w-5 h-5 accent-violet-600' })
+                                    )
+                                  )
                         ),
+
                         h('p', { className: 'text-sm text-gray-500 mb-3 font-semibold' }, 'Escolhe a categoria:'),
                         h('div', { className: 'grid grid-cols-2 gap-3' },
                             categories.map(function(cat) {
                                 return h('button', {
                                     key: cat.id,
-                                    onClick: function() { startRound(cat, singToggle ? lp : null); },
+                                    onClick: function() { startRound(cat, effectiveSinger); },
                                     className: 'text-left p-3 rounded-xl border-2 border-gray-200 hover:border-violet-400 hover:bg-violet-50 transition-all active:scale-95 ' + (cat.isTimeline ? 'border-purple-300 bg-purple-50' : '')
                                 },
                                     h('div', { className: 'font-black text-gray-800 text-sm' }, cat.name),
@@ -967,7 +1019,7 @@
 
                 /* —— HEADER —— */
                 h('div', { className: 'bg-violet-900 px-4 py-2 flex items-center gap-3 flex-shrink-0 shadow-xl relative' },
-                    h('div', { className: 'text-lg font-black' }, '🎵 Hitster'),
+                    h('div', { className: 'text-lg font-black' }, '🎵 Mega Hitster'),
                     h('div', { className: 'flex items-center gap-2 bg-violet-800 rounded-lg px-3 py-1' },
                         h('span', { className: 'text-xs opacity-60' }, 'Sessão'),
                         h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId),
@@ -1092,7 +1144,7 @@
                             lastPlace
                                 ? h('div', null,
                                     h('div', { className: 'font-black text-white text-sm' }, lastPlace.name || ('Mesa ' + lastPlace.id)),
-                                    h('div', { className: 'text-lg font-black text-amber-400' }, lastPlace.score + ' pts')
+                                    showScores && h('div', { className: 'text-lg font-black text-amber-400' }, lastPlace.score + ' pts')
                                   )
                                 : h('div', { className: 'text-slate-500 text-xs italic' }, 'Sem mesas')
                         ),
@@ -1131,7 +1183,7 @@
                 /* —— BARRA INFERIOR —— */
                 h('div', { className: 'bg-slate-800 border-t border-slate-700 px-4 py-3 flex items-center gap-3 flex-shrink-0 flex-wrap' },
                     phase === 'waiting' && h('button', {
-                        onClick: function() { setShowNewRound(true); },
+                        onClick: function() { setShowNewRound(true); setSelectedSinger(null); },
                         className: 'px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
                     }, '🎵 Nova Ronda #' + roundNumber),
                     (phase === 'joker_window' || phase === 'answering') && h('button', {
