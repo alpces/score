@@ -467,7 +467,6 @@
             var allTables = gameData ? (gameData.tables || []) : [];
             var myTable = allTables.find(function(t) { return t.id === tableId; });
             var myScore = myTable ? myTable.score : 0;
-            var showScores = gameData ? (gameData.showScores !== false) : true;
             var selLogos = gameData ? (gameData.selectedLogos || []) : [];
             var mainLogo = selLogos.length > 0 ? selLogos[0] : null;
             var secLogos = selLogos.slice(1);

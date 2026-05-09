@@ -92,7 +92,6 @@
             /* —— UI —— */
             var u1  = _s({});      var connectedClients = u1[0];   var setConnectedClients = u1[1];
             var u2  = _s({});      var textResponses = u2[0];      var setTextResponses = u2[1];
-            var u3  = _s({});      var jokerPresses = u3[0];       var setJokerPresses = u3[1];
             var u4  = _s(false);   var showNewRound = u4[0];       var setShowNewRound = u4[1];
             var u5  = _s(false);   var showReview = u5[0];         var setShowReview = u5[1];
             var u6  = _s({});      var checkedAnswers = u6[0];     var setCheckedAnswers = u6[1];
@@ -111,17 +110,15 @@
             var phaseRef      = useRef('waiting');
             var jokerEndRef   = useRef(0);
             var answerEndRef  = useRef(0);
-            var jokerTimeRef  = useRef(10);
             var answerTimeRef = useRef(25);
-            var catsLoadedRef     = useRef(true);  // sempre true — localStorage é síncrono
             var archivingRef      = useRef(false); // previne sync durante arquivo
             var syncTimerRef      = useRef(null);  // debounce do sync Firebase
             var jokerProcessedRef = useRef({});    // jokers já processados nesta ronda
+            var lastSeenMapRef    = useRef({});    // { tableId: timestamp } actualizado em cada heartbeat sem state
 
             useEffect(function() { phaseRef.current = phase; }, [phase]);
             useEffect(function() { jokerEndRef.current = jokerEndAt; }, [jokerEndAt]);
             useEffect(function() { answerEndRef.current = answerEndAt; }, [answerEndAt]);
-            useEffect(function() { jokerTimeRef.current = jokerTime; }, [jokerTime]);
             useEffect(function() { answerTimeRef.current = answerTime; }, [answerTime]);
 
             /* —— TIMER —— */
@@ -293,7 +290,26 @@
                 if (!sessionId) return;
                 var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
                     var data = snap.val() || {};
-                    setConnectedClients(data);
+
+                    // Actualizar lastSeen num ref (sem causar re-render) — lido pelo presenceTick
+                    var lsMap = {};
+                    Object.values(data).forEach(function(c) {
+                        if (c.tableNumber) lsMap[c.tableNumber] = c.lastSeen || c.connectedAt || 0;
+                    });
+                    lastSeenMapRef.current = lsMap;
+
+                    // Só actualizar estado quando algo estrutural mudou (nova mesa, nome, desconexão)
+                    setConnectedClients(function(prev) {
+                        var prevKeys = Object.keys(prev).sort().join(',');
+                        var newKeys  = Object.keys(data).sort().join(',');
+                        if (prevKeys !== newKeys) return data;
+                        var structChanged = Object.keys(data).some(function(k) {
+                            var p = prev[k], n = data[k];
+                            return !p || p.teamName !== n.teamName || p.tableNumber !== n.tableNumber || p.connectedAt !== n.connectedAt;
+                        });
+                        return structChanged ? data : prev;
+                    });
+
                     setTables(function(prev) {
                         var merged = prev.slice();
                         var changed = false;
@@ -308,7 +324,6 @@
                                 changed = true;
                             }
                         });
-                        // devolver prev quando nada mudou evita re-render + Firebase sync desnecessários
                         return changed ? merged.sort(function(a,b) { return a.id - b.id; }) : prev;
                     });
                 });
@@ -329,7 +344,6 @@
                 if (!sessionId) return;
                 var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers'), function(snap) {
                     var data = snap.val() || {};
-                    setJokerPresses(data);
                     if (phaseRef.current !== 'joker_window') return;
                     var newIds = [];
                     Object.keys(data).forEach(function(key) {
@@ -565,7 +579,7 @@
                 setPhase('waiting'); setCurrentCat(null); setJokerEndAt(0); setAnswerEndAt(0);
                 setJokerOrder([]); setRoundJokers([]); setSingingTeam(null);
                 setShowScores(true); setTablesLocked(false); setRoundNumber(1);
-                setTextResponses({}); setJokerPresses({}); setConnectedClients({});
+                setTextResponses({}); setConnectedClients({});
                 setShowNewRound(false); setShowReview(false); setCheckedAnswers({});
                 setShowLeaderboard(false); setShowQR(false); setShowEndModal(false);
                 setShowManage(false); setCodeInput(''); setCodeError('');
@@ -1219,7 +1233,7 @@
                                     var isSinging = singingTeam && singingTeam.id === table.id;
                                     // Estado da conexão baseado em lastSeen — heartbeat de 15s no cliente.
                                     // <30s = online, 30-60s = ausente, >60s = offline (sem mensagem há muito).
-                                    var lastSeen = client && client.lastSeen ? client.lastSeen : (client ? client.connectedAt : 0);
+                                    var lastSeen = lastSeenMapRef.current[table.id] || 0;
                                     var sinceSeen = lastSeen ? (Date.now() - lastSeen) : Infinity;
                                     var connState = !client ? 'gone' : (sinceSeen < 30000 ? 'online' : (sinceSeen < 60000 ? 'idle' : 'offline'));
                                     return h('div', {
@@ -1459,7 +1473,7 @@
                     )
                 ),
 
-                showNewRound && h(NewRoundModal, null),
+                showNewRound && NewRoundModal(),
                 showReview && ReviewModal()
             );
         }
