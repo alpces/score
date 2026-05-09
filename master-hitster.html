@@ -296,16 +296,20 @@
                     setConnectedClients(data);
                     setTables(function(prev) {
                         var merged = prev.slice();
+                        var changed = false;
                         Object.values(data).forEach(function(client) {
                             var id = client.tableNumber;
                             var idx = merged.findIndex(function(t) { return t.id === id; });
                             if (idx < 0) {
                                 merged.push({ id: id, name: client.teamName || ('Mesa ' + id), score: 0, jokerUsed: false });
-                            } else if (client.teamName && client.teamName !== ('Mesa ' + id)) {
+                                changed = true;
+                            } else if (client.teamName && client.teamName !== merged[idx].name) {
                                 merged[idx] = Object.assign({}, merged[idx], { name: client.teamName });
+                                changed = true;
                             }
                         });
-                        return merged.sort(function(a,b) { return a.id - b.id; });
+                        // devolver prev quando nada mudou evita re-render + Firebase sync desnecessários
+                        return changed ? merged.sort(function(a,b) { return a.id - b.id; }) : prev;
                     });
                 });
                 return function() { unsub(); };
