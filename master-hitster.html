@@ -38,11 +38,11 @@
     var CLIENT_URL = window.AppConfig.CLIENT_HITSTER_URL;
     var GAME_TYPE  = window.HitsterGame.id;
 
-    var DEFAULT_RULES_CONFIG = {
-        phases:  'Tens uns segundos para decidir se usas o joker antes de ouvir a música.\nEscreve e envia a tua resposta antes do tempo acabar.\nO anfitrião valida as respostas e atribui pontos.',
-        joker:   'Duplica os pontos que ganhas nessa ronda\nCada equipa só tem um joker para todo o jogo\nNão pode ser usado em Timeline Duel\nA equipa cantora não pode usar joker',
-        cantora: 'A equipa em último lugar canta a próxima música\nNão precisa de responder\nGanha pontos por cada equipa que acerte (máximo 3)'
-    };
+    var DEFAULT_RULES_CONFIG = [
+        { id: 'phases',  title: 'Fases de cada Ronda', content: '🃏 Janela do Joker — tens uns segundos para decidir se usas o joker\n✍️ A Responder — escreve e envia a tua resposta antes do tempo acabar\n✅ Em Revisão — o anfitrião valida as respostas e atribui pontos' },
+        { id: 'joker',   title: '🃏 O Joker',           content: 'Duplica os pontos que ganhas nessa ronda\nCada equipa só tem um joker para todo o jogo\nNão pode ser usado em Timeline Duel\nA equipa cantora não pode usar joker' },
+        { id: 'cantora', title: '🎤 A Cantora',          content: 'A equipa em último lugar canta a próxima música\nNão precisa de responder\nGanha pontos por cada equipa que acerte (máximo 3)' }
+    ];
 
     window.addEventListener('firebaseReady', function() {
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
@@ -188,13 +188,21 @@
                 } catch(e) { console.error('Cats save:', e); return false; }
             };
 
-            /* —— REGRAS localStorage (carregar) —— */
+            /* —— REGRAS localStorage (carregar, com migração do formato antigo) —— */
             useEffect(function() {
                 try {
                     var saved = localStorage.getItem('hitsterRules');
                     if (saved) {
                         var r = JSON.parse(saved);
-                        if (r && typeof r === 'object') setRulesConfig(Object.assign({}, DEFAULT_RULES_CONFIG, r));
+                        if (Array.isArray(r) && r.length > 0) {
+                            setRulesConfig(r);
+                        } else if (r && typeof r === 'object') {
+                            setRulesConfig([
+                                { id: 'phases',  title: 'Fases de cada Ronda', content: r.phases  || '' },
+                                { id: 'joker',   title: '🃏 O Joker',           content: r.joker   || '' },
+                                { id: 'cantora', title: '🎤 A Cantora',          content: r.cantora || '' }
+                            ]);
+                        }
                     }
                 } catch(e) {}
             }, []);
@@ -270,12 +278,15 @@
                             return { id: t.id, name: t.name, score: t.score, jokerUsed: t.jokerUsed || false };
                         }),
                         selectedLogos: selectedLogos,
-                        rulesConfig: rulesConfig
+                        rulesConfig: rulesConfig,
+                        categories: categories.map(function(c) {
+                            return { id: c.id, name: c.name, description: c.description || '', points: c.points, isTimeline: c.isTimeline || false };
+                        })
                     }).catch(function(e) { console.error('Sync:', e); });
                 }, 200);
                 return function() { clearTimeout(syncTimerRef.current); };
             }, [sessionId, phase, currentCat, jokerEndAt, answerEndAt, jokerOrder, roundJokers,
-                singingTeam, showScores, tablesLocked, roundNumber, tables, selectedLogos, rulesConfig]);
+                singingTeam, showScores, tablesLocked, roundNumber, tables, selectedLogos, rulesConfig, categories]);
 
             /* —— LISTENER: CLIENTES —— */
             useEffect(function() {
@@ -375,7 +386,10 @@
                             jokerOrder: [], roundJokers: [], singingTeamId: null,
                             showScores: true, tablesLocked: false, roundNumber: 1,
                             tables: [], selectedLogos: selectedLogos,
-                            rulesConfig: rulesConfig
+                            rulesConfig: rulesConfig,
+                            categories: categories.map(function(c) {
+                                return { id: c.id, name: c.name, description: c.description || '', points: c.points, isTimeline: c.isTimeline || false };
+                            })
                         });
                     } catch(e) { console.error('Init:', e); }
                 }, 100);
@@ -395,7 +409,7 @@
                     setSingingTeam(null); setShowScores(data.showScores !== false);
                     setTablesLocked(data.tablesLocked || false); setRoundNumber(data.roundNumber || 1);
                     setSelectedLogos(data.selectedLogos || []);
-                    if (data.rulesConfig) setRulesConfig(Object.assign({}, DEFAULT_RULES_CONFIG, data.rulesConfig));
+                    if (Array.isArray(data.rulesConfig) && data.rulesConfig.length > 0) setRulesConfig(data.rulesConfig);
                     setSessionId(code); setSetupDone(true);
                 } else if (choice === 'new') {
                     try {
@@ -850,36 +864,54 @@
                                     )
                                 ),
                                 showRulesEdit && h('div', { className: 'space-y-3 border border-gray-200 rounded-xl p-4 bg-gray-50' },
-                                    // Fases
-                                    h('div', null,
-                                        h('div', { className: 'text-xs font-bold text-violet-600 uppercase tracking-wide mb-1' }, '🎮 Fases (1 descrição por linha — joker, resposta, revisão)'),
-                                        h('textarea', {
-                                            value: rulesConfig.phases,
-                                            rows: 3,
-                                            onChange: function(e) { setRulesConfig(function(r) { return Object.assign({}, r, { phases: e.target.value }); }); setRulesSaved(false); },
-                                            className: 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:border-violet-500 outline-none resize-none font-mono'
-                                        })
-                                    ),
-                                    // Joker
-                                    h('div', null,
-                                        h('div', { className: 'text-xs font-bold text-yellow-600 uppercase tracking-wide mb-1' }, '🃏 Regras do Joker (1 regra por linha)'),
-                                        h('textarea', {
-                                            value: rulesConfig.joker,
-                                            rows: 4,
-                                            onChange: function(e) { setRulesConfig(function(r) { return Object.assign({}, r, { joker: e.target.value }); }); setRulesSaved(false); },
-                                            className: 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:border-violet-500 outline-none resize-none font-mono'
-                                        })
-                                    ),
-                                    // Cantora
-                                    h('div', null,
-                                        h('div', { className: 'text-xs font-bold text-purple-600 uppercase tracking-wide mb-1' }, '🎤 Regras da Cantora (1 regra por linha)'),
-                                        h('textarea', {
-                                            value: rulesConfig.cantora,
-                                            rows: 3,
-                                            onChange: function(e) { setRulesConfig(function(r) { return Object.assign({}, r, { cantora: e.target.value }); }); setRulesSaved(false); },
-                                            className: 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:border-violet-500 outline-none resize-none font-mono'
-                                        })
-                                    ),
+                                    // blocos editáveis dinamicamente
+                                    rulesConfig.map(function(block, idx) {
+                                        return h('div', { key: block.id || idx, className: 'bg-white border border-gray-200 rounded-xl p-3 space-y-2' },
+                                            h('div', { className: 'flex items-center gap-2' },
+                                                h('input', {
+                                                    type: 'text',
+                                                    value: block.title,
+                                                    placeholder: 'Título do bloco',
+                                                    onChange: function(e) {
+                                                        var v = e.target.value;
+                                                        setRulesConfig(function(r) {
+                                                            var n = r.slice(); n[idx] = Object.assign({}, n[idx], { title: v }); return n;
+                                                        }); setRulesSaved(false);
+                                                    },
+                                                    className: 'flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-bold text-gray-800 focus:border-violet-500 outline-none'
+                                                }),
+                                                h('button', {
+                                                    onClick: function() {
+                                                        setRulesConfig(function(r) { return r.filter(function(_, i) { return i !== idx; }); });
+                                                        setRulesSaved(false);
+                                                    },
+                                                    className: 'w-8 h-8 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 flex-shrink-0 text-base',
+                                                    title: 'Remover bloco'
+                                                }, '🗑️')
+                                            ),
+                                            h('textarea', {
+                                                value: block.content,
+                                                rows: 3,
+                                                placeholder: '1 item por linha (cada linha torna-se um ponto • no cliente)',
+                                                onChange: function(e) {
+                                                    var v = e.target.value;
+                                                    setRulesConfig(function(r) {
+                                                        var n = r.slice(); n[idx] = Object.assign({}, n[idx], { content: v }); return n;
+                                                    }); setRulesSaved(false);
+                                                },
+                                                className: 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 focus:border-violet-500 outline-none resize-none font-mono'
+                                            })
+                                        );
+                                    }),
+                                    // botão adicionar bloco
+                                    h('button', {
+                                        onClick: function() {
+                                            setRulesConfig(function(r) {
+                                                return r.concat([{ id: 'block_' + Date.now(), title: 'Novo Bloco', content: '' }]);
+                                            }); setRulesSaved(false);
+                                        },
+                                        className: 'w-full py-2 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-violet-400 hover:text-violet-600 font-semibold transition-colors'
+                                    }, '+ Adicionar Bloco'),
                                     h('button', {
                                         onClick: function() {
                                             saveRules(rulesConfig);
