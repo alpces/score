@@ -37,13 +37,13 @@
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getDatabase, ref, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+        import { getDatabase, ref, onValue, set, remove, get, update, goOffline, goOnline } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
         const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
         window.rtdb = getDatabase(app);
-        window.fbModules = { ref, onValue, set, remove };
+        window.fbModules = { ref, onValue, set, remove, get, update, goOffline, goOnline };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -56,11 +56,24 @@
         var rtdb = window.rtdb, fm = window.fbModules;
 
         var EXPIRY_MS = 12 * 60 * 60 * 1000;
+        var HEARTBEAT_MS = 15000;
 
         var clearLocal = function() {
             ['hitster_session','hitster_table','hitster_team','hitster_emails','hitster_ts']
                 .forEach(function(k) { localStorage.removeItem(k); });
         };
+
+        // clientId persistente — único por dispositivo/instalação. Permite detetar colisões
+        // de mesa e validar que respostas vêm do dispositivo certo.
+        var getClientId = function() {
+            var id = localStorage.getItem('hitster_clientId');
+            if (!id) {
+                id = 'c_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+                localStorage.setItem('hitster_clientId', id);
+            }
+            return id;
+        };
+        var CLIENT_ID = getClientId();
 
         function App() {
             var _s = function(v) { return useState(v); };
@@ -83,21 +96,88 @@
             var g5 = _s(0);      var jokerTimer = g5[0];      var setJokerTimer = g5[1];
             var g6 = _s(0);      var answerTimer = g6[0];     var setAnswerTimer = g6[1];
             var g7 = _s(0);      var resubKey = g7[0];        var setResubKey = g7[1];
+            var g8 = _s(true);   var fbConnected = g8[0];     var setFbConnected = g8[1];
+            var g9 = _s('');     var submitError = g9[0];     var setSubmitError = g9[1];
 
             var timerRef = useRef(null);
             var prevPhaseRef = useRef('waiting');
             var wakeLockRef = useRef(null);
             var localAnswerEndRef = useRef(0);
+            var sessionCodeRef = useRef('');
+            var tableNumberRef = useRef('');
+            var connectedRef = useRef(false);
+            useEffect(function() { sessionCodeRef.current = sessionCode; }, [sessionCode]);
+            useEffect(function() { tableNumberRef.current = tableNumber; }, [tableNumber]);
+            useEffect(function() { connectedRef.current = connected; }, [connected]);
 
-            // — re-subscrever ao voltar do background —
+            // — força um get() do gameState e atualiza estado local. Garante que mesmo
+            //   que o listener onValue não dispare após reconexão, o cliente recebe a
+            //   última fase do master. —
+            var forceRefreshGameState = function() {
+                var sc = sessionCodeRef.current, tn = tableNumberRef.current;
+                if (!connectedRef.current || !sc) return;
+                fm.get(fm.ref(rtdb, 'sessions/' + sc + '/gameState')).then(function(snap) {
+                    var data = snap.val();
+                    if (!data) return;
+                    if (data.active === false) {
+                        setSessionLost(true); setConnected(false); setGameData(null); clearLocal();
+                    } else {
+                        setGameData(data);
+                    }
+                }).catch(function() {});
+                if (tn) {
+                    fm.update(fm.ref(rtdb, 'sessions/' + sc + '/clients/' + tn), {
+                        lastSeen: Date.now()
+                    }).catch(function() {});
+                }
+            };
+
+            // — re-subscrever + forçar fetch ao voltar do background —
             useEffect(function() {
                 var fn = function() {
-                    if (document.visibilityState === 'visible')
+                    if (document.visibilityState === 'visible') {
                         setResubKey(function(k) { return k + 1; });
+                        // Acordar o WebSocket explicitamente — em iOS Safari pode estar morto
+                        try { fm.goOnline(rtdb); } catch(e) {}
+                        // get() puxa o estado mais recente do servidor mesmo que o
+                        // listener não dispare por o snapshot cached "parecer igual"
+                        forceRefreshGameState();
+                    }
                 };
                 document.addEventListener('visibilitychange', fn);
-                return function() { document.removeEventListener('visibilitychange', fn); };
+                window.addEventListener('focus', fn);
+                window.addEventListener('pageshow', fn);
+                window.addEventListener('online', fn);
+                return function() {
+                    document.removeEventListener('visibilitychange', fn);
+                    window.removeEventListener('focus', fn);
+                    window.removeEventListener('pageshow', fn);
+                    window.removeEventListener('online', fn);
+                };
             }, []);
+
+            // — estado de conexão Firebase. Quando reconecta, força refresh do gameState. —
+            useEffect(function() {
+                var unsub = fm.onValue(fm.ref(rtdb, '.info/connected'), function(snap) {
+                    var ok = !!snap.val();
+                    setFbConnected(ok);
+                    if (ok) forceRefreshGameState();
+                });
+                return function() { unsub(); };
+            }, []);
+
+            // — heartbeat: marca lastSeen no Firebase para o master saber que estamos vivos. —
+            useEffect(function() {
+                if (!connected || !sessionCode || !tableNumber) return;
+                var beat = function() {
+                    fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber), {
+                        lastSeen: Date.now()
+                    }).catch(function() {});
+                };
+                beat();
+                var iv = setInterval(beat, HEARTBEAT_MS);
+                return function() { clearInterval(iv); };
+            }, [connected, sessionCode, tableNumber]);
 
             // — wake lock: manter ecrã ligado enquanto conectado —
             useEffect(function() {
@@ -219,6 +299,7 @@
                 if (prevPhaseRef.current !== 'answering' && newPhase === 'answering') {
                     setTextInput('');
                     setTextSubmitted(false);
+                    setSubmitError('');
                 }
                 prevPhaseRef.current = newPhase;
             }, [gameData ? gameData.phase : null]);
@@ -253,11 +334,24 @@
                         }
                     }
 
-                    if (!isAuto) {
-                        var cSnap = await new Promise(function(r) {
-                            fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), r, { onlyOnce: true });
-                        });
-                        if (cSnap.val()) {
+                    // Verificar se a mesa já está ocupada por outro dispositivo
+                    var cSnap = await new Promise(function(r) {
+                        fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), r, { onlyOnce: true });
+                    });
+                    var existing = cSnap.val();
+                    if (existing) {
+                        if (existing.clientId && existing.clientId !== CLIENT_ID) {
+                            // Mesa pertence a outro dispositivo
+                            if (isAuto) {
+                                clearLocal();
+                                setConnError('Outro dispositivo está agora a usar a Mesa ' + table + '. Inicia sessão de novo.');
+                            } else {
+                                setConnError('A Mesa ' + table + ' já está conectada noutro dispositivo! Escolhe outro número.');
+                            }
+                            setAutoRecon(false); return;
+                        }
+                        if (!isAuto && !existing.clientId) {
+                            // Cliente legacy sem clientId — manter o comportamento antigo (bloqueia entrada manual)
                             setConnError('A Mesa ' + table + ' já está conectada! Escolhe outro número.');
                             setAutoRecon(false); return;
                         }
@@ -267,7 +361,9 @@
                         tableNumber: table,
                         teamName: teamName.trim() || ('Mesa ' + table),
                         emails: emails.trim() ? emails.split(',').map(function(e) { return e.trim(); }) : [],
-                        connectedAt: Date.now()
+                        connectedAt: Date.now(),
+                        lastSeen: Date.now(),
+                        clientId: CLIENT_ID
                     });
 
                     localStorage.setItem('hitster_session', code);
@@ -290,6 +386,15 @@
                 setConnected(false); setGameData(null); setTextInput(''); setTextSubmitted(false);
             };
 
+            // Helper: corre uma promise com timeout — evita ficar pendurado se o WebSocket
+            // estiver morto e o SDK não falhar nem resolver.
+            var withTimeout = function(promise, ms) {
+                return Promise.race([
+                    promise,
+                    new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms); })
+                ]);
+            };
+
             var pressJoker = async function() {
                 if (!sessionCode || !tableNumber || !gameData) return;
                 var tableId = parseInt(tableNumber);
@@ -297,23 +402,51 @@
                 if (jokerOrder.indexOf(tableId) >= 0) return;
                 if (gameData.phase !== 'joker_window') return;
                 if (gameData.currentCategory && gameData.currentCategory.isTimeline) return;
-                try {
-                    await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/histerJokers/' + tableNumber), {
-                        activated: true, timestamp: Date.now()
-                    });
-                } catch(e) { console.error('Joker:', e); }
+                // Tenta 2x antes de desistir — protege contra falhas momentâneas de rede
+                for (var attempt = 0; attempt < 2; attempt++) {
+                    try {
+                        await withTimeout(fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/histerJokers/' + tableNumber), {
+                            activated: true, timestamp: Date.now(), clientId: CLIENT_ID
+                        }), 5000);
+                        return;
+                    } catch(e) {
+                        if (attempt === 1) console.error('Joker falhou após retry:', e);
+                    }
+                }
             };
 
             var submitText = async function() {
                 if (!textInput.trim() || sending || answerTimer <= 0) return;
                 setSending(true);
-                try {
-                    await fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/textResponses/' + tableNumber), {
-                        text: textInput.trim(), timestamp: Date.now()
-                    });
-                    setTextSubmitted(true);
-                    setTimeout(function() { setSending(false); }, 500);
-                } catch(e) { setSending(false); }
+                setSubmitError('');
+                var payload = { text: textInput.trim(), timestamp: Date.now(), clientId: CLIENT_ID };
+                var path = 'sessions/' + sessionCode + '/textResponses/' + tableNumber;
+                // Tenta até 3x com timeout — assegura que a resposta chega ao servidor
+                // ou que o utilizador é claramente avisado da falha.
+                var lastErr = null;
+                for (var attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        await withTimeout(fm.set(fm.ref(rtdb, path), payload), 6000);
+                        // Verify-after-write: confirma que o servidor tem a resposta
+                        var snap = await withTimeout(fm.get(fm.ref(rtdb, path)), 5000);
+                        var v = snap.val();
+                        if (v && v.clientId === CLIENT_ID && v.text === payload.text) {
+                            setTextSubmitted(true);
+                            setSubmitError('');
+                            setTimeout(function() { setSending(false); }, 500);
+                            return;
+                        }
+                        lastErr = new Error('verify_mismatch');
+                    } catch(e) {
+                        lastErr = e;
+                    }
+                    // pequeno backoff antes de retentar
+                    await new Promise(function(r) { setTimeout(r, 400); });
+                }
+                console.error('Submit falhou:', lastErr);
+                setSubmitError('Falha ao enviar. Verifica a ligação e tenta novamente.');
+                setSending(false);
+                setTextSubmitted(false);
             };
 
             // — dados derivados —
@@ -426,6 +559,11 @@
             // — jogo —
             return h('div', { className: 'h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex flex-col overflow-hidden' },
 
+                // banner offline
+                !fbConnected && h('div', {
+                    className: 'absolute top-0 inset-x-0 bg-red-600 text-white text-xs text-center py-1 z-50 font-bold animate-pulse'
+                }, '⚠️ Sem ligação — a tentar reconectar...'),
+
                 // header
                 h('div', { className: 'relative z-10 bg-white bg-opacity-10 backdrop-blur-sm px-4 py-2 flex items-center justify-between flex-shrink-0' },
                     h('div', { className: 'text-white' },
@@ -509,12 +647,17 @@
                                     onChange: function(e) {
                                         setTextInput(e.target.value);
                                         if (textSubmitted) setTextSubmitted(false);
+                                        if (submitError) setSubmitError('');
                                     },
                                     maxLength: 200,
                                     placeholder: 'Escreve a tua resposta...',
                                     autoFocus: true,
                                     className: 'w-full h-24 px-3 py-2 text-base border-2 border-violet-400 focus:border-violet-600 rounded-lg resize-none focus:outline-none'
                                 }),
+                                submitError && h('div', { className: 'mt-2 px-3 py-2 bg-red-100 border border-red-400 text-red-700 text-xs rounded-lg font-semibold flex items-center gap-2' },
+                                    h('span', null, '⚠️'),
+                                    h('span', { className: 'flex-1' }, submitError)
+                                ),
                                 h('div', { className: 'flex justify-between items-center mt-2' },
                                     h('span', { className: 'text-xs text-gray-400' }, textInput.length + '/200'),
                                     h('button', {
@@ -523,10 +666,11 @@
                                         className: 'px-6 py-2 rounded-lg font-bold text-white text-sm transition-all active:scale-95 ' + (
                                             sending ? 'bg-yellow-500 cursor-wait' :
                                             textSubmitted ? 'bg-green-500' :
+                                            submitError ? 'bg-red-600 hover:bg-red-700 shadow-md' :
                                             !textInput.trim() ? 'bg-gray-400 cursor-not-allowed' :
                                             'bg-green-600 hover:bg-green-700 shadow-md'
                                         )
-                                    }, sending ? '⏳' : (textSubmitted ? '✓ Enviado' : '📤 Enviar'))
+                                    }, sending ? '⏳ A enviar...' : (textSubmitted ? '✓ Enviado' : (submitError ? '🔄 Tentar de novo' : '📤 Enviar')))
                                 )
                             )
                         ),
