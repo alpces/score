@@ -742,71 +742,68 @@
                         ),
 
                         // fases do jogo
-                        h('div', { className: 'bg-white bg-opacity-5 rounded-2xl p-4 mb-3' },
-                            h('div', { className: 'text-xs font-black uppercase tracking-widest text-violet-400 mb-3' }, 'Fases de cada Ronda'),
-                            h('div', { className: 'space-y-3' },
-                                h('div', { className: 'flex gap-3 items-start' },
-                                    h('span', { className: 'text-xl flex-shrink-0' }, '🃏'),
-                                    h('div', null,
-                                        h('div', { className: 'text-white font-bold text-sm' }, 'Janela do Joker'),
-                                        h('div', { className: 'text-slate-400 text-xs mt-0.5' }, 'Tens uns segundos para decidir se usas o joker antes de ouvir a música.')
+                        (function() {
+                            var rc = (gameData && gameData.rulesConfig) || {};
+                            var defaultPhases = 'Tens uns segundos para decidir se usas o joker antes de ouvir a música.\nEscreve e envia a tua resposta antes do tempo acabar.\nO anfitrião valida as respostas e atribui pontos.';
+                            var defaultJoker = 'Duplica os pontos que ganhas nessa ronda\nCada equipa só tem um joker para todo o jogo\nNão pode ser usado em Timeline Duel\nA equipa cantora não pode usar joker';
+                            var defaultCantora = 'A equipa em último lugar canta a próxima música\nNão precisa de responder\nGanha pontos por cada equipa que acerte (máximo 3)';
+                            var phaseLines = (rc.phases || defaultPhases).split('\n');
+                            var jokerLines = (rc.joker || defaultJoker).split('\n');
+                            var cantoraLines = (rc.cantora || defaultCantora).split('\n');
+                            var phaseItems = [
+                                { icon: '🃏', title: 'Janela do Joker', desc: phaseLines[0] || '' },
+                                { icon: '✍️', title: 'A Responder',     desc: phaseLines[1] || '' },
+                                { icon: '✅', title: 'Em Revisão',       desc: phaseLines[2] || '' }
+                            ];
+                            return [
+                                h('div', { className: 'bg-white bg-opacity-5 rounded-2xl p-4 mb-3', key: 'phases' },
+                                    h('div', { className: 'text-xs font-black uppercase tracking-widest text-violet-400 mb-3' }, 'Fases de cada Ronda'),
+                                    h('div', { className: 'space-y-3' },
+                                        phaseItems.map(function(item) {
+                                            return h('div', { key: item.title, className: 'flex gap-3 items-start' },
+                                                h('span', { className: 'text-xl flex-shrink-0' }, item.icon),
+                                                h('div', null,
+                                                    h('div', { className: 'text-white font-bold text-sm' }, item.title),
+                                                    item.desc && h('div', { className: 'text-slate-400 text-xs mt-0.5' }, item.desc)
+                                                )
+                                            );
+                                        })
                                     )
                                 ),
-                                h('div', { className: 'flex gap-3 items-start' },
-                                    h('span', { className: 'text-xl flex-shrink-0' }, '✍️'),
-                                    h('div', null,
-                                        h('div', { className: 'text-white font-bold text-sm' }, 'A Responder'),
-                                        h('div', { className: 'text-slate-400 text-xs mt-0.5' }, 'Escreve e envia a tua resposta antes do tempo acabar.')
+                                h('div', { className: 'bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-30 rounded-2xl p-4 mb-3', key: 'joker' },
+                                    h('div', { className: 'text-xs font-black uppercase tracking-widest text-yellow-400 mb-2' }, '🃏 O Joker'),
+                                    h('div', { className: 'space-y-1.5 text-sm text-slate-300' },
+                                        jokerLines.filter(function(l) { return l.trim(); }).map(function(line, i) {
+                                            return h('div', { key: i }, '• ' + line.trim());
+                                        })
                                     )
                                 ),
-                                h('div', { className: 'flex gap-3 items-start' },
-                                    h('span', { className: 'text-xl flex-shrink-0' }, '✅'),
-                                    h('div', null,
-                                        h('div', { className: 'text-white font-bold text-sm' }, 'Em Revisão'),
-                                        h('div', { className: 'text-slate-400 text-xs mt-0.5' }, 'O anfitrião valida as respostas e atribui pontos.')
+                                h('div', { className: 'bg-purple-500 bg-opacity-10 border border-purple-500 border-opacity-30 rounded-2xl p-4 mb-3', key: 'cantora' },
+                                    h('div', { className: 'text-xs font-black uppercase tracking-widest text-purple-400 mb-2' }, '🎤 A Cantora'),
+                                    h('div', { className: 'space-y-1.5 text-sm text-slate-300' },
+                                        cantoraLines.filter(function(l) { return l.trim(); }).map(function(line, i) {
+                                            return h('div', { key: i }, '• ' + line.trim());
+                                        })
+                                    )
+                                ),
+                                h('div', { className: 'bg-white bg-opacity-5 rounded-2xl p-4', key: 'cats' },
+                                    h('div', { className: 'text-xs font-black uppercase tracking-widest text-slate-400 mb-3' }, 'Categorias e Pontos'),
+                                    h('div', { className: 'space-y-2' },
+                                        window.HitsterGame.DEFAULT_CATEGORIES.map(function(cat) {
+                                            return h('div', { key: cat.id, className: 'flex items-center justify-between gap-3' },
+                                                h('div', { className: 'flex-1 min-w-0' },
+                                                    h('div', { className: 'text-white text-sm font-bold' }, cat.name),
+                                                    h('div', { className: 'text-slate-400 text-xs' }, cat.description)
+                                                ),
+                                                h('div', { className: 'flex-shrink-0 bg-violet-600 text-white text-xs font-black px-2.5 py-1 rounded-full' },
+                                                    cat.points + (cat.points === 1 ? ' pt' : ' pts')
+                                                )
+                                            );
+                                        })
                                     )
                                 )
-                            )
-                        ),
-
-                        // joker
-                        h('div', { className: 'bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-30 rounded-2xl p-4 mb-3' },
-                            h('div', { className: 'text-xs font-black uppercase tracking-widest text-yellow-400 mb-2' }, '🃏 O Joker'),
-                            h('div', { className: 'space-y-1.5 text-sm text-slate-300' },
-                                h('div', null, '• Duplica os pontos que ganhas nessa ronda'),
-                                h('div', null, '• Cada equipa só tem um joker para todo o jogo'),
-                                h('div', null, '• Não pode ser usado em Timeline Duel'),
-                                h('div', null, '• A equipa cantora não pode usar joker')
-                            )
-                        ),
-
-                        // cantora
-                        h('div', { className: 'bg-purple-500 bg-opacity-10 border border-purple-500 border-opacity-30 rounded-2xl p-4 mb-3' },
-                            h('div', { className: 'text-xs font-black uppercase tracking-widest text-purple-400 mb-2' }, '🎤 A Cantora'),
-                            h('div', { className: 'space-y-1.5 text-sm text-slate-300' },
-                                h('div', null, '• A equipa em último lugar canta a próxima música'),
-                                h('div', null, '• Não precisa de responder'),
-                                h('div', null, '• Ganha pontos por cada equipa que acerte (máximo 3)')
-                            )
-                        ),
-
-                        // categorias
-                        h('div', { className: 'bg-white bg-opacity-5 rounded-2xl p-4' },
-                            h('div', { className: 'text-xs font-black uppercase tracking-widest text-slate-400 mb-3' }, 'Categorias e Pontos'),
-                            h('div', { className: 'space-y-2' },
-                                window.HitsterGame.DEFAULT_CATEGORIES.map(function(cat) {
-                                    return h('div', { key: cat.id, className: 'flex items-center justify-between gap-3' },
-                                        h('div', { className: 'flex-1 min-w-0' },
-                                            h('div', { className: 'text-white text-sm font-bold' }, cat.name),
-                                            h('div', { className: 'text-slate-400 text-xs' }, cat.description)
-                                        ),
-                                        h('div', { className: 'flex-shrink-0 bg-violet-600 text-white text-xs font-black px-2.5 py-1 rounded-full' },
-                                            cat.points + (cat.points === 1 ? ' pt' : ' pts')
-                                        )
-                                    );
-                                })
-                            )
-                        )
+                            ];
+                        })()
                     )
                 ),
 

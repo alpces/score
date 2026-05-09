@@ -38,6 +38,12 @@
     var CLIENT_URL = window.AppConfig.CLIENT_HITSTER_URL;
     var GAME_TYPE  = window.HitsterGame.id;
 
+    var DEFAULT_RULES_CONFIG = {
+        phases:  'Tens uns segundos para decidir se usas o joker antes de ouvir a música.\nEscreve e envia a tua resposta antes do tempo acabar.\nO anfitrião valida as respostas e atribui pontos.',
+        joker:   'Duplica os pontos que ganhas nessa ronda\nCada equipa só tem um joker para todo o jogo\nNão pode ser usado em Timeline Duel\nA equipa cantora não pode usar joker',
+        cantora: 'A equipa em último lugar canta a próxima música\nNão precisa de responder\nGanha pontos por cada equipa que acerte (máximo 3)'
+    };
+
     window.addEventListener('firebaseReady', function() {
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
@@ -97,6 +103,9 @@
             var u11 = _s(false);   var singToggle = u11[0];        var setSingToggle = u11[1];
             var u12 = _s(false);   var catsSaved = u12[0];         var setCatsSaved = u12[1];
             var u13 = _s(null);    var selectedSinger = u13[0];    var setSelectedSinger = u13[1];
+            var u14 = _s(DEFAULT_RULES_CONFIG); var rulesConfig = u14[0]; var setRulesConfig = u14[1];
+            var u15 = _s(false);   var showRulesEdit = u15[0];     var setShowRulesEdit = u15[1];
+            var u16 = _s(false);   var rulesSaved = u16[0];        var setRulesSaved = u16[1];
 
             /* —— REFS —— */
             var phaseRef      = useRef('waiting');
@@ -179,6 +188,22 @@
                 } catch(e) { console.error('Cats save:', e); return false; }
             };
 
+            /* —— REGRAS localStorage (carregar) —— */
+            useEffect(function() {
+                try {
+                    var saved = localStorage.getItem('hitsterRules');
+                    if (saved) {
+                        var r = JSON.parse(saved);
+                        if (r && typeof r === 'object') setRulesConfig(Object.assign({}, DEFAULT_RULES_CONFIG, r));
+                    }
+                } catch(e) {}
+            }, []);
+
+            /* —— REGRAS localStorage (guardar) —— */
+            var saveRules = function(r) {
+                try { localStorage.setItem('hitsterRules', JSON.stringify(r)); return true; } catch(e) { return false; }
+            };
+
             /* —— SESSÕES ATIVAS (só no setup, desliga durante o jogo) —— */
             useEffect(function() {
                 if (setupDone) return;
@@ -244,12 +269,13 @@
                         tables: tables.map(function(t) {
                             return { id: t.id, name: t.name, score: t.score, jokerUsed: t.jokerUsed || false };
                         }),
-                        selectedLogos: selectedLogos
+                        selectedLogos: selectedLogos,
+                        rulesConfig: rulesConfig
                     }).catch(function(e) { console.error('Sync:', e); });
                 }, 200);
                 return function() { clearTimeout(syncTimerRef.current); };
             }, [sessionId, phase, currentCat, jokerEndAt, answerEndAt, jokerOrder, roundJokers,
-                singingTeam, showScores, tablesLocked, roundNumber, tables, selectedLogos]);
+                singingTeam, showScores, tablesLocked, roundNumber, tables, selectedLogos, rulesConfig]);
 
             /* —— LISTENER: CLIENTES —— */
             useEffect(function() {
@@ -348,7 +374,8 @@
                             jokerTimerEndAt: 0, answerTimerEndAt: 0,
                             jokerOrder: [], roundJokers: [], singingTeamId: null,
                             showScores: true, tablesLocked: false, roundNumber: 1,
-                            tables: [], selectedLogos: selectedLogos
+                            tables: [], selectedLogos: selectedLogos,
+                            rulesConfig: rulesConfig
                         });
                     } catch(e) { console.error('Init:', e); }
                 }, 100);
@@ -367,7 +394,9 @@
                     setJokerOrder(data.jokerOrder || []); setRoundJokers(data.roundJokers || []);
                     setSingingTeam(null); setShowScores(data.showScores !== false);
                     setTablesLocked(data.tablesLocked || false); setRoundNumber(data.roundNumber || 1);
-                    setSelectedLogos(data.selectedLogos || []); setSessionId(code); setSetupDone(true);
+                    setSelectedLogos(data.selectedLogos || []);
+                    if (data.rulesConfig) setRulesConfig(Object.assign({}, DEFAULT_RULES_CONFIG, data.rulesConfig));
+                    setSessionId(code); setSetupDone(true);
                 } else if (choice === 'new') {
                     try {
                         // PASSO 1: marcar inativo PRIMEIRO (sem active:true bleed)
@@ -799,6 +828,66 @@
                                             })
                                         );
                                     })
+                                )
+                            ),
+                            h('div', null,
+                                h('div', { className: 'flex items-center justify-between mb-2' },
+                                    h('label', { className: 'block text-sm font-bold text-gray-700' }, '📋 Regras (visíveis no cliente)'),
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('button', {
+                                            onClick: function() {
+                                                setRulesConfig(DEFAULT_RULES_CONFIG);
+                                                saveRules(DEFAULT_RULES_CONFIG);
+                                                setRulesSaved(true);
+                                                setTimeout(function() { setRulesSaved(false); }, 2000);
+                                            },
+                                            className: 'text-xs text-violet-600 hover:text-violet-800 font-semibold'
+                                        }, '↺ Repor padrão'),
+                                        h('button', {
+                                            onClick: function() { setShowRulesEdit(function(v) { return !v; }); },
+                                            className: 'text-xs px-3 py-1 rounded-lg font-bold bg-violet-100 text-violet-700 hover:bg-violet-200'
+                                        }, showRulesEdit ? '▲ Fechar' : '✏️ Editar')
+                                    )
+                                ),
+                                showRulesEdit && h('div', { className: 'space-y-3 border border-gray-200 rounded-xl p-4 bg-gray-50' },
+                                    // Fases
+                                    h('div', null,
+                                        h('div', { className: 'text-xs font-bold text-violet-600 uppercase tracking-wide mb-1' }, '🎮 Fases (1 descrição por linha — joker, resposta, revisão)'),
+                                        h('textarea', {
+                                            value: rulesConfig.phases,
+                                            rows: 3,
+                                            onChange: function(e) { setRulesConfig(function(r) { return Object.assign({}, r, { phases: e.target.value }); }); setRulesSaved(false); },
+                                            className: 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:border-violet-500 outline-none resize-none font-mono'
+                                        })
+                                    ),
+                                    // Joker
+                                    h('div', null,
+                                        h('div', { className: 'text-xs font-bold text-yellow-600 uppercase tracking-wide mb-1' }, '🃏 Regras do Joker (1 regra por linha)'),
+                                        h('textarea', {
+                                            value: rulesConfig.joker,
+                                            rows: 4,
+                                            onChange: function(e) { setRulesConfig(function(r) { return Object.assign({}, r, { joker: e.target.value }); }); setRulesSaved(false); },
+                                            className: 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:border-violet-500 outline-none resize-none font-mono'
+                                        })
+                                    ),
+                                    // Cantora
+                                    h('div', null,
+                                        h('div', { className: 'text-xs font-bold text-purple-600 uppercase tracking-wide mb-1' }, '🎤 Regras da Cantora (1 regra por linha)'),
+                                        h('textarea', {
+                                            value: rulesConfig.cantora,
+                                            rows: 3,
+                                            onChange: function(e) { setRulesConfig(function(r) { return Object.assign({}, r, { cantora: e.target.value }); }); setRulesSaved(false); },
+                                            className: 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:border-violet-500 outline-none resize-none font-mono'
+                                        })
+                                    ),
+                                    h('button', {
+                                        onClick: function() {
+                                            saveRules(rulesConfig);
+                                            setRulesSaved(true);
+                                            setTimeout(function() { setRulesSaved(false); }, 2000);
+                                        },
+                                        className: 'w-full py-2 rounded-lg font-bold text-sm transition-colors ' + (rulesSaved ? 'bg-green-100 text-green-700' : 'bg-violet-600 text-white hover:bg-violet-700')
+                                    }, rulesSaved ? '✓ Guardado!' : '💾 Guardar Regras')
                                 )
                             ),
                             availableLogos.length > 0 && h('div', null,
