@@ -89,7 +89,6 @@
 
             var timerRef = useRef(null);
             var prevPhaseRef = useRef('waiting');
-            var wakeLockRef = useRef(null);
             var localAnswerEndRef = useRef(0);
 
             // — Conexão à sessão: gameState, clients/<n>, .info/connected, heartbeat,
@@ -116,21 +115,8 @@
             // — wake lock: manter ecrã ligado enquanto conectado —
             useEffect(function() {
                 if (!connected) return;
-                var acquire = async function() {
-                    try {
-                        if ('wakeLock' in navigator)
-                            wakeLockRef.current = await navigator.wakeLock.request('screen');
-                    } catch(e) {}
-                };
-                acquire();
-                var onVisible = function() {
-                    if (document.visibilityState === 'visible') acquire();
-                };
-                document.addEventListener('visibilitychange', onVisible);
-                return function() {
-                    document.removeEventListener('visibilitychange', onVisible);
-                    if (wakeLockRef.current) { wakeLockRef.current.release().catch(function(){}); wakeLockRef.current = null; }
-                };
+                var lock = ClientCore.attachWakeLock();
+                return function() { lock.release(); };
             }, [connected]);
 
             // — restaurar sessão local —
@@ -218,73 +204,21 @@
                 prevPhaseRef.current = newPhase;
             }, [gameData ? gameData.phase : null]);
 
-            // — conexão —
+            // — conexão (delegada ao ClientCore.joinSession) —
             var handleConnect = async function(isAuto) {
-                var code = sessionCode.trim().toUpperCase();
-                var table = parseInt(tableNumber);
-                if (!code || !table || table < 1) {
-                    setConnError('Código e número de mesa são obrigatórios');
-                    setAutoRecon(false); return;
-                }
-                if (!isAuto && !teamName.trim()) {
-                    setConnError('O nome da equipa é obrigatório'); return;
-                }
-                try {
-                    var gsSnap = await new Promise(function(r) {
-                        fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/gameState'), r, { onlyOnce: true });
-                    });
-                    var gs = gsSnap.val();
-                    if (!gs) { setConnError('Sessão "' + code + '" não encontrada.'); setAutoRecon(false); return; }
-                    if (gs.active === false) { setConnError('Sessão "' + code + '" já não está ativa.'); setAutoRecon(false); return; }
-                    if (gs.gameType && gs.gameType !== 'hitster') { setConnError('Esta sessão pertence a outro jogo. Usa a aplicação correta.'); setAutoRecon(false); return; }
-
-                    if (gs.tablesLocked && !isAuto) {
-                        var exSnap = await new Promise(function(r) {
-                            fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), r, { onlyOnce: true });
-                        });
-                        if (!exSnap.val()) {
-                            setConnError('Novas entradas estão bloqueadas pelo anfitrião.');
-                            setAutoRecon(false); return;
-                        }
-                    }
-
-                    // Verificar se a mesa já está ocupada por outro dispositivo
-                    var cSnap = await new Promise(function(r) {
-                        fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), r, { onlyOnce: true });
-                    });
-                    var existing = cSnap.val();
-                    if (existing) {
-                        if (existing.clientId && existing.clientId !== CLIENT_ID) {
-                            // Mesa pertence a outro dispositivo
-                            if (isAuto) {
-                                clearLocal();
-                                setConnError('Outro dispositivo está agora a usar a Mesa ' + table + '. Inicia sessão de novo.');
-                            } else {
-                                setConnError('A Mesa ' + table + ' já está conectada noutro dispositivo! Escolhe outro número.');
-                            }
-                            setAutoRecon(false); return;
-                        }
-                        if (!isAuto && !existing.clientId) {
-                            // Cliente legacy sem clientId — manter o comportamento antigo (bloqueia entrada manual)
-                            setConnError('A Mesa ' + table + ' já está conectada! Escolhe outro número.');
-                            setAutoRecon(false); return;
-                        }
-                    }
-
-                    await fm.set(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), {
-                        tableNumber: table,
-                        teamName: teamName.trim() || ('Mesa ' + table),
-                        emails: emails.trim() ? emails.split(',').map(function(e) { return e.trim(); }) : [],
-                        connectedAt: Date.now(),
-                        lastSeen: Date.now(),
-                        clientId: CLIENT_ID
-                    });
-
-                    localStore.save({ session: code, table: table, team: teamName, emails: emails });
-
+                var result = await ClientCore.joinSession({
+                    rtdb: rtdb, fm: fm,
+                    sessionCode: sessionCode, tableNumber: tableNumber,
+                    teamName: teamName, emails: emails,
+                    clientId: CLIENT_ID, gameType: 'hitster',
+                    isAuto: isAuto
+                });
+                if (result.ok) {
+                    localStore.save({ session: result.code, table: result.table, team: teamName, emails: emails });
                     setConnected(true); setAutoRecon(false); setConnError(''); setSessionLost(false);
-                } catch(e) {
-                    setConnError('Erro ao conectar. Tenta novamente.');
+                } else {
+                    if (result.clearLocal) clearLocal();
+                    setConnError(result.error || 'Erro ao conectar.');
                     setAutoRecon(false);
                 }
             };
@@ -323,34 +257,24 @@
                 setSending(true);
                 setSubmitError('');
                 var payload = { text: textInput.trim(), timestamp: Date.now(), clientId: CLIENT_ID };
-                var path = 'sessions/' + sessionCode + '/textResponses/' + tableNumber;
-                // Tenta até 3x com timeout — assegura que a resposta chega ao servidor
-                // ou que o utilizador é claramente avisado da falha.
-                var lastErr = null;
-                for (var attempt = 0; attempt < 3; attempt++) {
-                    try {
-                        await withTimeout(fm.set(fm.ref(rtdb, path), payload), 6000);
-                        // Verify-after-write: confirma que o servidor tem a resposta
-                        var snap = await withTimeout(fm.get(fm.ref(rtdb, path)), 5000);
-                        var v = snap.val();
-                        if (v && v.clientId === CLIENT_ID && v.text === payload.text) {
-                            setTextSubmitted(true);
-                            setLastSubmitted(payload.text);
-                            setSubmitError('');
-                            setTimeout(function() { setSending(false); }, 500);
-                            return;
-                        }
-                        lastErr = new Error('verify_mismatch');
-                    } catch(e) {
-                        lastErr = e;
-                    }
-                    // pequeno backoff antes de retentar
-                    await new Promise(function(r) { setTimeout(r, 400); });
+                var result = await ClientCore.submitWithVerify({
+                    rtdb: rtdb, fm: fm,
+                    path: 'sessions/' + sessionCode + '/textResponses/' + tableNumber,
+                    payload: payload,
+                    clientId: CLIENT_ID,
+                    verifyKey: 'text'
+                });
+                if (result.ok) {
+                    setTextSubmitted(true);
+                    setLastSubmitted(payload.text);
+                    setSubmitError('');
+                    setTimeout(function() { setSending(false); }, 500);
+                } else {
+                    console.error('Submit falhou:', result.error);
+                    setSubmitError('Falha ao enviar. Verifica a ligação e tenta novamente.');
+                    setSending(false);
+                    setTextSubmitted(false);
                 }
-                console.error('Submit falhou:', lastErr);
-                setSubmitError('Falha ao enviar. Verifica a ligação e tenta novamente.');
-                setSending(false);
-                setTextSubmitted(false);
             };
 
             // — dados derivados —

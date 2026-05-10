@@ -262,11 +262,213 @@
         };
     }
 
+    /**
+     * Adquire o screen wake lock (mantém o ecrã aceso enquanto o cliente está
+     * em jogo) e re-adquire automaticamente quando a tab volta ao foreground.
+     *
+     * Se o browser não suportar `navigator.wakeLock`, falha silenciosamente.
+     *
+     * @returns {{release: function}}
+     *   - release(): liberta o lock e desliga o re-acquire automático
+     */
+    function attachWakeLock() {
+        var wakeLock = null;
+        var alive    = true;
+
+        function acquire() {
+            if (!alive) return;
+            try {
+                if ('wakeLock' in navigator) {
+                    navigator.wakeLock.request('screen').then(function(lock) {
+                        if (!alive) { try { lock.release(); } catch(e) {} return; }
+                        wakeLock = lock;
+                    }).catch(function() {});
+                }
+            } catch(e) {}
+        }
+
+        function onVisible() {
+            if (document.visibilityState === 'visible') acquire();
+        }
+
+        document.addEventListener('visibilitychange', onVisible);
+        acquire();
+
+        return {
+            release: function() {
+                if (!alive) return;
+                alive = false;
+                document.removeEventListener('visibilitychange', onVisible);
+                if (wakeLock) {
+                    try { wakeLock.release().catch(function() {}); } catch(e) {}
+                    wakeLock = null;
+                }
+            }
+        };
+    }
+
+    /**
+     * Faz "join" a uma sessão multijogador. Lê e valida a sessão, detecta
+     * colisões de mesa entre dispositivos (via clientId persistente), e escreve
+     * a entrada do cliente em sessions/<code>/clients/<n>.
+     *
+     * Não modifica estado React — devolve um result `{ok, ...}` que o caller
+     * usa para actualizar a sua UI.
+     *
+     * @param {object} opts
+     * @param {object} opts.rtdb
+     * @param {object} opts.fm
+     * @param {string} opts.sessionCode    código da sessão (será uppercased + trimmed)
+     * @param {number|string} opts.tableNumber  número da mesa (será parsed para int)
+     * @param {string} [opts.teamName]     nome da equipa (default 'Mesa <n>')
+     * @param {string} [opts.emails]       emails separados por vírgula
+     * @param {string} opts.clientId       UUID persistente do dispositivo
+     * @param {string} [opts.gameType]     valida gs.gameType — se não bater, falha
+     * @param {boolean} [opts.isAuto]      true em auto-reconnect (UX de erro diferente)
+     * @returns {Promise<{ok:boolean, error?:string, clearLocal?:boolean,
+     *                   code?:string, table?:number, teamName?:string, emails?:string}>}
+     */
+    async function joinSession(opts) {
+        if (!opts || !opts.rtdb || !opts.fm) throw new Error('joinSession requer rtdb e fm');
+        if (!opts.clientId) throw new Error('joinSession requer clientId');
+
+        var rtdb = opts.rtdb, fm = opts.fm;
+        var code     = String(opts.sessionCode || '').trim().toUpperCase();
+        var table    = parseInt(opts.tableNumber, 10);
+        var teamName = String(opts.teamName || '').trim();
+        var emails   = String(opts.emails || '').trim();
+        var clientId = opts.clientId;
+        var gameType = opts.gameType || null;
+        var isAuto   = !!opts.isAuto;
+
+        if (!code || !table || table < 1) {
+            return { ok: false, error: 'Código e número de mesa são obrigatórios' };
+        }
+        if (!isAuto && !teamName) {
+            return { ok: false, error: 'O nome da equipa é obrigatório' };
+        }
+
+        try {
+            // Ler gameState (one-shot) — verifica se a sessão existe e está válida
+            var gsSnap = await new Promise(function(resolve) {
+                fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/gameState'), resolve, { onlyOnce: true });
+            });
+            var gs = gsSnap.val();
+            if (!gs) return { ok: false, error: 'Sessão "' + code + '" não encontrada.' };
+            if (gs.active === false) return { ok: false, error: 'Sessão "' + code + '" já não está ativa.' };
+            if (gameType && gs.gameType && gs.gameType !== gameType) {
+                return { ok: false, error: 'Esta sessão pertence a outro jogo. Usa a aplicação correta.' };
+            }
+
+            // Ler clients/<n> (uma vez só) — usado para tablesLocked + deteção de colisão
+            var cSnap = await new Promise(function(resolve) {
+                fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), resolve, { onlyOnce: true });
+            });
+            var existing = cSnap.val();
+
+            // tablesLocked: bloqueia novas entradas manuais; auto-rejoin de mesas existentes é permitido
+            if (gs.tablesLocked && !isAuto && !existing) {
+                return { ok: false, error: 'Novas entradas estão bloqueadas pelo anfitrião.' };
+            }
+
+            // Colisão de clientId: a mesa pertence a outro dispositivo
+            if (existing) {
+                if (existing.clientId && existing.clientId !== clientId) {
+                    if (isAuto) {
+                        return {
+                            ok: false,
+                            error: 'Outro dispositivo está agora a usar a Mesa ' + table + '. Inicia sessão de novo.',
+                            clearLocal: true
+                        };
+                    }
+                    return { ok: false, error: 'A Mesa ' + table + ' já está conectada noutro dispositivo! Escolhe outro número.' };
+                }
+                if (!isAuto && !existing.clientId) {
+                    // Cliente legacy sem clientId — bloqueia entrada manual por segurança
+                    return { ok: false, error: 'A Mesa ' + table + ' já está conectada! Escolhe outro número.' };
+                }
+            }
+
+            // Escrever a entrada do cliente
+            await fm.set(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), {
+                tableNumber: table,
+                teamName:    teamName || ('Mesa ' + table),
+                emails:      emails ? emails.split(',').map(function(s) { return s.trim(); }) : [],
+                connectedAt: Date.now(),
+                lastSeen:    Date.now(),
+                clientId:    clientId
+            });
+
+            return { ok: true, code: code, table: table, teamName: teamName, emails: emails };
+        } catch(e) {
+            return { ok: false, error: 'Erro ao conectar. Tenta novamente.' };
+        }
+    }
+
+    /**
+     * Escreve um payload num caminho do RTDB e verifica que o servidor o tem
+     * efectivamente — protege contra writes que parecem ter sucesso mas que se
+     * perdem em condições de rede instável (WebSocket meio-morto, etc.).
+     *
+     * Faz set + get em loop até `attempts` tentativas, com timeouts em cada
+     * passo e backoff entre tentativas. Considera o write válido só se o get
+     * devolver um valor com o mesmo `verifyKey` que o payload e (se fornecido)
+     * o mesmo `clientId` — garante que não estamos a ler um write de outro
+     * dispositivo no mesmo path.
+     *
+     * @param {object} opts
+     * @param {object} opts.rtdb
+     * @param {object} opts.fm
+     * @param {string} opts.path           caminho RTDB onde escrever
+     * @param {object} opts.payload        objecto a escrever
+     * @param {string} [opts.clientId]     se fornecido, exige v.clientId === clientId no verify
+     * @param {string} [opts.verifyKey='text']  campo do payload a comparar (ex: 'text', 'value')
+     * @param {number} [opts.attempts=3]
+     * @param {number} [opts.writeTimeoutMs=6000]
+     * @param {number} [opts.readTimeoutMs=5000]
+     * @param {number} [opts.backoffMs=400]
+     * @returns {Promise<{ok:boolean, error?:Error}>}
+     */
+    async function submitWithVerify(opts) {
+        if (!opts || !opts.rtdb || !opts.fm || !opts.path) throw new Error('submitWithVerify requer rtdb, fm, path');
+        var rtdb = opts.rtdb, fm = opts.fm;
+        var path     = opts.path;
+        var payload  = opts.payload || {};
+        var clientId = opts.clientId || null;
+        var verifyKey = opts.verifyKey || 'text';
+        var attempts        = typeof opts.attempts        === 'number' ? opts.attempts        : 3;
+        var writeTimeoutMs  = typeof opts.writeTimeoutMs  === 'number' ? opts.writeTimeoutMs  : 6000;
+        var readTimeoutMs   = typeof opts.readTimeoutMs   === 'number' ? opts.readTimeoutMs   : 5000;
+        var backoffMs       = typeof opts.backoffMs       === 'number' ? opts.backoffMs       : 400;
+
+        var lastErr = null;
+        for (var i = 0; i < attempts; i++) {
+            try {
+                await withTimeout(fm.set(fm.ref(rtdb, path), payload), writeTimeoutMs);
+                var snap = await withTimeout(fm.get(fm.ref(rtdb, path)), readTimeoutMs);
+                var v = snap.val();
+                if (v && (!clientId || v.clientId === clientId) && v[verifyKey] === payload[verifyKey]) {
+                    return { ok: true };
+                }
+                lastErr = new Error('verify_mismatch');
+            } catch(e) {
+                lastErr = e;
+            }
+            if (i < attempts - 1) {
+                await new Promise(function(r) { setTimeout(r, backoffMs); });
+            }
+        }
+        return { ok: false, error: lastErr };
+    }
+
     window.ClientCore = {
         getClientId:      getClientId,
         withTimeout:      withTimeout,
         createLocalStore: createLocalStore,
         computeConnState: computeConnState,
-        connectClient:    connectClient
+        connectClient:    connectClient,
+        attachWakeLock:   attachWakeLock,
+        joinSession:      joinSession,
+        submitWithVerify: submitWithVerify
     };
 })();
