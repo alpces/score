@@ -1,9 +1,19 @@
-# 🎮 Sistema de Pontuação Modular para Jogos
+# 🎮 Sistema de Pontuação Multijogador
 
-Sistema completo de gestão de pontuação em tempo real para eventos, jogos de tabuleiro, quizzes e competições. Arquitetura modular que permite criar diferentes modos de jogo.
+Sistema de gestão de pontuação em tempo real para eventos, quizzes e jogos de tabuleiro. Múltiplos clientes (uma equipa por dispositivo) ligam-se a um master (anfitrião) via Firebase Realtime Database.
 
-[![Live Demo](https://img.shields.io/badge/demo-live-success)](https://alpces.github.io/score/master.html)
+[![Live Demo](https://img.shields.io/badge/demo-live-success)](https://alpces.github.io/score/master-hitster.html)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+---
+
+## 🎯 Jogos Disponíveis
+
+| Jogo | Master | Cliente |
+|---|---|---|
+| 🎵 **Mega Hitster** — quiz musical com joker, modo cantora e categorias configuráveis | [master](https://alpces.github.io/score/master-hitster.html) | [client](https://alpces.github.io/score/client-hitster.html) |
+| 💎 **Diamant / Incan Gold** — adaptação do jogo de tabuleiro com votação secreta e apostas | [master](https://alpces.github.io/score/master-diamant.html) | [client](https://alpces.github.io/score/client-diamant.html) |
+| 🎯 **Contador Genérico** — buzzers, +1/-1/+5, respostas de texto (sistema modular legacy) | [master](https://alpces.github.io/score/master.html) | [client](https://alpces.github.io/score/client.html) |
 
 ---
 
@@ -11,385 +21,97 @@ Sistema completo de gestão de pontuação em tempo real para eventos, jogos de 
 
 ```
 score/
-├── master.html              # App do organizador
-├── client.html              # App dos participantes
-├── games/
-│   ├── game-interface.js    # Interface base para módulos
-│   ├── game-system.js       # Sistema de gestão de módulos
-│   └── generic.js           # Módulo: Contador Genérico
+├── master.html                   # Sistema modular (Contador Genérico)
+├── client.html
+├── master-hitster.html           # Standalone — Mega Hitster
+├── client-hitster.html
+├── master-diamant.html           # Standalone — Diamant
+├── client-diamant.html
+│
 ├── shared/
-│   └── firebase-config.js   # Configuração Firebase
-├── logo1.png ... logo5.png  # Logotipos (opcional)
-├── README.md
+│   ├── firebase-config.js        # Config Firebase + URLs públicas
+│   ├── client-core.js            # Lifecycle de cliente reutilizável
+│   └── session-core.js           # Lifecycle de sessão reutilizável
+│
+├── games/
+│   ├── game-system.js            # Core do sistema modular (legacy)
+│   ├── game-interface.js
+│   ├── generic.js                # Módulo: Contador Genérico
+│   ├── hitster.js                # Constantes Hitster
+│   └── diamant.js                # Referência de regras Diamant
+│
+├── logo1.png … logo4.png         # Logos opcionais
+├── CLAUDE_CONTEXT.md             # 🤖 Referência completa para IAs
 ├── CHANGELOG.md
-└── LICENSE
+└── DEVELOPMENT_LOG.md
 ```
 
 ---
 
-## ✨ Jogos Disponíveis
+## 🏗️ Arquitectura
 
-### 🎯 Contador Genérico (`generic`)
-Sistema de pontuação manual com:
-- ✅ Pontuação manual (+1, -1, +5)
-- ✅ Buzzers com bloqueio
-- ✅ Respostas de texto com temporizador
-- ✅ Categorias sorteaveis
-- ✅ Leaderboard com revelação progressiva
-- ✅ Até 5 logotipos personalizados
+Cada jogo "standalone" tem o seu par de páginas auto-contidas (`master-X.html` + `client-X.html`) que comunicam via **Firebase Realtime Database**. Não há build step — todas as apps usam React 18 UMD (sem JSX) e Tailwind CDN, servidas estaticamente pelo GitHub Pages.
 
-### 💎 Diamant / Incan Gold (`diamant`) - *Em desenvolvimento*
-Adaptação do jogo de tabuleiro com:
-- Distribuição automática de rubis
-- Votação "Ficar/Sair" via telemóvel
-- Gestão de sobras e expedições
-- Cartas de perigo
+A infraestrutura repetível (Firebase listeners, heartbeat, reconexão, fluxo de arquivo de sessões) está extraída em **dois cores partilhados**:
+
+- **`shared/client-core.js`** (`window.ClientCore`): UUID persistente, store local com expiry, listener de gameState/clientes/connection com forceRefresh em background-resume, heartbeat, joinSession com deteção de colisão, submitWithVerify, wake lock.
+- **`shared/session-core.js`** (`window.SessionCore`): subscribers a sessões activas/históricas/clientes (com optimização anti-flicker), one-shot reads, archiveSession (fluxo de 6 passos seguros) com enrichers configuráveis.
+
+Lógica game-específica (regras de pontuação, fases, modais de configuração) fica nos ficheiros do jogo.
+
+### Resiliência
+
+Os clientes resistem a:
+- Tab em background no mobile (iOS Safari mata o WebSocket) — auto-acordar via visibility/focus/online
+- Sessão remota a expirar — deteção via `gameState.active=false` ou remoção pelo master
+- Mesa ocupada por outro dispositivo — colisão detectada por `clientId` em localStorage
+- Writes pendurados — `withTimeout` em `Promise.race`
+- Resposta perdida em rede instável — `submitWithVerify` faz read-back após write
 
 ---
 
-## 🚀 Como Usar
+## 🚀 Começar
 
-### Acesso Rápido
-- **Master:** https://alpces.github.io/score/master.html
-- **Cliente:** https://alpces.github.io/score/client.html
+### Em produção
+Acede directamente aos URLs em https://alpces.github.io/score/
 
-### Instalação Local
+### Localmente
 ```bash
 git clone https://github.com/alpces/score.git
 cd score
-# Abrir master.html num browser
+# Servir staticamente (qualquer servidor estático serve)
+python -m http.server 8000
+# ou
+npx serve
 ```
+
+Abrir `http://localhost:8000/master-hitster.html` no browser.
+
+### Configurar Firebase
+A configuração está em `shared/firebase-config.js`. Para usar a tua própria base de dados, substitui as credenciais nesse ficheiro.
 
 ---
 
-## 🔧 Arquitetura Modular
+## 🛠️ Adicionar Um Novo Jogo
 
-### Como Funciona
+Padrão recomendado: jogo standalone (par master+client) usando os shared cores.
 
-1. **GameSystem** (`game-system.js`) - Regista e gere módulos de jogos
-2. **GameInterface** (`game-interface.js`) - Define a interface que cada jogo deve implementar
-3. **Módulos** (`games/*.js`) - Implementações específicas de cada jogo
+1. Criar `master-meujogo.html` e `client-meujogo.html` (ver esqueletos em `CLAUDE_CONTEXT.md`).
+2. Carregar `shared/firebase-config.js` e o(s) core(s) apropriado(s).
+3. Implementar a UI e a lógica game-específica; delegar tudo o que é genérico (Firebase, lifecycle, etc.) aos cores.
+4. Escolher o enricher de arquivo apropriado (`mergeEmailsIntoTables` ou `attachClientsField`) ou escrever um custom.
+5. Adicionar URLs em `shared/firebase-config.js` (`AppConfig`).
+6. Adicionar entrada no histórico aqui no README.
 
-### Fluxo de Dados
-
-```
-┌─────────────┐     Firebase      ┌─────────────┐
-│   MASTER    │ ←───────────────→ │   CLIENT    │
-│  master.html│   gameType: X     │ client.html │
-└──────┬──────┘                   └──────┬──────┘
-       │                                 │
-       ▼                                 ▼
-┌─────────────┐                   ┌─────────────┐
-│ GameSystem  │                   │ GameSystem  │
-│  .get('X')  │                   │  .get('X')  │
-└──────┬──────┘                   └──────┬──────┘
-       │                                 │
-       ▼                                 ▼
-┌─────────────┐                   ┌─────────────┐
-│  Módulo X   │                   │  Módulo X   │
-│ (generic.js)│                   │ (generic.js)│
-└─────────────┘                   └─────────────┘
-```
+A documentação técnica completa (APIs dos cores, padrões defensivos, estrutura Firebase, convenções) está em **[`CLAUDE_CONTEXT.md`](./CLAUDE_CONTEXT.md)**.
 
 ---
 
-## 📝 Como Criar um Novo Módulo de Jogo
+## 👥 Contribuidores
 
-### 1. Criar o Ficheiro
-
-Criar `games/meujogo.js`:
-
-```javascript
-const MeuJogo = {
-    // METADADOS
-    id: 'meujogo',
-    name: 'Meu Jogo Fantástico',
-    description: 'Descrição do jogo',
-    icon: '🎲',
-    
-    // CONFIGURAÇÃO PADRÃO
-    getDefaultConfig: () => ({
-        minhaOpcao: true,
-        outraOpcao: 10
-    }),
-    
-    // UI DE CONFIGURAÇÃO (setup)
-    getConfigUI: (config, setConfig, h) => {
-        return h('div', { className: 'space-y-4' },
-            h('label', null, 'Minha Opção'),
-            h('input', {
-                type: 'checkbox',
-                checked: config.minhaOpcao,
-                onChange: e => setConfig({...config, minhaOpcao: e.target.checked})
-            })
-        );
-    },
-    
-    // ESTADO INICIAL
-    onSessionStart: (config) => ({
-        fase: 'inicio',
-        pontos: {}
-    }),
-    
-    // PROCESSAR AÇÕES
-    processAction: (action, gameState, tables) => {
-        switch (action.type) {
-            case 'MINHA_ACAO':
-                return {
-                    gameState: { ...gameState, fase: 'proxima' },
-                    tables
-                };
-            default:
-                return { gameState, tables };
-        }
-    },
-    
-    // DADOS PARA FIREBASE
-    getFirebaseState: (gameState, config, tables, extra) => ({
-        gameType: 'meujogo',
-        tables: tables,
-        fase: gameState.fase,
-        active: true,
-        timestamp: Date.now()
-    }),
-    
-    // UI DOS CONTROLOS (barra inferior master)
-    getGameControlsUI: ({ gameState, config, tables, actions, h }) => {
-        return h('button', {
-            onClick: () => actions.dispatch({ type: 'MINHA_ACAO' }),
-            className: 'px-4 py-2 bg-blue-500 text-white rounded'
-        }, 'Minha Ação');
-    },
-    
-    // UI DO CLIENTE
-    getClientUI: ({ gameData, myTable, actions, h }) => {
-        return h('div', { className: 'text-center' },
-            h('h2', null, `Fase: ${gameData.fase}`),
-            h('button', {
-                onClick: actions.minhaAcaoCliente,
-                className: 'px-6 py-3 bg-green-500 text-white rounded-lg'
-            }, 'Ação do Cliente')
-        );
-    },
-    
-    // DADOS PARA HISTÓRICO
-    onSessionEnd: (gameState, tables, config) => ({
-        gameType: 'meujogo',
-        tables: tables,
-        fasesFinal: gameState.fase
-    })
-};
-
-// REGISTAR O MÓDULO
-window.GameModules = window.GameModules || {};
-window.GameModules.meujogo = MeuJogo;
-```
-
-### 2. Incluir no HTML
-
-Em `master.html` e `client.html`, adicionar:
-
-```html
-<script src="games/meujogo.js"></script>
-```
-
-### 3. Ativar o Módulo
-
-Mudar `GAME_TYPE` em `master.html`:
-
-```javascript
-const GAME_TYPE = 'meujogo';
-```
-
----
-
-## 🎲 Exemplo: Módulo Diamant
-
-```javascript
-const DiamantGame = {
-    id: 'diamant',
-    name: 'Diamant / Incan Gold',
-    icon: '💎',
-    
-    getDefaultConfig: () => ({
-        totalExpeditions: 5,
-        maxPlayers: 8
-    }),
-    
-    onSessionStart: (config) => ({
-        expedition: 1,
-        phase: 'waiting',      // waiting, exploring, voting, results
-        rubiesOnTable: 0,      // Sobras acumuladas
-        currentCard: null,     // Carta atual
-        dangers: [],           // Perigos saídos
-        teamsIn: [],           // Equipas na expedição
-        votes: {}              // { tableId: 'stay' | 'leave' }
-    }),
-    
-    processAction: (action, state, tables) => {
-        switch (action.type) {
-            case 'DRAW_RUBY_CARD': {
-                const rubies = action.payload.value;
-                const teamsCount = state.teamsIn.length;
-                const perTeam = Math.floor(rubies / teamsCount);
-                const leftover = rubies % teamsCount;
-                
-                // Distribuir rubis
-                const newTables = tables.map(t => {
-                    if (state.teamsIn.includes(t.id)) {
-                        return { ...t, score: t.score + perTeam };
-                    }
-                    return t;
-                });
-                
-                return {
-                    gameState: {
-                        ...state,
-                        rubiesOnTable: state.rubiesOnTable + leftover,
-                        currentCard: { type: 'ruby', value: rubies },
-                        phase: 'voting'
-                    },
-                    tables: newTables
-                };
-            }
-            
-            case 'TEAM_VOTE': {
-                const { tableId, vote } = action.payload;
-                return {
-                    gameState: {
-                        ...state,
-                        votes: { ...state.votes, [tableId]: vote }
-                    },
-                    tables
-                };
-            }
-            
-            case 'REVEAL_VOTES': {
-                const leaving = Object.entries(state.votes)
-                    .filter(([_, vote]) => vote === 'leave')
-                    .map(([id, _]) => parseInt(id));
-                
-                // Distribuir sobras entre quem sai
-                const rubiesPerLeaver = leaving.length > 0 
-                    ? Math.floor(state.rubiesOnTable / leaving.length)
-                    : 0;
-                
-                const newTables = tables.map(t => {
-                    if (leaving.includes(t.id)) {
-                        return { ...t, score: t.score + rubiesPerLeaver };
-                    }
-                    return t;
-                });
-                
-                return {
-                    gameState: {
-                        ...state,
-                        teamsIn: state.teamsIn.filter(id => !leaving.includes(id)),
-                        rubiesOnTable: leaving.length > 0 ? state.rubiesOnTable % leaving.length : state.rubiesOnTable,
-                        votes: {},
-                        phase: 'exploring'
-                    },
-                    tables: newTables
-                };
-            }
-            
-            default:
-                return { gameState: state, tables };
-        }
-    },
-    
-    getClientUI: ({ gameData, myTable, actions, h }) => {
-        const inExpedition = gameData.teamsIn?.includes(myTable?.id);
-        const hasVoted = gameData.votes?.[myTable?.id];
-        
-        if (gameData.phase === 'voting' && inExpedition && !hasVoted) {
-            return h('div', { className: 'flex gap-4' },
-                h('button', {
-                    onClick: () => actions.vote('stay'),
-                    className: 'px-8 py-4 bg-green-500 text-white text-xl rounded-lg'
-                }, '💎 Ficar'),
-                h('button', {
-                    onClick: () => actions.vote('leave'),
-                    className: 'px-8 py-4 bg-red-500 text-white text-xl rounded-lg'
-                }, '🏃 Sair')
-            );
-        }
-        
-        return h('div', { className: 'text-center text-white' },
-            h('div', { className: 'text-4xl mb-2' }, '💎'),
-            h('div', null, inExpedition ? 'Na expedição' : 'Fora da expedição'),
-            h('div', { className: 'text-2xl mt-4' }, `${myTable?.score || 0} rubis`)
-        );
-    }
-};
-
-window.GameModules.diamant = DiamantGame;
-```
-
----
-
-## 📋 API do GameSystem
-
-```javascript
-// Registar módulo
-GameSystem.register(MeuModulo);
-
-// Obter módulo
-const modulo = GameSystem.get('meujogo');
-
-// Listar módulos
-const lista = GameSystem.list();
-// [{ id, name, description, icon }, ...]
-
-// Definir módulo atual
-GameSystem.setCurrent('meujogo');
-
-// Obter módulo atual
-const atual = GameSystem.getCurrent();
-
-// Processar ação
-const resultado = GameSystem.processAction('meujogo', action, state, tables);
-
-// Iniciar sessão
-const estadoInicial = GameSystem.startSession('meujogo', config);
-
-// Obter estado para Firebase
-const firebaseState = GameSystem.getFirebaseState('meujogo', state, config, tables, extra);
-```
-
----
-
-## 🔍 Dicas para Desenvolvimento
-
-### Trabalhar com o Claude
-
-1. **Um ficheiro por sessão** - Focar num módulo de cada vez
-2. **Mostrar interface** - Começar com `game-interface.js`
-3. **Testar incrementalmente** - Implementar uma função de cada vez
-
-### Boas Práticas
-
-1. **Ações imutáveis** - Nunca modificar `gameState` diretamente
-2. **Validar inputs** - Verificar `action.payload` antes de usar
-3. **Estados claros** - Usar enums/strings para fases (`'waiting'`, `'playing'`, etc.)
-4. **Fallbacks** - Sempre ter valores por defeito (`|| []`, `|| 0`)
-
----
+- **ALPCeS - Ludonautas** — desenvolvimento, design, regras de jogo — https://ludonautas.pt
+- **Claude (Anthropic)** — assistência de código
 
 ## 📄 Licença
 
-MIT License - Ver [LICENSE](LICENSE)
-
----
-
-## 👥 Créditos
-
-**Desenvolvido por:** [ALPCeS - Ludonautas](https://alpces.pt)
-
----
-
-<div align="center">
-
-**Feito com ❤️ por [Ludonautas](https://alpces.pt)**
-
-</div>
+MIT

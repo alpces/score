@@ -1,6 +1,18 @@
-# 🤖 Contexto para Desenvolvimento com Claude
+# 🤖 Contexto para Desenvolvimento com IA
 
-Este ficheiro serve para dar contexto ao Claude AI quando precisares de iterar ou criar novos módulos no sistema de pontuação. Lê-o no início de cada sessão.
+Este ficheiro é a referência canónica para qualquer assistente de IA (Claude, GPT, etc.) trabalhar neste repositório. Lê-o no início de cada sessão.
+
+A app é em PT-PT. Ao gerar código novo ou comentários, mantém o tom e a língua dos blocos vizinhos.
+
+---
+
+## 🎯 Visão Geral
+
+Sistema de pontuação multiplayer em tempo real, deployed no GitHub Pages. Cada jogo tem um par de páginas estáticas (`master-<jogo>.html` + `client-<jogo>.html`) que comunicam via **Firebase Realtime Database**. O master é o organizador (anfitrião do quiz/sessão); os clients são as equipas/mesas a competir.
+
+Todas as apps usam **React 18 UMD sem JSX** (`React.createElement` aliasado como `h`) e **Tailwind CDN**. Não há build step.
+
+Há dois cores partilhados em `shared/` que encapsulam a infraestrutura repetível (lifecycle de cliente, lifecycle de sessão). Lógica game-específica fica nos ficheiros do jogo.
 
 ---
 
@@ -8,254 +20,348 @@ Este ficheiro serve para dar contexto ao Claude AI quando precisares de iterar o
 
 ```
 score/
-├── master.html              # App do organizador — Contador Genérico (sistema modular)
-├── client.html              # App dos participantes — Contador Genérico (sistema modular)
-├── master-diamant.html      # App standalone — Diamant / Incan Gold (master)
-├── client-diamant.html      # App standalone — Diamant / Incan Gold (cliente)
-├── master-hitster.html      # App standalone — Mega Hitster (master)
-├── client-hitster.html      # App standalone — Mega Hitster (cliente)
-├── games/
-│   ├── game-interface.js    # Interface que os módulos do sistema modular devem seguir
-│   ├── game-system.js       # Core do sistema modular (NÃO MODIFICAR)
-│   ├── generic.js           # Módulo: Contador Genérico (usa game-system.js)
-│   ├── diamant.js           # Referência de regras Diamant (não é usado pelas apps standalone)
-│   └── hitster.js           # Módulo Hitster — lógica, categorias, getLastPlace (carregado pelas apps standalone)
+├── master.html                   # Organizador — sistema modular (Contador Genérico)
+├── client.html                   # Participante — sistema modular
+├── master-hitster.html           # Standalone — Mega Hitster (master)
+├── client-hitster.html           # Standalone — Mega Hitster (cliente)
+├── master-diamant.html           # Standalone — Diamant / Incan Gold (master)
+├── client-diamant.html           # Standalone — Diamant / Incan Gold (cliente)
+│
 ├── shared/
-│   └── firebase-config.js   # FirebaseConfig + AppConfig (URLs públicas das 4 apps)
-├── logo1.png … logo4.png    # Logotipos de patrocinadores/organização (4 no total)
-├── README.md
+│   ├── firebase-config.js        # FirebaseConfig + AppConfig (URLs públicas)
+│   ├── client-core.js            # API de cliente reutilizável (ClientCore)
+│   └── session-core.js           # API de sessão reutilizável (SessionCore)
+│
+├── games/
+│   ├── game-interface.js         # Interface dos módulos do sistema modular
+│   ├── game-system.js            # Core do sistema modular (NÃO MODIFICAR)
+│   ├── generic.js                # Módulo: Contador Genérico
+│   ├── diamant.js                # Referência de regras Diamant (não usado em runtime)
+│   └── hitster.js                # Constantes/categorias Hitster (carregado em runtime)
+│
+├── logo1.png … logo4.png         # Logos opcionais (4; o código aceita até 5)
+├── README.md                     # Visão pública
+├── CLAUDE_CONTEXT.md             # Este ficheiro (referência para IA)
 ├── CHANGELOG.md
-├── DEVELOPMENT_LOG.md       # Log detalhado de desenvolvimento por módulo
-└── CLAUDE_CONTEXT.md        # Este ficheiro
+└── DEVELOPMENT_LOG.md            # Log de versões por jogo
 ```
 
 ---
 
-## 🏗️ Duas Arquitecturas
+## 🏗️ Três Arquitecturas
 
-### 1. Sistema Modular (Contador Genérico)
-Usa `game-system.js` + módulos em `games/*.js`. As apps `master.html` e `client.html` carregam o módulo activo em runtime. Cada módulo implementa a interface definida em `game-interface.js`.
+### 1. Sistema Modular (`master.html` + `client.html`)
+Originalmente concebido para alojar vários jogos numa única app. Carrega `games/game-system.js` e um módulo (ex: `games/generic.js`) em runtime. Cada módulo implementa a interface em `games/game-interface.js`. **Não usa os shared cores** — antecede-os e tem o seu próprio scaffolding.
 
-### 2. Apps Standalone (Diamant, Mega Hitster)
-Cada jogo tem o seu próprio par de ficheiros HTML (`master-xxxx.html` + `client-xxxx.html`). Toda a lógica de estado, Firebase e UI está dentro do HTML. O ficheiro `games/hitster.js` é carregado como script auxiliar (categorias, `getLastPlace`, constantes) mas não é um módulo do sistema modular. **Não** usam `game-system.js`.
+### 2. Apps Standalone (Hitster, Diamant)
+Cada jogo tem o seu par de HTMLs auto-contidos. Mais simples de raciocinar e fazer deploy independente. **Usam os shared cores.** Este é o padrão recomendado para novos jogos.
 
-Ao criar um novo jogo standalone, o padrão é:
-- Criar `master-novojogo.html` e `client-novojogo.html`
-- Opcionalmente criar `games/novojogo.js` para lógica partilhada
-- Adicionar URLs em `shared/firebase-config.js` (`AppConfig`)
+### 3. Shared Cores
+Dois ficheiros `shared/*-core.js` que expõem APIs `window.ClientCore` e `window.SessionCore`. Encapsulam toda a infraestrutura genérica (Firebase listeners, heartbeat, reconnection, archive flow). Ler estes ficheiros é o ponto de partida para entender o que já existe.
 
 ---
 
-## 🔥 Firebase — Estrutura de Dados
+## 🧩 ClientCore — API completa
 
-### Sessão activa
-```
-sessions/{sessionId}/
-  gameState/           — estado completo do jogo (escrito pelo master, lido pelos clientes)
-    gameType           — 'hitster' | 'diamant' | 'generic'
-    active             — true | false
-    timestamp          — Date.now()
-    phase              — fase atual ('waiting', 'joker_window', 'answering', 'reviewing', …)
-    … campos específicos do jogo
-  clients/{tableId}/   — um nó por equipa conectada
-    tableNumber        — número da mesa (int)
-    teamName           — nome da equipa
-    emails             — array de emails
-    connectedAt        — timestamp
-    lastSeen           — timestamp (heartbeat do cliente, atualizado a cada ~15s)
-    clientId           — UUID persistente no localStorage (previne colisões de mesa)
-  textResponses/{tableId}/   — resposta de texto submetida (Hitster)
-    text               — string
-    timestamp          — Date.now()
-    clientId           — UUID do cliente que enviou
-  histerJokers/{tableId}/    — joker ativado (Hitster)
-    activated          — true
-    timestamp          — Date.now()
-    clientId           — UUID
+Em `shared/client-core.js`. Disponível em `window.ClientCore`. Não tem dependências de React; pode ser chamado de qualquer sítio.
 
-sessionHistory/{histId}/     — sessões arquivadas
-```
-
-### Caminhos especiais
-- `.info/connected` — estado de conexão WebSocket (usado pelos clientes para detetar offline)
-
----
-
-## 🎯 Padrões do Cliente (Hitster / Standalone)
-
-O cliente standalone tem vários mecanismos de resiliência que devem ser mantidos em novas apps:
-
-| Mecanismo | Como funciona |
-|---|---|
-| `clientId` | UUID em localStorage; enviado em `clients/<n>` e em todas as escritas. Impede que dois dispositivos partilhem a mesma mesa. |
-| `resubKey` | Estado inteiro incrementado em `visibilitychange`/`focus`/`online`; força re-subscribe dos listeners Firebase. |
-| `forceRefreshGameState()` | Chama `get()` explícito em `gameState` — garante dados frescos mesmo que `onValue` não dispare após reconnect. |
-| Heartbeat | `update(clients/<n>, {lastSeen})` a cada 15 s. |
-| `.info/connected` | Banner vermelho quando offline; trigger de `forceRefreshGameState` ao reconectar. |
-| `withTimeout(promise, ms)` | Wrapper com `Promise.race` para evitar writes pendurados se o WebSocket estiver morto. |
-| Submit com retry | 3 tentativas com timeout 6 s + verify-after-write (`get()` após `set()`). |
-| `localAnswerEndRef` | Ref que persiste `answerTimerEndAt` durante `reviewing` para o timer do cliente não desaparecer prematuramente. |
-
----
-
-## 🎵 Mega Hitster — Resumo Técnico
-
-Ficheiros: `master-hitster.html`, `client-hitster.html`, `games/hitster.js`
-
-### Fases do jogo
-```
-waiting → joker_window → answering → reviewing → waiting …
-```
-
-### Estado Firebase (`gameState`)
-| Campo | Tipo | Descrição |
+| Função | Devolve | Para quê |
 |---|---|---|
-| `phase` | string | Fase atual |
-| `currentCategory` | object | `{ id, name, description, points, isTimeline? }` |
-| `jokerTimerEndAt` | timestamp | Fim da janela do joker |
-| `answerTimerEndAt` | timestamp | Fim do tempo de resposta |
-| `jokerOrder` | int[] | IDs por ordem de uso de joker (todo o jogo; serve para desempate) |
-| `roundJokers` | int[] | IDs que usaram joker nesta ronda |
-| `singingTeamId` | int\|null | Mesa cantora |
-| `allJokersUsed` | bool | True se todas as mesas já usaram o joker |
-| `tables` | object[] | `[{ id, name, score, jokerUsed }]` |
-| `showScores` | bool | Visibilidade dos pontos (só oculta no master) |
-| `tablesLocked` | bool | Impede novas entradas manuais |
-| `roundNumber` | int | Número da ronda atual |
-| `selectedLogos` | string[] | Caminhos dos logos activos |
+| `getClientId(storageKey?)` | `string` | UUID persistente em localStorage. Detecta colisões de mesa entre dispositivos. Default: `'client_id'`. Cada jogo passa a sua chave (ex: `'hitster_clientId'`). |
+| `withTimeout(promise, ms)` | `Promise` | `Promise.race` com rejeição em `ms` ms. Evita ficar pendurado em writes Firebase quando o WebSocket está morto. |
+| `createLocalStore(prefix, expiryMs?)` | `{save, load, clear}` | Wrapper de localStorage para sessão de cliente, com expiry (default 12h). Chaves: `<prefix>_session`, `_table`, `_team`, `_emails`, `_ts`. |
+| `computeConnState(sinceMs, hasClient, opts?)` | `'online' \| 'idle' \| 'offline' \| 'gone'` | Helper de presença do master a partir de `lastSeen`. Defaults: idle ≥30s, offline ≥60s. |
+| `connectClient({rtdb, fm, sessionCode, tableNumber, heartbeatMs?, onGameState, onSessionLost, onFbConnectionChange?, onResume?})` | `{disconnect, forceRefresh}` | **O coração do cliente.** Subscreve `gameState`, `clients/<n>` (deteção de remoção), `.info/connected`. Envia heartbeats (default 15s). Acorda WebSocket e dispara `forceRefresh` em `visibilitychange`/`focus`/`pageshow`/`online`. Dispara `onResume` para o jogo bumpar `resubKey` e re-subscrever os SEUS listeners. |
+| `attachWakeLock()` | `{release}` | Adquire screen wake lock e re-adquire em visibility resume. Falha silenciosamente se o browser não suportar. |
+| `joinSession({rtdb, fm, sessionCode, tableNumber, teamName, emails, clientId, gameType?, isAuto})` | `Promise<{ok, error?, clearLocal?, code?, table?, teamName?, emails?}>` | Faz join: valida sessão, detecta colisão de clientId, escreve `clients/<n>`. Mensagens em PT. Não modifica estado React — caller decide. |
+| `submitWithVerify({rtdb, fm, path, payload, clientId?, verifyKey?, attempts?, writeTimeoutMs?, readTimeoutMs?, backoffMs?})` | `Promise<{ok, error?}>` | Write + read-back para confirmar que o servidor recebeu. Default 3 retries, timeouts 6s/5s, backoff 400ms, `verifyKey: 'text'`. |
 
-### Regras de pontuação
-- Resposta certa: `pts × (joker ? 2 : 1)`
-- Cantora: `min(respostas_certas_das_outras, 3) × pts`
-- Desempate em último lugar: quem usou joker mais cedo (`jokerOrder[0]` tem prioridade)
-
-### Sincronização master→cliente
-O master usa um `useEffect` com debounce de 200 ms para escrever `gameState`. O cliente usa `onValue` sobre `gameState` + `forceRefreshGameState()` nas transições de visibilidade.
-
-### `ReviewModal` (master)
-**Importante:** chamado como `ReviewModal()` (função pura), não `h(ReviewModal, null)`. Isto preserva o DOM e o `scrollTop` quando `setCheckedAnswers` causa re-render. Se for convertido para componente React próprio, usar `useRef` para restaurar scroll.
-
----
-
-## 🎲 Módulos Existentes
-
-### Contador Genérico (`master.html` / `client.html`)
-- Pontuação manual (+1, -1, +5)
-- Buzzers com bloqueio
-- Respostas de texto com temporizador
-- Categorias sorteáveis
-
-### Diamant / Incan Gold (`master-diamant.html` / `client-diamant.html`)
-- Distribuição automática de rubis
-- Votação secreta "Continuar/Sair"
-- Gestão de reserva e sobras
-- Pontos provisórios vs definitivos
-- Timeout de votação com auto-saída
-
-### Mega Hitster (`master-hitster.html` / `client-hitster.html`)
-- Categorias musicais configuráveis (Ano Exato, Ano ±3, Título, Artista, Década, Timeline Duel)
-- Janela do Joker (duplica pontos, 1 por jogo por equipa)
-- Modo Cantora (equipa em último lugar canta; ganha pontos por acertos das outras)
-- Timers absolutos (timestamps) — clientes derivam countdown localmente
-- Resiliência: clientId, heartbeat, retry, verify-after-write, force-refresh
-- Indicadores de presença no master (online/ausente/offline) baseados em `lastSeen`
-- Comprovativo de resposta visível após timer expirar (no cliente)
-- Modal de ajuda "?" com regras e categorias (no cliente)
-
----
-
-## 🎨 Princípios de Design
-
-### Cores por contexto
-| Contexto | Cores principais |
-|---|---|
-| Genérico / Diamant | purple-600, indigo-600, green-500, red-500 |
-| Mega Hitster | violet-900, purple-900, indigo-900 (fundo); yellow-500 (joker/categoria); violet-400/600 (pontos) |
-
-### Padrões de UI comuns
-- **Botões**: `rounded-lg`, `font-bold`, `active:scale-95 transition-all`
-- **Cards**: `bg-white rounded-2xl shadow-2xl p-4` (modais claros) ou `bg-slate-800 rounded-xl border` (listas escuras)
-- **Modais**: fundo `bg-black bg-opacity-70 fixed inset-0`, fechar ao clicar fora
-- **Header do cliente (Hitster)**: `[nome+mesa | logo | ? (bola glow) | código | ✕ (quadrado vermelho)]`
-
-### React sem JSX
-Todas as apps usam `React.createElement` (aliasado como `h`). Sem transpilação, sem JSX.
+### Padrão típico no cliente
 
 ```javascript
-// Padrão correto
-var h = React.createElement;
-h('div', { className: 'flex gap-2' },
-    h('span', null, 'Texto')
+var localStore = ClientCore.createLocalStore('meujogo');
+var clearLocal = localStore.clear;
+var CLIENT_ID  = ClientCore.getClientId('meujogo_clientId');
+
+// dentro de App():
+useEffect(function() {
+    if (!connected || !sessionCode || !tableNumber) return;
+    var ctrl = ClientCore.connectClient({
+        rtdb: rtdb, fm: fm,
+        sessionCode: sessionCode, tableNumber: tableNumber,
+        heartbeatMs: 15000,
+        onGameState: setGameData,
+        onSessionLost: function() {
+            setSessionLost(true); setConnected(false); setGameData(null); clearLocal();
+        },
+        onFbConnectionChange: setFbConnected,
+        onResume: function() { setResubKey(function(k) { return k + 1; }); }
+    });
+    return function() { ctrl.disconnect(); };
+}, [connected, sessionCode, tableNumber]);
+
+useEffect(function() {           // Listeners game-específicos
+    if (!connected || !sessionCode || !tableNumber) return;
+    var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/<path-do-jogo>/' + tableNumber), function(snap) { ... });
+    return function() { unsub(); };
+}, [connected, sessionCode, tableNumber, resubKey]);
+```
+
+---
+
+## 🗂️ SessionCore — API completa
+
+Em `shared/session-core.js`. Disponível em `window.SessionCore`. Para o lado do master.
+
+| Função | Devolve | Para quê |
+|---|---|---|
+| `subscribeActiveSessions({rtdb, fm, gameType, onChange})` | `unsub` | Lista sessões em `sessions/` filtrada por `gameType` e `active !== false`, ordenada por timestamp desc. |
+| `subscribeSessionHistory({rtdb, fm, gameType, onChange})` | `unsub` | Lista `sessionHistory/` filtrada por `gameType`. |
+| `subscribeClients({rtdb, fm, sessionId, onLastSeen?, onStructural?})` | `unsub` | **Crítico para evitar re-renders.** `onLastSeen({tableNumber: ts})` dispara em CADA update (heartbeats incluídos) — usar para escrever num ref. `onStructural(data)` dispara só quando muda estrutura (nova mesa, nome, desconexão) — usar para `setState`. |
+| `readGameStateOnce({rtdb, fm, sessionId})` | `Promise<gameState\|null>` | Leitura one-shot do `gameState` de uma sessão. |
+| `readClientsOnce({rtdb, fm, sessionId})` | `Promise<clients>` | Leitura one-shot do nó `clients`. |
+| `archiveSession({rtdb, fm, sessionId, gameType, history, enrich?, waitMs?})` | `Promise<{ok, archiveId?, error?}>` | Fluxo de 6 passos: `update active=false → wait (default 500ms) → readClients → enrich(history, clients) → set sessionHistory/<hid> → remove sessions/<id>`. |
+| `enrichers.mergeEmailsIntoTables(history, clients)` | `history` | Padrão Hitster — para cada `t` em `history.tables`, mescla `emails` do cliente correspondente. |
+| `enrichers.attachClientsField(history, clients)` | `history` | Padrão Diamant — guarda `clients` inteiro num campo separado. |
+
+### Padrão típico de presença no master (sem flicker)
+
+```javascript
+var lastSeenMapRef = useRef({});
+
+useEffect(function() {
+    if (!sessionId) return;
+    var unsub = SessionCore.subscribeClients({
+        rtdb: rtdb, fm: fm, sessionId: sessionId,
+        onLastSeen: function(lsMap) { lastSeenMapRef.current = lsMap; },   // sem state — sem re-render
+        onStructural: function(data) {
+            setConnectedClients(data);
+            setTables(/* merge logic game-específico */);
+        }
+    });
+    return function() { unsub(); };
+}, [sessionId]);
+
+// Tick a cada 5s para forçar re-avaliação de connState (ler ref a render time)
+useEffect(function() {
+    var iv = setInterval(function() { setPresenceTick(function(n) { return n + 1; }); }, 5000);
+    return function() { clearInterval(iv); };
+}, []);
+
+// No render de cada mesa:
+var lastSeen = lastSeenMapRef.current[table.id] || 0;
+var sinceSeen = lastSeen ? (Date.now() - lastSeen) : Infinity;
+var connState = ClientCore.computeConnState(sinceSeen, !!connectedClients[table.id]);
+```
+
+---
+
+## 🔥 Estrutura de Dados Firebase (RTDB)
+
+```
+sessions/{sessionId}/
+  gameState/                      # escrito pelo master, lido pelos clientes
+    gameType                      # 'hitster' | 'diamant' | 'generic'
+    active                        # bool — false sinaliza fim aos clientes
+    timestamp                     # Date.now()
+    phase                         # string — semântica game-específica
+    tables                        # array { id, name, score, ... }
+    selectedLogos                 # string[]
+    rulesConfig                   # array (Hitster) — regras editáveis no master
+    categories                    # array (Hitster) — sincronizado para o cliente
+    … campos game-específicos
+  clients/{tableNumber}/          # escrito pelos clientes
+    tableNumber, teamName, emails
+    connectedAt, lastSeen         # lastSeen = heartbeat (15s) via ClientCore
+    clientId                      # UUID persistente em localStorage
+  textResponses/{tableNumber}/    # game-específico (Hitster)
+  histerJokers/{tableNumber}/     # game-específico (Hitster)
+  diamantVotes/{tableNumber}/     # game-específico (Diamant)
+  diamantBets/{tableNumber}/      # game-específico (Diamant)
+
+sessionHistory/{archiveId}/       # sessões arquivadas
+  gameType, sessionId, timestamp, archived: true
+  … campos preservados pelo enrich do archiveSession
+```
+
+Caminho especial: `.info/connected` — boolean WebSocket. Usado por `connectClient` para mostrar banner offline e disparar `forceRefresh` ao reconectar.
+
+---
+
+## 🧷 Padrões Defensivos (não reinventar)
+
+Estes padrões surgiram após bugs reais em produção. Manter ao adicionar novas funcionalidades.
+
+### `archivingRef` no master
+**Porquê**: o `useEffect` de sync escreve `gameState.active=true` sempre que qualquer dep mudar. Durante o archive (`active:false → wait → remove`), se algo mudar (ex: o listener de clientes dispara ao remover sessions/<id>), o sync pode escrever `active:true` em paralelo e sobreviver à remoção, criando uma "sessão fantasma" no histórico.
+
+**Solução**: `var archivingRef = useRef(false);` declarado junto dos outros refs. Sync useEffect: `if (!sessionId || archivingRef.current) return;`. `endSessionArchive` põe a true antes do archive; `resetToSetup` põe a false no início.
+
+### Comparação estrutural em `setConnectedClients`
+**Porquê**: heartbeats (cada 15s) atualizam `lastSeen` em `clients/<n>`, disparando o listener. Se `setConnectedClients(data)` corre em cada heartbeat, o React re-renderiza e o sync useEffect re-escreve `gameState`. Com 18 clientes = ~1 re-render/segundo.
+
+**Solução**: já feita por `SessionCore.subscribeClients`. `onLastSeen` actualiza um ref (sem render); `onStructural` só dispara quando há mudança real.
+
+### Modais inline vs `h(Component)`
+**Porquê**: chamar `h(NewRoundModal, null)` quando `NewRoundModal` é definido dentro de `App()` faz o React tratar a função como componente. Cada render gera nova referência → React desmonta + remonta → animação `slide-in` reactiva e scroll perde-se.
+
+**Solução**: chamar como função pura: `showNewRound && NewRoundModal()`. Os elementos são inlinados no render do App e React reconcilia-os estavelmente.
+
+### Defensive merge no `onGameState` (Diamant)
+**Porquê**: em casos de race ou snapshot truncado, `data.savedScores` pode chegar vazio temporariamente; aceitar isto cega o cliente.
+
+**Solução**: no callback `onGameState`, usar `setGameData(prev => ...)` e fazer fallback aos valores anteriores se vierem vazios inesperadamente.
+
+### React-sem-JSX
+Todas as apps usam `var h = React.createElement;`. Sem build step. Listas de elementos passam-se como rest args ou arrays com `key`:
+```javascript
+h('div', { className: '...' },
+    h('span', null, 'A'),
+    cond && h('span', null, 'B'),
+    items.map(function(it) { return h('div', { key: it.id }, it.name); })
 )
 ```
 
 ---
 
-## 🔧 Interface de Módulo Modular (para generic/game-system)
+## 🎲 Apps Existentes — Resumo Técnico
 
-```javascript
-const MeuModulo = {
-    id: 'meujogo',
-    name: 'Nome do Jogo',
-    description: '...',
-    icon: '🎮',
+### Mega Hitster (`master-hitster.html`, `client-hitster.html`, `games/hitster.js`)
+Quiz musical. Fases: `waiting → joker_window → answering → reviewing → waiting`.
+- Categorias configuráveis (Ano, ±3, Título, Artista, Década, Timeline Duel)
+- Joker (duplica pontos, 1/jogo/equipa)
+- Modo Cantora (último lugar canta; ganha pelos acertos das outras)
+- Timers absolutos (timestamps), clientes derivam countdown localmente
+- Regras editáveis em runtime no master, sincronizadas via `gameState.rulesConfig` (array de blocos)
+- Categorias também em `gameState.categories` para o cliente mostrar
 
-    getDefaultConfig: function() { return {...}; },
-    getConfigUI: function(config, setConfig, h) { return ...; },
+`ReviewModal` é chamado como `ReviewModal()` (não `h(ReviewModal, null)`) para preservar scrollTop ao tickar checkboxes.
 
-    onSessionStart: function(config) { return estadoInicial; },
-    onSessionEnd:   function(state, tables, config) { return dadosHistorico; },
+### Diamant / Incan Gold (`master-diamant.html`, `client-diamant.html`)
+Adaptação do jogo de tabuleiro. Fases: `waiting_start → expedition → voting → reveal → ...`.
+- Distribuição automática de rubis, gestão de reserva e sobras
+- Votação secreta "Continuar/Sair" com timeout
+- Apostas em equipas
+- Pontos provisórios (`discoveredScores`) vs definitivos (`savedScores`) — diferidos até fim de expedição
+- Multiplicador automático quando ≥ N equipas
+- `sessionLog` rastreia `joined`/`active`/`left` por mesa
 
-    processAction:    function(action, state, tables) { return { gameState, tables }; },
-    getFirebaseState: function(state, config, tables, extra) { return estadoFirebase; },
-
-    getGameControlsUI: function({ gameState, config, tables, actions, h }) { return ...; },
-    getTableUI:        function({ table, gameState, connectedClients, textResponses, h }) { return ...; },
-    getClientUI:       function({ gameData, myTable, tableNumber, actions, h }) { return ...; }
-};
-window.MeuModulo = MeuModulo;
-```
+### Contador Genérico (`master.html` + `client.html` + `games/generic.js`)
+Sistema modular legacy. Buzzers, +1/-1/+5, respostas de texto, leaderboard. Não usa shared cores.
 
 ---
 
-## 📝 Template de Prompt para Claude
+## 🚀 Como Adicionar um Novo Jogo
 
+Padrão recomendado: **standalone** (par `master-X.html` + `client-X.html`), usando os shared cores.
+
+### Esqueleto do cliente (essencial)
+
+```html
+<!DOCTYPE html>
+<html><head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meu Jogo - Cliente</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="shared/firebase-config.js"></script>
+  <script src="shared/client-core.js"></script>
+</head><body>
+  <div id="root"></div>
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+    import { getDatabase, ref, onValue, set, remove, get, update, goOffline, goOnline } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+    const app = initializeApp(window.FirebaseConfig);
+    window.rtdb = getDatabase(app);
+    window.fbModules = { ref, onValue, set, remove, get, update, goOffline, goOnline };
+    window.dispatchEvent(new Event('firebaseReady'));
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script>
+    window.addEventListener('firebaseReady', function() {
+      var localStore = ClientCore.createLocalStore('meujogo');
+      var CLIENT_ID  = ClientCore.getClientId('meujogo_clientId');
+      // ... App() com handleConnect → ClientCore.joinSession,
+      //     useEffect connectClient, useEffect listeners game-específicos.
+    });
+  </script>
+</body></html>
 ```
-## Projeto
-Sistema de Pontuação — https://github.com/alpces/score (GitHub Pages: alpces.github.io/score)
 
-## Módulo / Ficheiros
-[ex: Mega Hitster — master-hitster.html, client-hitster.html, games/hitster.js]
+### Esqueleto do master
 
-## Estado atual
-[ex: v1.2 — ver DEVELOPMENT_LOG.md para histórico]
+Carregar `shared/firebase-config.js` + `shared/session-core.js`. Usar:
+- `subscribeActiveSessions` no setup
+- `subscribeSessionHistory` no histórico
+- `subscribeClients` (com `onLastSeen` num ref) no jogo
+- `archiveSession` com enricher apropriado nos 3 fluxos (terminar, criar nova sobre activa, fechar sem abrir)
+- `archivingRef` para o sync useEffect
 
-## O que quero fazer
-[Descrever a funcionalidade ou bug]
-
-## Código relevante (se existir)
-[Colar trecho do código afetado]
-
-## Comportamento esperado
-[Detalhar]
+### Adicionar URL pública
+Em `shared/firebase-config.js`, adicionar ao `AppConfig`:
+```javascript
+CLIENT_MEUJOGO_URL: 'https://alpces.github.io/score/client-meujogo.html',
+MASTER_MEUJOGO_URL: 'https://alpces.github.io/score/master-meujogo.html',
 ```
+
+### Escolher um enricher
+- Tables são vistas do cliente (com emails como atributo) → `enrichers.mergeEmailsIntoTables`
+- Tables têm vida própria + queres preservar dados raw dos clientes → `enrichers.attachClientsField`
+- Outro padrão → escrever um custom inline
+
+---
+
+## 🎨 Princípios de UI
+
+| Contexto | Cores principais |
+|---|---|
+| Genérico / Diamant | purple-600, indigo-600, green-500, red-500 |
+| Mega Hitster | violet-900, purple-900, indigo-900 (fundo); yellow-500 (joker); violet-400/600 (pontos) |
+
+- **Botões**: `rounded-lg`, `font-bold`, `active:scale-95 transition-all`
+- **Cards**: `bg-white rounded-2xl shadow-2xl p-4` (claros) / `bg-slate-800 rounded-xl border` (escuros)
+- **Modais**: backdrop `bg-black bg-opacity-70 fixed inset-0`, fecho ao clicar fora, animação `slide-in` no card interno
+- **Modais com lista possivelmente longa**: card com `max-h-[90vh] flex flex-col`; lista com `overflow-y-auto flex-1`
 
 ---
 
 ## ⚠️ Regras e Notas
 
-1. **Sistema modular**: não modificar `game-system.js` — é o core partilhado
-2. **Apps standalone**: `master-hitster.html` e similares são auto-contidas; ignorar regras do sistema modular
-3. **Firebase**: sempre incluir `gameType`, `timestamp`, `active` no `gameState`
-4. **Logos**: existem `logo1.png` a `logo4.png` (4 no total); o código carrega até 5 com fallback silencioso (`onerror`)
-5. **Retrocompatibilidade**: sessões antigas devem continuar a funcionar; não remover campos do Firebase sem migração
-6. **`ReviewModal` no Hitster**: chamar como `ReviewModal()` para preservar scroll — ver secção acima
-7. **Testes**: não há suite de testes automatizados; testar manualmente no browser e em GitHub Pages após push
+1. **`game-system.js`** é o core do sistema modular legacy. **Não modificar.**
+2. **Apps standalone** são auto-contidas; não dependem de `game-system.js`.
+3. **Firebase**: sempre incluir `gameType`, `timestamp`, `active` no `gameState`.
+4. **Logos**: `logo1.png`–`logo4.png` existem; o código carrega até 5 com fallback (`onerror`).
+5. **Retrocompatibilidade**: sessões e arquivos existentes devem continuar a funcionar após mudanças. Não remover campos de Firebase sem migração.
+6. **Modais persistentes** (NewRoundModal, ReviewModal): chamar como função `Modal()`, não `h(Modal, null)`. Ver secção de padrões defensivos.
+7. **Testes**: não há suite automatizada. Validar manualmente em browser e em GitHub Pages após push (preview ≠ produção em alguns casos de cache).
+8. **Língua**: PT-PT em UI, comentários e mensagens de erro. Inglês em nomes de funções e variáveis.
+9. **Commits**: mensagens em PT, formato Conventional Commits (`feat(...)`, `fix(...)`, `refactor(...)`, `docs(...)`, ...). Co-Author: `Claude Sonnet 4.6 <noreply@anthropic.com>`.
+
+---
+
+## 📝 Template de Prompt
+
+```
+## Projeto
+Sistema de Pontuação — github.com/alpces/score (live: alpces.github.io/score)
+
+## Contexto
+Lê CLAUDE_CONTEXT.md primeiro.
+
+## Ficheiros relevantes
+[ex: client-hitster.html, shared/client-core.js]
+
+## O que quero
+[descrever]
+
+## Comportamento esperado
+[detalhar]
+```
 
 ---
 
 ## 👥 Contribuidores
 
-- **ALPCeS - Ludonautas** — Desenvolvimento e design
-- **Claude AI** — Assistência de código
+- **ALPCeS - Ludonautas** — desenvolvimento, design, regras
+- **Claude (Anthropic)** — assistência de código
 - https://ludonautas.pt

@@ -4,6 +4,45 @@ Registo de desenvolvimento do Sistema de Pontuação Modular.
 
 ---
 
+## 🧱 Refactor — Extracção dos Shared Cores (Maio 2026)
+
+Migração da infraestrutura repetida em todos os jogos para dois ficheiros partilhados em `shared/`. Trabalho feito em fases incrementais, cada uma validada manualmente antes de avançar.
+
+### Phase 1 — Cliente (client-core.js)
+
+**1.1** — Helpers puros: `getClientId`, `withTimeout`, `createLocalStore`, `computeConnState`. Migração trivial em `client-hitster.html`. Mesmas chaves de localStorage para preservar sessões existentes.
+
+**1.2** — `connectClient({rtdb, fm, sessionCode, tableNumber, ...})` → `{disconnect, forceRefresh}`. Encapsula listener de gameState, listener de `clients/<n>` para deteção de remoção, `.info/connected`, eventos `visibilitychange`/`focus`/`pageshow`/`online` (com `goOnline` + `forceRefresh` + `onResume`), heartbeat periódico. Eliminou 3 useEffects + 3 refs no `client-hitster`.
+
+**1.3** — `attachWakeLock`, `joinSession` (com deteção de colisão de clientId via leitura única de `clients/<n>`), `submitWithVerify` (3 retries + verify-after-write). `handleConnect` e `submitText` ficam reduzidos a wiring.
+
+**Cumulativo**: `client-hitster.html` passa de 807 para 627 linhas (-22%).
+
+### Phase 2 — Master (session-core.js)
+
+`subscribeActiveSessions`, `subscribeSessionHistory`, `subscribeClients` (com separação `onLastSeen`/`onStructural` para evitar re-renders por heartbeat), `readGameStateOnce`, `readClientsOnce`, `archiveSession`. Versão inicial do `archiveSession` fazia merge de emails nas tables (padrão Hitster).
+
+### Phase 3 — Migração do Diamant
+
+Validação da abstracção. Apenas uma generalização foi necessária: `archiveSession` deixou de ter o merge de emails hard-coded e passou a aceitar um callback `enrich(history, clients)`. Adicionados dois enrichers prontos: `mergeEmailsIntoTables` (Hitster) e `attachClientsField` (Diamant).
+
+`client-diamant.html` ganha features que não tinha: clientId persistente, heartbeat, forceRefresh em background-resume, `.info/connected`, wake lock. `master-diamant.html` ganha optimização anti-flicker do listener de clientes e `archivingRef` (corrige bug de "sessão fantasma" ao arquivar).
+
+### Resultado final
+
+| Ficheiro | Antes | Depois | Δ |
+|---|---|---|---|
+| `client-hitster.html`  | 807  | 627  | -22% |
+| `master-hitster.html`  | 1490 | 1410 | -5%  |
+| `client-diamant.html`  | 710  | 672  | -5%  |
+| `master-diamant.html`  | 1164 | 1140 | -2%  |
+| `shared/client-core.js`  | —    | 474  | (novo) |
+| `shared/session-core.js` | —    | 293  | (novo) |
+
+Linhas no master diminuem pouco em valor absoluto, mas a complexidade concentra-se nos cores (testáveis isoladamente, partilhados entre jogos). Adicionar um novo jogo passa a exigir essencialmente UI + lógica game-específica.
+
+---
+
 ## 🎯 Módulo: Diamant / Incan Gold
 
 ### v3.1.0 - 2026-04-04

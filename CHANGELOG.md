@@ -4,6 +4,34 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Refactor — Shared Cores] - 2026-05
+
+Extração da infraestrutura partilhada para dois ficheiros em `shared/`, validada migrando Hitster e Diamant. Mais detalhe técnico em `DEVELOPMENT_LOG.md`.
+
+### Adicionado
+- **`shared/client-core.js`** (`window.ClientCore`): `getClientId`, `withTimeout`, `createLocalStore`, `computeConnState`, `connectClient`, `attachWakeLock`, `joinSession`, `submitWithVerify`.
+- **`shared/session-core.js`** (`window.SessionCore`): `subscribeActiveSessions`, `subscribeSessionHistory`, `subscribeClients`, `readGameStateOnce`, `readClientsOnce`, `archiveSession`, `enrichers.{mergeEmailsIntoTables, attachClientsField}`.
+- **Resiliência adicional no Diamant**: clientes ganham UUID persistente (deteção de colisão), heartbeat, forceRefresh em background-resume, `.info/connected`, wake lock — features que não tinha.
+
+### Alterado
+- **client-hitster.html**: 807 → 627 linhas (-22%). connectClient/joinSession/submitWithVerify/attachWakeLock substituem implementações inline.
+- **master-hitster.html**: lifecycle de sessão delegado ao SessionCore (active sessions, history, clients listener, archive flow).
+- **client-diamant.html**: 710 → 672 linhas. Migrado para usar ClientCore.
+- **master-diamant.html**: 1164 → 1140 linhas. Migrado para usar SessionCore. Adicionado `archivingRef` (mesmo padrão do Hitster) para bloquear o sync useEffect durante o arquivo.
+
+### Corrigido
+- **Sessão fantasma no Diamant ao arquivar** (motivado pela migração): sem `archivingRef`, a remoção dos clientes ao apagar `sessions/<id>` disparava `subscribeClients`, gerando setStates → re-render → sync useEffect → re-escrita de `gameState` com `active:true`. Histórico mostrava entrada arquivada + entrada activa fantasma.
+- **Flicker do modal de nova ronda no Hitster**: `showNewRound && h(NewRoundModal, null)` tratava a função local como componente; nova referência por render → desmontar+remontar → animação `slide-in` reactivava cada `presenceTick` (5s). Corrigido para `NewRoundModal()` (mesmo padrão usado no `ReviewModal`).
+- **Re-renders desnecessários por heartbeat**: `subscribeClients.onLastSeen` actualiza um ref (sem re-render); `onStructural` só dispara quando há mudança real. Com 18 clientes, eliminou ~1 re-render/segundo no master.
+- **Scroll bloqueado no popup de info de sessão Hitster**: card com `max-h-[90vh] flex flex-col`, lista com `overflow-y-auto flex-1`.
+
+### Removido
+- **Código morto no master-hitster**: `catsLoadedRef`, `jokerTimeRef` + useEffect, state `jokerPresses` (set, nunca lido).
+- **Código morto no client-hitster**: `showScores` derivado mas nunca usado.
+- **Import morto no master-diamant**: Firestore (`getFirestore`, `collection`, etc.) — nunca usado.
+
+---
+
 ## [Diamant v2.6] - 2026-04-07
 
 ### Módulo Diamant - Auto-reconnect, Apostas Amount-based, Detalhes de Sessão
