@@ -180,28 +180,31 @@
     }
 
     /**
-     * Arquiva uma sessão activa em três passos seguros:
+     * Arquiva uma sessão activa em quatro passos seguros:
      *
      * 1. Marca `gameState.active = false` (sinaliza aos clientes que a sessão
      *    terminou — eles detectam pelo listener e limpam estado local).
      * 2. Espera `waitMs` (default 500ms) para os clientes processarem.
-     * 3. Lê o nó `clients` para capturar os emails que cada equipa registou.
-     * 4. Escreve o registo em `sessionHistory/<id>`, mesclando os emails nas
-     *    tables fornecidas pelo caller (lookup por `id`).
-     * 5. Remove `sessions/<id>` por completo.
+     * 3. Lê o nó `clients` para enriquecer o registo do histórico.
+     * 4. Aplica `enrich(history, clients)` se fornecido — cada jogo decide o
+     *    que fazer com os dados dos clientes (ex: mesclar emails nas tables,
+     *    ou guardar o objecto clients inteiro num campo separado).
+     * 5. Escreve em `sessionHistory/<id>` o resultado de `enrich`, com
+     *    `gameType`, `sessionId`, `timestamp` e `archived: true` injectados.
+     * 6. Remove `sessions/<id>` por completo.
      *
-     * O `history` fornecido pelo caller deve conter pelo menos `tables`
-     * (cada uma com `id`); o core acrescenta automaticamente `gameType`,
-     * `sessionId`, `timestamp` e `archived: true`. Outros campos passados
-     * (jokerOrder, roundNumber, selectedLogos, etc.) são preservados como estão.
+     * Helpers prontos a usar:
+     *   - `SessionCore.enrichers.mergeEmailsIntoTables` — padrão Hitster
+     *   - `SessionCore.enrichers.attachClientsField`    — padrão Diamant
      *
      * @param {object} opts
      * @param {object} opts.rtdb
-     * @param {object} opts.fm     window.fbModules ({ref, set, update, remove, onValue})
+     * @param {object} opts.fm
      * @param {string} opts.sessionId
      * @param {string} opts.gameType
-     * @param {object} opts.history  payload com pelo menos `tables: [{id, ...}]`
-     * @param {number} [opts.waitMs=500] tempo de espera entre marcar inativo e arquivar
+     * @param {object} opts.history    base do payload do histórico
+     * @param {function} [opts.enrich] (history, clients) → history transformado
+     * @param {number} [opts.waitMs=500]
      * @returns {Promise<{ok:boolean, archiveId?:string, error?:Error}>}
      */
     async function archiveSession(opts) {
@@ -212,39 +215,38 @@
         var sessionId = opts.sessionId;
         var gameType  = opts.gameType;
         var history   = opts.history || {};
+        var enrich    = typeof opts.enrich === 'function' ? opts.enrich : null;
         var waitMs    = typeof opts.waitMs === 'number' ? opts.waitMs : 500;
 
         try {
-            // PASSO 1: marcar inativo PRIMEIRO (sem active:true bleed)
+            // 1. Marcar inativo PRIMEIRO (sem active:true bleed)
             await fm.update(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
                 active: false, closedAt: Date.now()
             });
 
-            // PASSO 2: dar tempo aos clientes para processarem
+            // 2. Dar tempo aos clientes para processarem
             await new Promise(function(r) { setTimeout(r, waitMs); });
 
-            // PASSO 3: capturar emails dos clientes
+            // 3. Ler clients
             var clientsData = await readClientsOnce({ rtdb: rtdb, fm: fm, sessionId: sessionId });
 
-            // PASSO 4: enriquecer tables com emails (lookup por id)
-            var tablesWithEmails = (history.tables || []).map(function(t) {
-                var cl = clientsData[t.id];
-                var emails = cl ? (cl.emails || []) : (t.emails || []);
-                return Object.assign({}, t, { emails: emails });
-            });
+            // 4. Aplicar enrich (se fornecido)
+            var enriched = history;
+            if (enrich) {
+                enriched = enrich(history, clientsData) || history;
+            }
 
-            // PASSO 5: escrever no histórico
+            // 5. Escrever no histórico
             var archiveId = Math.random().toString(36).substring(2, 12);
-            var payload = Object.assign({}, history, {
+            var payload = Object.assign({}, enriched, {
                 gameType:  gameType,
                 sessionId: sessionId,
                 timestamp: Date.now(),
-                tables:    tablesWithEmails,
                 archived:  true
             });
             await fm.set(fm.ref(rtdb, 'sessionHistory/' + archiveId), payload);
 
-            // PASSO 6: remover sessions/<id>
+            // 6. Remover sessions/<id>
             await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId));
 
             return { ok: true, archiveId: archiveId };
@@ -253,12 +255,39 @@
         }
     }
 
+    /**
+     * Enrichers prontos para usar com archiveSession.
+     * Cada um modifica o objecto `history` em função do snapshot de clientes.
+     */
+    var enrichers = {
+        // Padrão Hitster: olha para cada t em history.tables, encontra o cliente
+        // com o mesmo id, e mescla os emails directamente em t. Útil quando o
+        // cliente é considerado uma "vista" da equipa.
+        mergeEmailsIntoTables: function(history, clients) {
+            if (!Array.isArray(history.tables)) return history;
+            history.tables = history.tables.map(function(t) {
+                var cl = clients[t.id];
+                var emails = cl ? (cl.emails || []) : (t.emails || []);
+                return Object.assign({}, t, { emails: emails });
+            });
+            return history;
+        },
+        // Padrão Diamant: guarda o objecto clients inteiro num campo separado.
+        // Útil quando o cliente tem mais informação relevante para preservar
+        // (ex: log de conexões, status 'left'/'active', etc.).
+        attachClientsField: function(history, clients) {
+            history.clients = clients;
+            return history;
+        }
+    };
+
     window.SessionCore = {
         subscribeActiveSessions: subscribeActiveSessions,
         subscribeSessionHistory: subscribeSessionHistory,
         subscribeClients:        subscribeClients,
         readGameStateOnce:       readGameStateOnce,
         readClientsOnce:         readClientsOnce,
-        archiveSession:          archiveSession
+        archiveSession:          archiveSession,
+        enrichers:               enrichers
     };
 })();

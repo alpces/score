@@ -8,6 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Diamant - Cliente</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuração Firebase e core de cliente partilhados -->
+    <script src="shared/firebase-config.js"></script>
+    <script src="shared/client-core.js"></script>
     <style>
       input, textarea, select { font-size: 16px !important; }
       html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
@@ -17,24 +20,16 @@
 </head>
 <body>
     <div id="root"></div>
-    
+
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getDatabase, ref, onValue, set, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+        import { getDatabase, ref, onValue, set, remove, get, update, goOffline, goOnline } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
-            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
-            projectId: "contador-de-pontos-321ee",
-            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
-            messagingSenderId: "817191889469",
-            appId: "1:817191889469:web:cfb88023612f6b37491854",
-            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
-        };
+        const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
         window.rtdb = getDatabase(app);
-        window.fbModules = { ref, onValue, set, update };
+        window.fbModules = { ref, onValue, set, remove, get, update, goOffline, goOnline };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -54,6 +49,10 @@
         window.addEventListener('firebaseReady', function() {
             var useState = React.useState, useEffect = React.useEffect, h = React.createElement;
             var rtdb = window.rtdb, fm = window.fbModules;
+
+            var localStore = ClientCore.createLocalStore('diamant');
+            var clearLocal = localStore.clear;
+            var CLIENT_ID  = ClientCore.getClientId('diamant_clientId');
 
             function App() {
                 var _s = function(v) { return useState(v); };
@@ -77,84 +76,72 @@
                 var c15 = _s(false); var betSubmitted = c15[0]; var setBetSubmitted = c15[1];
                 var c16 = _s(1); var betAmount = c16[0]; var setBetAmount = c16[1];
                 var c17 = _s(0); var resubKey = c17[0]; var setResubKey = c17[1];
-                
-                // Re-subscrever listeners quando a app volta de background
+
+                // — restaurar sessão local —
                 useEffect(function() {
-                    var onVis = function() {
-                        if (document.visibilityState === 'visible') {
-                            setResubKey(function(k) { return k + 1; });
-                        }
-                    };
-                    document.addEventListener('visibilitychange', onVis);
-                    return function() { document.removeEventListener('visibilitychange', onVis); };
-                }, []);
-                
-                // Expiração de sessão: 12h
-                var EXPIRY_MS = 12 * 60 * 60 * 1000;
-                var clearLocal = function() {
-                    localStorage.removeItem('diamant_session'); localStorage.removeItem('diamant_table');
-                    localStorage.removeItem('diamant_team'); localStorage.removeItem('diamant_emails');
-                    localStorage.removeItem('diamant_ts');
-                };
-                
-                useEffect(function() {
-                    var ss = localStorage.getItem('diamant_session');
-                    var st = localStorage.getItem('diamant_table');
-                    var ts = parseInt(localStorage.getItem('diamant_ts') || '0');
-                    var expired = (Date.now() - ts) > EXPIRY_MS;
-                    
-                    if (ss && expired) { clearLocal(); ss = null; st = null; }
-                    
-                    if (ss && st) {
-                        // Sessão local válida → auto-reconnect (ignora URL)
-                        setSessionCode(ss); setTableNumber(st);
-                        var sn = localStorage.getItem('diamant_team'), se = localStorage.getItem('diamant_emails');
-                        if (sn) setTeamName(sn); if (se) setEmails(se);
+                    var saved = localStore.load();
+                    if (saved) {
+                        setSessionCode(saved.session);
+                        setTableNumber(saved.table);
+                        if (saved.team)   setTeamName(saved.team);
+                        if (saved.emails) setEmails(saved.emails);
                         setAutoReconnecting(true);
                     } else {
-                        // Sem sessão local → login. URL pré-preenche o código se existir
                         var p = new URLSearchParams(window.location.search);
                         var urlSession = p.get('session');
                         if (urlSession) setSessionCode(urlSession.toUpperCase());
                     }
                 }, []);
-                
+
                 useEffect(function() {
                     if (autoReconnecting && sessionCode && tableNumber) handleConnect(true);
                 }, [autoReconnecting, sessionCode, tableNumber]);
-                
-                // Listener jogo + sessão removida
+
+                // — Conexão à sessão: gameState, clients/<n>, .info/connected, heartbeat,
+                //   visibility/focus → resume são todos geridos pelo ClientCore.connectClient.
+                //   Listeners game-específicos (diamantVotes/<n>, diamantBets/<n>) à parte abaixo. —
                 useEffect(function() {
-                    if (!connected || !sessionCode) return;
-                    var unsubG = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), function(snap) {
-                        var data = snap.val();
-                        if (!data) {
-                            // Snapshot nulo — pode ser reconexão, não limpar estado
-                            return;
-                        }
-                        if (data.active === false) {
+                    if (!connected || !sessionCode || !tableNumber) return;
+                    var ctrl = ClientCore.connectClient({
+                        rtdb: rtdb, fm: fm,
+                        sessionCode: sessionCode, tableNumber: tableNumber,
+                        onGameState: function(data) {
+                            // Defensive merge: preservar savedScores/tables se vierem vazios inesperadamente
+                            setGameData(function(prev) {
+                                if (prev && prev.gameType === 'diamant') {
+                                    var merged = Object.assign({}, data);
+                                    if ((!data.savedScores || Object.keys(data.savedScores).length === 0) && prev.savedScores && Object.keys(prev.savedScores).length > 0) {
+                                        merged.savedScores = prev.savedScores;
+                                    }
+                                    if (!data.tables && prev.tables) merged.tables = prev.tables;
+                                    return merged;
+                                }
+                                return data;
+                            });
+                        },
+                        onSessionLost: function() {
                             setSessionLost(true); setConnected(false); setGameData(null);
                             clearLocal();
-                            return;
-                        }
-                        // Defensive merge: preservar savedScores/discoveredScores se vierem vazios inesperadamente
-                        setGameData(function(prev) {
-                            if (prev && prev.gameType === 'diamant') {
-                                var merged = Object.assign({}, data);
-                                if ((!data.savedScores || Object.keys(data.savedScores).length === 0) && prev.savedScores && Object.keys(prev.savedScores).length > 0) {
-                                    merged.savedScores = prev.savedScores;
-                                }
-                                if (!data.tables && prev.tables) merged.tables = prev.tables;
-                                return merged;
-                            }
-                            return data;
-                        });
+                        },
+                        // Bump resubKey para que listeners game-específicos voltem a subscrever após resume
+                        onResume: function() { setResubKey(function(k) { return k + 1; }); }
                     });
-                    // Voto: driven by Firebase — se o nó existe, votou; se não, não votou
+                    return function() { ctrl.disconnect(); };
+                }, [connected, sessionCode, tableNumber]);
+
+                // — wake lock: manter ecrã ligado enquanto conectado —
+                useEffect(function() {
+                    if (!connected) return;
+                    var lock = ClientCore.attachWakeLock();
+                    return function() { lock.release(); };
+                }, [connected]);
+
+                // — listeners game-específicos: voto e aposta da própria mesa —
+                useEffect(function() {
+                    if (!connected || !sessionCode || !tableNumber) return;
                     var unsubV = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantVotes/' + tableNumber), function(snap) {
                         setVoteSubmitted(snap.val() !== null);
                     });
-                    // Aposta: driven by Firebase
                     var unsubB = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantBets/' + tableNumber), function(snap) {
                         var bet = snap.val();
                         if (bet && bet.target) {
@@ -163,16 +150,7 @@
                             setBetTarget(null); setBetAmount(1); setBetSubmitted(false);
                         }
                     });
-                    // Desconexão: master removeu esta mesa
-                    var firstClientSnap = true;
-                    var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber), function(snap) {
-                        if (firstClientSnap) { firstClientSnap = false; return; }
-                        if (snap.val() === null) {
-                            setSessionLost(true); setConnected(false); setGameData(null);
-                            clearLocal();
-                        }
-                    });
-                    return function() { unsubG(); unsubV(); unsubB(); unsubC(); };
+                    return function() { unsubV(); unsubB(); };
                 }, [connected, sessionCode, tableNumber, resubKey]);
                 
                 // Timer sincronizado — derivado de votingTimerEndAt (timestamp absoluto do master)
@@ -192,42 +170,26 @@
                     return function() { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
                 }, [gameData ? gameData.votingTimerEndAt : 0, gameData ? gameData.phase : null]);
                 
-                // Conexão com validação de mesa duplicada
+                // Conexão (delegada ao ClientCore.joinSession; emails é obrigatório no Diamant)
                 var handleConnect = async function(isAuto) {
-                    var code = sessionCode.trim().toUpperCase(), table = parseInt(tableNumber);
-                    if (!code || !table) { setConnectionError('Preenche código e mesa'); setAutoReconnecting(false); return; }
-                    if (!isAuto && !teamName.trim()) { setConnectionError('O nome da equipa é obrigatório'); return; }
                     if (!isAuto && !emails.trim()) { setConnectionError('O email é obrigatório'); return; }
-                    try {
-                        // Verificar sessão ativa
-                        var gsSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/gameState'), r, { onlyOnce: true }); });
-                        var gs = gsSnap.val();
-                        if (!gs) { setConnectionError('Sessão "' + code + '" não encontrada.'); setAutoReconnecting(false); return; }
-                        if (gs.active === false) { setConnectionError('Sessão "' + code + '" já não está ativa.'); setAutoReconnecting(false); return; }
-                        
-                        // Verificar mesa duplicada (exceto auto-reconexão)
-                        if (!isAuto) {
-                            var cSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), r, { onlyOnce: true }); });
-                            var existing = cSnap.val();
-                            if (existing) {
-                                setConnectionError('A Mesa ' + table + ' já está conectada! Escolhe outro número.');
-                                setAutoReconnecting(false); return;
-                            }
-                        }
-                        
-                        await fm.set(fm.ref(rtdb, 'sessions/' + code + '/clients/' + table), {
-                            tableNumber: table, teamName: teamName.trim() || ('Mesa ' + table),
-                            emails: emails.trim() ? emails.split(',').map(function(e) { return e.trim(); }) : [],
-                            connectedAt: Date.now(), lastPing: Date.now()
-                        });
-                        localStorage.setItem('diamant_session', code); localStorage.setItem('diamant_table', table.toString());
-                        localStorage.setItem('diamant_ts', Date.now().toString());
-                        if (teamName) localStorage.setItem('diamant_team', teamName);
-                        if (emails) localStorage.setItem('diamant_emails', emails);
+                    var result = await ClientCore.joinSession({
+                        rtdb: rtdb, fm: fm,
+                        sessionCode: sessionCode, tableNumber: tableNumber,
+                        teamName: teamName, emails: emails,
+                        clientId: CLIENT_ID, gameType: 'diamant',
+                        isAuto: isAuto
+                    });
+                    if (result.ok) {
+                        localStore.save({ session: result.code, table: result.table, team: teamName, emails: emails });
                         setConnected(true); setAutoReconnecting(false); setConnectionError(''); setSessionLost(false);
-                    } catch (e) { setConnectionError('Erro ao conectar.'); setAutoReconnecting(false); }
+                    } else {
+                        if (result.clearLocal) clearLocal();
+                        setConnectionError(result.error || 'Erro ao conectar.');
+                        setAutoReconnecting(false);
+                    }
                 };
-                
+
                 var handleDisconnect = async function() {
                     if (!confirm('Sair da sessão?')) return;
                     try { if (sessionCode && tableNumber) await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber)); } catch(e) {}

@@ -5,29 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Diamant - Master</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuração Firebase e core de sessão partilhados -->
+    <script src="shared/firebase-config.js"></script>
+    <script src="shared/session-core.js"></script>
 </head>
 <body>
     <div id="root"></div>
-    
+
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
-            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
-            projectId: "contador-de-pontos-321ee",
-            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
-            messagingSenderId: "817191889469",
-            appId: "1:817191889469:web:cfb88023612f6b37491854",
-            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
-        };
+        const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
-        window.db = getFirestore(app);
         window.rtdb = getDatabase(app);
-        window.fbModules = { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update };
+        window.fbModules = { ref, set, remove, onValue, update };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -82,6 +75,10 @@
                 var savedScoresRef = useRef({});
                 var discoveredScoresRef = useRef({});
                 var connectedClientsRef = useRef({});
+                // Bloqueia o sync useEffect durante o arquivo, para evitar que uma
+                // mudança de dep durante a janela `active:false → remove` re-escreva
+                // gameState com active:true e crie uma sessão fantasma.
+                var archivingRef = useRef(false);
                 useEffect(function() { savedScoresRef.current = savedScores; }, [savedScores]);
                 useEffect(function() { discoveredScoresRef.current = discoveredScores; }, [discoveredScores]);
                 useEffect(function() { connectedClientsRef.current = connectedClients; }, [connectedClients]);
@@ -129,39 +126,24 @@
                 
                 // === SESSÕES ATIVAS ===
                 useEffect(function() {
-                    var unsub = fm.onValue(fm.ref(rtdb, 'sessions'), function(snap) {
-                        var data = snap.val();
-                        if (data) {
-                            var active = Object.keys(data).filter(function(c) {
-                                var gs = data[c] && data[c].gameState;
-                                return gs && gs.gameType === GAME_TYPE && gs.active !== false;
-                            }).map(function(c) {
-                                return Object.assign({ sessionId: c }, data[c].gameState);
-                            }).sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
-                            setActiveSessions(active);
-                        } else setActiveSessions([]);
+                    var unsub = SessionCore.subscribeActiveSessions({
+                        rtdb: rtdb, fm: fm, gameType: GAME_TYPE, onChange: setActiveSessions
                     });
                     return function() { unsub(); };
                 }, []);
-                
+
                 // === HISTÓRICO ===
                 useEffect(function() {
                     if (!showHistory) return;
-                    var unsub = fm.onValue(fm.ref(rtdb, 'sessionHistory'), function(snap) {
-                        var data = snap.val();
-                        if (data) {
-                            var e = Object.entries(data).filter(function(p) { return p[1].gameType === GAME_TYPE; })
-                                .map(function(p) { return Object.assign({ id: p[0] }, p[1]); })
-                                .sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
-                            setSessionHistory(e);
-                        } else setSessionHistory([]);
+                    var unsub = SessionCore.subscribeSessionHistory({
+                        rtdb: rtdb, fm: fm, gameType: GAME_TYPE, onChange: setSessionHistory
                     });
                     return function() { unsub(); };
                 }, [showHistory]);
                 
                 // === SYNC FIREBASE ===
                 useEffect(function() {
-                    if (!sessionId) return;
+                    if (!sessionId || archivingRef.current) return;
                     (async function() {
                         try {
                             await fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
@@ -186,70 +168,73 @@
                 // === LISTENERS ===
                 useEffect(function() {
                     if (!sessionId) return;
-                    var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
-                        var data = snap.val() || {};
-                        var prevClients = connectedClientsRef.current || {};
-                        var curSaved = savedScoresRef.current || {};
-                        var curDisc = discoveredScoresRef.current || {};
-                        
-                        // 1. Detectar IDs que estavam antes e já não estão → marcar 'left' no log
-                        Object.keys(prevClients).forEach(function(k) {
-                            if (!data[k]) {
-                                var id = parseInt(k);
-                                var oldCli = prevClients[k] || {};
+                    var unsubC = SessionCore.subscribeClients({
+                        rtdb: rtdb, fm: fm, sessionId: sessionId,
+                        // Diamant não usa lastSeen para presença — ignoramos a callback
+                        onStructural: function(data) {
+                            var prevClients = connectedClientsRef.current || {};
+                            var curSaved = savedScoresRef.current || {};
+                            var curDisc = discoveredScoresRef.current || {};
+
+                            // 1. Detectar IDs que estavam antes e já não estão → marcar 'left' no log
+                            Object.keys(prevClients).forEach(function(k) {
+                                if (!data[k]) {
+                                    var id = parseInt(k);
+                                    var oldCli = prevClients[k] || {};
+                                    setSessionLog(function(prevLog) {
+                                        var nl = Object.assign({}, prevLog);
+                                        var existing = nl[id] || { id: id, joinedAt: Date.now() };
+                                        nl[id] = Object.assign({}, existing, {
+                                            id: id,
+                                            name: oldCli.teamName || existing.name || ('Mesa ' + id),
+                                            emails: oldCli.emails || existing.emails || [],
+                                            savedScore: curSaved[id] || 0,
+                                            discoveredScore: curDisc[id] || 0,
+                                            status: 'left',
+                                            leftAt: Date.now()
+                                        });
+                                        return nl;
+                                    });
+                                }
+                            });
+
+                            // 2. Detectar IDs novos ou actualizados → registar/refrescar no log
+                            Object.keys(data).forEach(function(k) {
+                                var id = parseInt(k), cd = data[k];
                                 setSessionLog(function(prevLog) {
                                     var nl = Object.assign({}, prevLog);
-                                    var existing = nl[id] || { id: id, joinedAt: Date.now() };
+                                    var existing = nl[id] || { joinedAt: Date.now(), savedScore: 0, discoveredScore: 0 };
                                     nl[id] = Object.assign({}, existing, {
                                         id: id,
-                                        name: oldCli.teamName || existing.name || ('Mesa ' + id),
-                                        emails: oldCli.emails || existing.emails || [],
-                                        savedScore: curSaved[id] || 0,
-                                        discoveredScore: curDisc[id] || 0,
-                                        status: 'left',
-                                        leftAt: Date.now()
+                                        name: cd.teamName || existing.name || ('Mesa ' + id),
+                                        emails: cd.emails || existing.emails || [],
+                                        status: 'active'
                                     });
                                     return nl;
                                 });
-                            }
-                        });
-                        
-                        // 2. Detectar IDs novos ou actualizados → registar/refrescar no log
-                        Object.keys(data).forEach(function(k) {
-                            var id = parseInt(k), cd = data[k];
-                            setSessionLog(function(prevLog) {
-                                var nl = Object.assign({}, prevLog);
-                                var existing = nl[id] || { joinedAt: Date.now(), savedScore: 0, discoveredScore: 0 };
-                                nl[id] = Object.assign({}, existing, {
-                                    id: id,
-                                    name: cd.teamName || existing.name || ('Mesa ' + id),
-                                    emails: cd.emails || existing.emails || [],
-                                    status: 'active'
-                                });
-                                return nl;
                             });
-                        });
-                        
-                        // 3. Actualizar connectedClients e tables (fonte única do snapshot)
-                        setConnectedClients(data);
-                        // Inicializar scores para IDs novos (fora de setTables callback)
-                        Object.keys(data).forEach(function(k) {
-                            var id = parseInt(k);
-                            if (curSaved[id] == null) setSavedScores(function(ds) { var n = Object.assign({}, ds); if (n[id] == null) n[id] = 0; return n; });
-                            if (curDisc[id] == null) setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (n[id] == null) n[id] = 0; return n; });
-                        });
-                        setTables(function(prev) {
-                            var nt = [];
+
+                            // 3. Actualizar connectedClients e tables (fonte única do snapshot)
+                            setConnectedClients(data);
+                            // Inicializar scores para IDs novos (fora de setTables callback)
                             Object.keys(data).forEach(function(k) {
-                                var id = parseInt(k), cd = data[k];
-                                var existing = prev.find(function(t) { return t.id === id; });
-                                nt.push(existing
-                                    ? Object.assign({}, existing, { name: cd.teamName || existing.name })
-                                    : { id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
+                                var id = parseInt(k);
+                                if (curSaved[id] == null) setSavedScores(function(ds) { var n = Object.assign({}, ds); if (n[id] == null) n[id] = 0; return n; });
+                                if (curDisc[id] == null) setDiscoveredScores(function(ps) { var n = Object.assign({}, ps); if (n[id] == null) n[id] = 0; return n; });
                             });
-                            nt.sort(function(a, b) { return a.id - b.id; });
-                            return nt;
-                        });
+                            setTables(function(prev) {
+                                var nt = [];
+                                Object.keys(data).forEach(function(k) {
+                                    var id = parseInt(k), cd = data[k];
+                                    var existing = prev.find(function(t) { return t.id === id; });
+                                    nt.push(existing
+                                        ? Object.assign({}, existing, { name: cd.teamName || existing.name })
+                                        : { id: id, name: cd.teamName || ('Mesa ' + id), score: 0 });
+                                });
+                                nt.sort(function(a, b) { return a.id - b.id; });
+                                return nt;
+                            });
+                        }
                     });
                     var unsubV = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/diamantVotes'), function(snap) {
                         var data = snap.val();
@@ -283,8 +268,7 @@
                     if (fc) {
                         if (!/^[A-Z0-9]+$/.test(fc)) { setCodeError('Apenas letras e números'); return; }
                         if (fc.length > 10) { setCodeError('Máximo 10 caracteres'); return; }
-                        var snap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + fc + '/gameState'), r, { onlyOnce: true }); });
-                        var ad = snap.val();
+                        var ad = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: fc });
                         if (ad && ad.active) { setExistingSessionData({ code: fc, data: ad }); setShowExistingSessionDialog(true); return; }
                     } else fc = genCode();
                     await proceedCreate(fc);
@@ -317,27 +301,24 @@
                     if (choice === 'yes') { setShowExistingSessionDialog(false); loadSession(Object.assign({ sessionId: code }, data), true); }
                     else if (choice === 'no') {
                         setShowExistingSessionDialog(false);
-                        try {
-                            // Buscar clientes (emails) antes de arquivar
-                            var cliSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/clients'), r, { onlyOnce: true }); });
-                            var cliData = cliSnap.val() || {};
-                            await fm.update(fm.ref(rtdb, 'sessions/' + code + '/gameState'), { active: false, closedAt: Date.now() });
-                            await new Promise(function(r) { setTimeout(r, 200); });
-                            var hid = Math.random().toString(36).substring(2, 12);
-                            await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), {
-                                sessionId: code, timestamp: Date.now(), gameType: GAME_TYPE,
-                                tables: data.tables || [], discoveredScores: data.discoveredScores || {},
-                                savedScores: data.savedScores || {}, expedition: data.expedition || 1,
-                                clients: cliData, archived: true
-                            });
-                            await fm.remove(fm.ref(rtdb, 'sessions/' + code));
-                            await new Promise(function(r) { setTimeout(r, 200); });
-                            await proceedCreate(code);
-                        } catch (e) { alert('Erro: ' + e.message); }
+                        var res = await SessionCore.archiveSession({
+                            rtdb: rtdb, fm: fm, sessionId: code, gameType: GAME_TYPE, waitMs: 200,
+                            history: {
+                                tables: data.tables || [],
+                                discoveredScores: data.discoveredScores || {},
+                                savedScores: data.savedScores || {},
+                                expedition: data.expedition || 1
+                            },
+                            enrich: SessionCore.enrichers.attachClientsField
+                        });
+                        if (!res.ok) { alert('Erro: ' + (res.error && res.error.message || res.error)); return; }
+                        await new Promise(function(r) { setTimeout(r, 200); });
+                        await proceedCreate(code);
                     } else { setShowExistingSessionDialog(false); setExistingSessionData(null); }
                 };
                 
                 var resetToSetup = function() {
+                    archivingRef.current = false;
                     setSetupComplete(false); setSessionId(null); setPhase('waiting_start');
                     setExpedition(1); setReserve(0); setTeamsInExpedition([]);
                     setDiscoveredScores({}); setSavedScores({}); setVotes({});
@@ -350,27 +331,22 @@
                 
                 var endSessionArchive = async function() {
                     if (!sessionId) return;
-                    try {
-                        var curId = sessionId;
-                        // Buscar clientes do Firebase
-                        var cliSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + curId + '/clients'), r, { onlyOnce: true }); });
-                        var cliData = cliSnap.val() || {};
-                        var hd = {
-                            sessionId: curId, timestamp: Date.now(), gameType: GAME_TYPE,
+                    var curId = sessionId;
+                    archivingRef.current = true;
+                    var res = await SessionCore.archiveSession({
+                        rtdb: rtdb, fm: fm, sessionId: curId, gameType: GAME_TYPE,
+                        history: {
                             tables: tables.map(function(t) { return { id: t.id, name: t.name, score: savedScores[t.id] || 0 }; }),
-                            discoveredScores: Object.assign({}, discoveredScores), savedScores: Object.assign({}, savedScores),
-                            expedition: expedition, clients: cliData, selectedLogos: selectedLogos, sessionLog: sessionLog, archived: true
-                        };
-                        // Marcar inativo PRIMEIRO para clientes detectarem
-                        await fm.update(fm.ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
-                        // Esperar para clientes processarem
-                        await new Promise(function(r) { setTimeout(r, 500); });
-                        var hid = Math.random().toString(36).substring(2, 12);
-                        await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), hd);
-                        // Remover TODO o nó (gameState + clients + diamantVotes)
-                        await fm.remove(fm.ref(rtdb, 'sessions/' + curId));
-                        resetToSetup();
-                    } catch (e) { alert('Erro: ' + e.message); }
+                            discoveredScores: Object.assign({}, discoveredScores),
+                            savedScores: Object.assign({}, savedScores),
+                            expedition: expedition,
+                            selectedLogos: selectedLogos,
+                            sessionLog: sessionLog
+                        },
+                        enrich: SessionCore.enrichers.attachClientsField
+                    });
+                    if (!res.ok) alert('Erro: ' + (res.error && res.error.message || res.error));
+                    resetToSetup();
                 };
                 var endSessionPause = function() { resetToSetup(); };
                 
@@ -411,20 +387,20 @@
                 
                 var closeActiveSession = async function(sc) {
                     if (!confirm('Arquivar "' + sc + '"?')) return;
-                    try {
-                        var snap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sc + '/gameState'), r, { onlyOnce: true }); });
-                        var sd = snap.val(); if (!sd) { alert('Não encontrada'); return; }
-                        await fm.update(fm.ref(rtdb, 'sessions/' + sc + '/gameState'), { active: false, closedAt: Date.now() });
-                        await new Promise(function(r) { setTimeout(r, 500); });
-                        var cSnap = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + sc + '/clients'), r, { onlyOnce: true }); });
-                        var cd = cSnap.val() || {};
-                        var hd = { sessionId: sc, timestamp: Date.now(), gameType: GAME_TYPE, tables: sd.tables || [],
-                            discoveredScores: sd.discoveredScores || {}, savedScores: sd.savedScores || {},
-                            expedition: sd.expedition || 1, clients: cd, selectedLogos: sd.selectedLogos || [], archived: true };
-                        var hid = Math.random().toString(36).substring(2, 12);
-                        await fm.set(fm.ref(rtdb, 'sessionHistory/' + hid), hd);
-                        await fm.remove(fm.ref(rtdb, 'sessions/' + sc));
-                    } catch (e) { alert('Erro: ' + e.message); }
+                    var sd = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: sc });
+                    if (!sd) { alert('Não encontrada'); return; }
+                    var res = await SessionCore.archiveSession({
+                        rtdb: rtdb, fm: fm, sessionId: sc, gameType: GAME_TYPE,
+                        history: {
+                            tables: sd.tables || [],
+                            discoveredScores: sd.discoveredScores || {},
+                            savedScores: sd.savedScores || {},
+                            expedition: sd.expedition || 1,
+                            selectedLogos: sd.selectedLogos || []
+                        },
+                        enrich: SessionCore.enrichers.attachClientsField
+                    });
+                    if (!res.ok) alert('Erro: ' + (res.error && res.error.message || res.error));
                 };
                 var deleteHistoryEntry = async function(id) { if (!confirm('Eliminar?')) return; try { await fm.remove(fm.ref(rtdb, 'sessionHistory/' + id)); } catch(e) {} };
                 
@@ -728,8 +704,8 @@
                                                 h('button', { onClick: async function() {
                                                     // Para sessões ativas, buscar clients do Firebase
                                                     try {
-                                                        var cs = await new Promise(function(r) { fm.onValue(fm.ref(rtdb, 'sessions/' + s.sessionId + '/clients'), r, { onlyOnce: true }); });
-                                                        setSessionDetail(Object.assign({}, s, { clients: cs.val() || {}, sessionLog: sessionLog }));
+                                                        var cd = await SessionCore.readClientsOnce({ rtdb: rtdb, fm: fm, sessionId: s.sessionId });
+                                                        setSessionDetail(Object.assign({}, s, { clients: cd, sessionLog: sessionLog }));
                                                     } catch (e) { setSessionDetail(s); }
                                                 }, className: 'px-3 py-2 bg-gray-500 text-white text-sm rounded font-semibold' }, 'ℹ️'),
                                                 h('button', { onClick: function() { loadSession(Object.assign({ sessionId: s.sessionId }, s), true); }, className: 'px-4 py-2 bg-blue-600 text-white text-sm rounded font-semibold' }, '🔄 Abrir'),

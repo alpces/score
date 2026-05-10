@@ -406,7 +406,8 @@
                             jokerOrder: data.jokerOrder || [],
                             roundNumber: data.roundNumber || 1,
                             selectedLogos: data.selectedLogos || []
-                        }
+                        },
+                        enrich: SessionCore.enrichers.mergeEmailsIntoTables
                     });
                     if (!res.ok) { alert('Erro ao arquivar: ' + (res.error && res.error.message || res.error)); return; }
                     await new Promise(function(r) { setTimeout(r, 200); });
@@ -426,7 +427,8 @@
                         jokerOrder: sd.jokerOrder || [],
                         roundNumber: sd.roundNumber || 1,
                         selectedLogos: sd.selectedLogos || []
-                    }
+                    },
+                    enrich: SessionCore.enrichers.mergeEmailsIntoTables
                 });
                 if (!res.ok) alert('Erro: ' + (res.error && res.error.message || res.error));
             };
@@ -496,7 +498,8 @@
                         }),
                         jokerOrder: curJokerOrder,
                         roundNumber: curRoundNumber
-                    }
+                    },
+                    enrich: SessionCore.enrichers.mergeEmailsIntoTables
                 });
                 if (!res.ok) alert('Erro: ' + (res.error && res.error.message || res.error));
                 resetToSetup();
