@@ -91,80 +91,26 @@
             var prevPhaseRef = useRef('waiting');
             var wakeLockRef = useRef(null);
             var localAnswerEndRef = useRef(0);
-            var sessionCodeRef = useRef('');
-            var tableNumberRef = useRef('');
-            var connectedRef = useRef(false);
-            useEffect(function() { sessionCodeRef.current = sessionCode; }, [sessionCode]);
-            useEffect(function() { tableNumberRef.current = tableNumber; }, [tableNumber]);
-            useEffect(function() { connectedRef.current = connected; }, [connected]);
 
-            // — força um get() do gameState e atualiza estado local. Garante que mesmo
-            //   que o listener onValue não dispare após reconexão, o cliente recebe a
-            //   última fase do master. —
-            var forceRefreshGameState = function() {
-                var sc = sessionCodeRef.current, tn = tableNumberRef.current;
-                if (!connectedRef.current || !sc) return;
-                fm.get(fm.ref(rtdb, 'sessions/' + sc + '/gameState')).then(function(snap) {
-                    var data = snap.val();
-                    if (!data) return;
-                    if (data.active === false) {
-                        setSessionLost(true); setConnected(false); setGameData(null); clearLocal();
-                    } else {
-                        setGameData(data);
-                    }
-                }).catch(function() {});
-                if (tn) {
-                    fm.update(fm.ref(rtdb, 'sessions/' + sc + '/clients/' + tn), {
-                        lastSeen: Date.now()
-                    }).catch(function() {});
-                }
-            };
-
-            // — re-subscrever + forçar fetch ao voltar do background —
-            useEffect(function() {
-                var fn = function() {
-                    if (document.visibilityState === 'visible') {
-                        setResubKey(function(k) { return k + 1; });
-                        // Acordar o WebSocket explicitamente — em iOS Safari pode estar morto
-                        try { fm.goOnline(rtdb); } catch(e) {}
-                        // get() puxa o estado mais recente do servidor mesmo que o
-                        // listener não dispare por o snapshot cached "parecer igual"
-                        forceRefreshGameState();
-                    }
-                };
-                document.addEventListener('visibilitychange', fn);
-                window.addEventListener('focus', fn);
-                window.addEventListener('pageshow', fn);
-                window.addEventListener('online', fn);
-                return function() {
-                    document.removeEventListener('visibilitychange', fn);
-                    window.removeEventListener('focus', fn);
-                    window.removeEventListener('pageshow', fn);
-                    window.removeEventListener('online', fn);
-                };
-            }, []);
-
-            // — estado de conexão Firebase. Quando reconecta, força refresh do gameState. —
-            useEffect(function() {
-                var unsub = fm.onValue(fm.ref(rtdb, '.info/connected'), function(snap) {
-                    var ok = !!snap.val();
-                    setFbConnected(ok);
-                    if (ok) forceRefreshGameState();
-                });
-                return function() { unsub(); };
-            }, []);
-
-            // — heartbeat: marca lastSeen no Firebase para o master saber que estamos vivos. —
+            // — Conexão à sessão: gameState, clients/<n>, .info/connected, heartbeat,
+            //   visibility/focus → resume são todos geridos pelo ClientCore.connectClient.
+            //   Listeners game-específicos (textResponses) são feitos à parte abaixo. —
             useEffect(function() {
                 if (!connected || !sessionCode || !tableNumber) return;
-                var beat = function() {
-                    fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber), {
-                        lastSeen: Date.now()
-                    }).catch(function() {});
-                };
-                beat();
-                var iv = setInterval(beat, HEARTBEAT_MS);
-                return function() { clearInterval(iv); };
+                var ctrl = ClientCore.connectClient({
+                    rtdb: rtdb, fm: fm,
+                    sessionCode: sessionCode, tableNumber: tableNumber,
+                    heartbeatMs: HEARTBEAT_MS,
+                    onGameState: setGameData,
+                    onSessionLost: function() {
+                        setSessionLost(true); setConnected(false); setGameData(null);
+                        clearLocal();
+                    },
+                    onFbConnectionChange: setFbConnected,
+                    // Bump resubKey para que listeners game-específicos voltem a subscrever após resume
+                    onResume: function() { setResubKey(function(k) { return k + 1; }); }
+                });
+                return function() { ctrl.disconnect(); };
             }, [connected, sessionCode, tableNumber]);
 
             // — wake lock: manter ecrã ligado enquanto conectado —
@@ -207,34 +153,16 @@
                 if (autoRecon && sessionCode && tableNumber) handleConnect(true);
             }, [autoRecon, sessionCode, tableNumber]);
 
-            // — listeners firebase —
+            // — listener game-específico: textResponses/<n>.
+            //   Re-subscreve quando resubKey muda (sinalizado pelo onResume do core
+            //   após visibility/focus/online), garantindo que mudanças ocorridas
+            //   enquanto a tab estava em background são apanhadas. —
             useEffect(function() {
-                if (!connected || !sessionCode) return;
-
-                var unsubG = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), function(snap) {
-                    var data = snap.val();
-                    if (!data) return;
-                    if (data.active === false) {
-                        setSessionLost(true); setConnected(false); setGameData(null);
-                        clearLocal(); return;
-                    }
-                    setGameData(data);
-                });
-
+                if (!connected || !sessionCode || !tableNumber) return;
                 var unsubTxt = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/textResponses/' + tableNumber), function(snap) {
                     if (!snap.val()) setTextSubmitted(false);
                 });
-
-                var firstC = true;
-                var unsubC = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber), function(snap) {
-                    if (firstC) { firstC = false; return; }
-                    if (!snap.val()) {
-                        setSessionLost(true); setConnected(false); setGameData(null);
-                        clearLocal();
-                    }
-                });
-
-                return function() { unsubG(); unsubTxt(); unsubC(); };
+                return function() { unsubTxt(); };
             }, [connected, sessionCode, tableNumber, resubKey]);
 
             // — timers locais derivados de timestamps absolutos —

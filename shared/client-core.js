@@ -139,10 +139,134 @@
         return 'offline';
     }
 
+    /**
+     * Liga um cliente a uma sessão e gere todos os mecanismos de resiliência:
+     * listeners de gameState e clients/<n>, .info/connected, eventos de
+     * visibilidade/focus/online (que acordam o WebSocket e forçam refresh),
+     * heartbeat periódico (escreve lastSeen).
+     *
+     * Pré-condições: o cliente JÁ deve ter feito join (escrever a entrada em
+     * clients/<n>) — isto é responsabilidade do joinSession (Phase 1.3) ou do
+     * call-site. Esta função apenas mantém a ligação viva.
+     *
+     * Não é responsabilidade desta função decidir o que fazer quando a sessão
+     * é perdida — o caller fornece os callbacks.
+     *
+     * @param {object} opts
+     * @param {object} opts.rtdb           instância do Firebase RTDB
+     * @param {object} opts.fm             window.fbModules ({ref, onValue, get, update})
+     * @param {string} opts.sessionCode    código da sessão
+     * @param {string|number} opts.tableNumber  número da mesa do cliente
+     * @param {number} [opts.heartbeatMs=15000] intervalo do heartbeat em ms
+     * @param {function} [opts.onGameState]    chamado com gameState fresco (do listener ou do forceRefresh)
+     * @param {function} [opts.onSessionLost]  chamado quando active===false ou clients/<n> é removido
+     * @param {function} [opts.onFbConnectionChange] chamado com bool quando .info/connected muda
+     * @param {function} [opts.onResume]   chamado depois de cada visibility/focus/online resume
+     * @returns {{disconnect: function, forceRefresh: function}}
+     */
+    function connectClient(opts) {
+        if (!opts || !opts.rtdb || !opts.fm) throw new Error('connectClient requer rtdb e fm');
+        if (!opts.sessionCode || !opts.tableNumber) throw new Error('connectClient requer sessionCode e tableNumber');
+
+        var rtdb = opts.rtdb;
+        var fm   = opts.fm;
+        var sessionCode = opts.sessionCode;
+        var tableNumber = opts.tableNumber;
+        var heartbeatMs = typeof opts.heartbeatMs === 'number' ? opts.heartbeatMs : 15000;
+        var onGameState          = opts.onGameState          || function() {};
+        var onSessionLost        = opts.onSessionLost        || function() {};
+        var onFbConnectionChange = opts.onFbConnectionChange || function() {};
+        var onResume             = opts.onResume             || function() {};
+
+        var alive = true;
+        var unsubs = [];
+        var heartbeatIv = null;
+
+        var gameStatePath = 'sessions/' + sessionCode + '/gameState';
+        var clientPath    = 'sessions/' + sessionCode + '/clients/' + tableNumber;
+
+        // Força um get() do gameState e dispatch para os callbacks. Garante que
+        // mesmo que o listener onValue não dispare após reconexão, o cliente recebe
+        // a última versão do servidor.
+        function forceRefresh() {
+            if (!alive) return;
+            fm.get(fm.ref(rtdb, gameStatePath)).then(function(snap) {
+                if (!alive) return;
+                var data = snap.val();
+                if (!data) return;
+                if (data.active === false) onSessionLost();
+                else onGameState(data);
+            }).catch(function() {});
+            fm.update(fm.ref(rtdb, clientPath), { lastSeen: Date.now() }).catch(function() {});
+        }
+
+        // Visibilidade / focus / online → acorda WebSocket + forceRefresh + onResume.
+        // Em iOS Safari o socket pode estar morto após background; goOnline acorda-o.
+        var visibilityFn = function() {
+            if (document.visibilityState !== 'visible') return;
+            try { fm.goOnline && fm.goOnline(rtdb); } catch(e) {}
+            forceRefresh();
+            onResume();
+        };
+        document.addEventListener('visibilitychange', visibilityFn);
+        window.addEventListener('focus',    visibilityFn);
+        window.addEventListener('pageshow', visibilityFn);
+        window.addEventListener('online',   visibilityFn);
+
+        // .info/connected — quando reconecta, força refresh.
+        unsubs.push(fm.onValue(fm.ref(rtdb, '.info/connected'), function(snap) {
+            if (!alive) return;
+            var ok = !!snap.val();
+            onFbConnectionChange(ok);
+            if (ok) forceRefresh();
+        }));
+
+        // gameState listener — onValue em tempo real.
+        unsubs.push(fm.onValue(fm.ref(rtdb, gameStatePath), function(snap) {
+            if (!alive) return;
+            var data = snap.val();
+            if (!data) return;
+            if (data.active === false) onSessionLost();
+            else onGameState(data);
+        }));
+
+        // clients/<n> listener — detecta quando o master remove a mesa.
+        // O primeiro callback é ignorado (representa o estado actual, não uma remoção).
+        var firstClientCb = true;
+        unsubs.push(fm.onValue(fm.ref(rtdb, clientPath), function(snap) {
+            if (!alive) return;
+            if (firstClientCb) { firstClientCb = false; return; }
+            if (!snap.val()) onSessionLost();
+        }));
+
+        // Heartbeat — escreve lastSeen para o master saber que estamos vivos.
+        function beat() {
+            if (!alive) return;
+            fm.update(fm.ref(rtdb, clientPath), { lastSeen: Date.now() }).catch(function() {});
+        }
+        beat();
+        heartbeatIv = setInterval(beat, heartbeatMs);
+
+        return {
+            disconnect: function() {
+                if (!alive) return;
+                alive = false;
+                document.removeEventListener('visibilitychange', visibilityFn);
+                window.removeEventListener('focus',    visibilityFn);
+                window.removeEventListener('pageshow', visibilityFn);
+                window.removeEventListener('online',   visibilityFn);
+                unsubs.forEach(function(u) { try { u(); } catch(e) {} });
+                if (heartbeatIv) { clearInterval(heartbeatIv); heartbeatIv = null; }
+            },
+            forceRefresh: forceRefresh
+        };
+    }
+
     window.ClientCore = {
         getClientId:      getClientId,
         withTimeout:      withTimeout,
         createLocalStore: createLocalStore,
-        computeConnState: computeConnState
+        computeConnState: computeConnState,
+        connectClient:    connectClient
     };
 })();
