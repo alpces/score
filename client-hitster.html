@@ -8,8 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Mega Hitster - Mesa</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Configuração Firebase e módulo Hitster partilhados -->
+    <!-- Configuração Firebase, core de cliente partilhado e módulo Hitster -->
     <script src="shared/firebase-config.js"></script>
+    <script src="shared/client-core.js"></script>
     <script src="games/hitster.js"></script>
     <style>
         input, textarea { font-size: 16px !important; }
@@ -55,25 +56,10 @@
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
 
-        var EXPIRY_MS = 12 * 60 * 60 * 1000;
         var HEARTBEAT_MS = 15000;
-
-        var clearLocal = function() {
-            ['hitster_session','hitster_table','hitster_team','hitster_emails','hitster_ts']
-                .forEach(function(k) { localStorage.removeItem(k); });
-        };
-
-        // clientId persistente — único por dispositivo/instalação. Permite detetar colisões
-        // de mesa e validar que respostas vêm do dispositivo certo.
-        var getClientId = function() {
-            var id = localStorage.getItem('hitster_clientId');
-            if (!id) {
-                id = 'c_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
-                localStorage.setItem('hitster_clientId', id);
-            }
-            return id;
-        };
-        var CLIENT_ID = getClientId();
+        var localStore  = ClientCore.createLocalStore('hitster');
+        var clearLocal  = localStore.clear;                          // alias para call-sites existentes
+        var CLIENT_ID   = ClientCore.getClientId('hitster_clientId');
 
         function App() {
             var _s = function(v) { return useState(v); };
@@ -203,18 +189,12 @@
 
             // — restaurar sessão local —
             useEffect(function() {
-                var ss = localStorage.getItem('hitster_session');
-                var st = localStorage.getItem('hitster_table');
-                var ts = parseInt(localStorage.getItem('hitster_ts') || '0');
-
-                if (ss && (Date.now() - ts) > EXPIRY_MS) { clearLocal(); ss = null; st = null; }
-
-                if (ss && st) {
-                    setSessionCode(ss); setTableNumber(st);
-                    var sn = localStorage.getItem('hitster_team');
-                    var se = localStorage.getItem('hitster_emails');
-                    if (sn) setTeamName(sn);
-                    if (se) setEmails(se);
+                var saved = localStore.load();
+                if (saved) {
+                    setSessionCode(saved.session);
+                    setTableNumber(saved.table);
+                    if (saved.team)   setTeamName(saved.team);
+                    if (saved.emails) setEmails(saved.emails);
                     setAutoRecon(true);
                 } else {
                     var p = new URLSearchParams(window.location.search);
@@ -372,11 +352,7 @@
                         clientId: CLIENT_ID
                     });
 
-                    localStorage.setItem('hitster_session', code);
-                    localStorage.setItem('hitster_table', table.toString());
-                    localStorage.setItem('hitster_ts', Date.now().toString());
-                    if (teamName) localStorage.setItem('hitster_team', teamName);
-                    if (emails) localStorage.setItem('hitster_emails', emails);
+                    localStore.save({ session: code, table: table, team: teamName, emails: emails });
 
                     setConnected(true); setAutoRecon(false); setConnError(''); setSessionLost(false);
                 } catch(e) {
@@ -392,14 +368,7 @@
                 setConnected(false); setGameData(null); setTextInput(''); setTextSubmitted(false);
             };
 
-            // Helper: corre uma promise com timeout — evita ficar pendurado se o WebSocket
-            // estiver morto e o SDK não falhar nem resolver.
-            var withTimeout = function(promise, ms) {
-                return Promise.race([
-                    promise,
-                    new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms); })
-                ]);
-            };
+            var withTimeout = ClientCore.withTimeout;
 
             var pressJoker = async function() {
                 if (!sessionCode || !tableNumber || !gameData) return;
