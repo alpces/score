@@ -8,6 +8,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Diamant - Cliente</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Bandeiras SVG via flag-icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
     <!-- Configuração Firebase, core de cliente partilhado e i18n -->
     <script src="shared/firebase-config.js"></script>
     <script src="shared/client-core.js"></script>
@@ -19,6 +21,9 @@
       html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
       #root { min-height: 100dvh; }
       .min-h-screen { min-height: 100dvh !important; }
+
+      /* Selector de língua — garante que as bandeiras SVG têm dimensão definida */
+      .lang-flag { display: inline-block; width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
     </style>
 </head>
 <body>
@@ -40,12 +45,6 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
     <script>
-        /**
-         * ====================================================================
-         * DIAMANT - CLIENT APP
-         * ====================================================================
-         */
-
         window.addEventListener('firebaseReady', function() {
             var useState = React.useState, useEffect = React.useEffect, h = React.createElement;
             var rtdb = window.rtdb, fm = window.fbModules;
@@ -71,19 +70,16 @@
                 var c10 = _s(false); var sessionLost = c10[0]; var setSessionLost = c10[1];
                 var c11 = _s(false); var showTeamsList = c11[0]; var setShowTeamsList = c11[1];
                 var c12 = _s(false); var showRules = c12[0]; var setShowRules = c12[1];
-                // Timer local
                 var c13 = _s(0); var localTimer = c13[0]; var setLocalTimer = c13[1];
                 var timerRef = React.useRef(null);
-                // Apostas
                 var c14 = _s(null); var betTarget = c14[0]; var setBetTarget = c14[1];
                 var c15 = _s(false); var betSubmitted = c15[0]; var setBetSubmitted = c15[1];
                 var c16 = _s(1); var betAmount = c16[0]; var setBetAmount = c16[1];
                 var c17 = _s(0); var resubKey = c17[0]; var setResubKey = c17[1];
-                // i18n
+                // — i18n: estado de língua para forçar re-render quando a língua muda —
                 var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
-                var lg2 = _s(false); var showLangMenu = lg2[0]; var setShowLangMenu = lg2[1];
 
-                // — listener de mudança de língua — força re-render sem recarregar a página
+                // — listener de mudança de língua —
                 useEffect(function() {
                     var handler = function(e) { setLang(e.detail.lang); };
                     window.addEventListener('i18n:change', handler);
@@ -110,16 +106,13 @@
                     if (autoReconnecting && sessionCode && tableNumber) handleConnect(true);
                 }, [autoReconnecting, sessionCode, tableNumber]);
 
-                // — Conexão à sessão: gameState, clients/<n>, .info/connected, heartbeat,
-                //   visibility/focus → resume são todos geridos pelo ClientCore.connectClient.
-                //   Listeners game-específicos (diamantVotes/<n>, diamantBets/<n>) à parte abaixo. —
+                // — conexão à sessão —
                 useEffect(function() {
                     if (!connected || !sessionCode || !tableNumber) return;
                     var ctrl = ClientCore.connectClient({
                         rtdb: rtdb, fm: fm,
                         sessionCode: sessionCode, tableNumber: tableNumber,
                         onGameState: function(data) {
-                            // Defensive merge: preservar savedScores/tables se vierem vazios inesperadamente
                             setGameData(function(prev) {
                                 if (prev && prev.gameType === 'diamant') {
                                     var merged = Object.assign({}, data);
@@ -136,20 +129,19 @@
                             setSessionLost(true); setConnected(false); setGameData(null);
                             clearLocal();
                         },
-                        // Bump resubKey para que listeners game-específicos voltem a subscrever após resume
                         onResume: function() { setResubKey(function(k) { return k + 1; }); }
                     });
                     return function() { ctrl.disconnect(); };
                 }, [connected, sessionCode, tableNumber]);
 
-                // — wake lock: manter ecrã ligado enquanto conectado —
+                // — wake lock —
                 useEffect(function() {
                     if (!connected) return;
                     var lock = ClientCore.attachWakeLock();
                     return function() { lock.release(); };
                 }, [connected]);
 
-                // — listeners game-específicos: voto e aposta da própria mesa —
+                // — listeners game-específicos —
                 useEffect(function() {
                     if (!connected || !sessionCode || !tableNumber) return;
                     var unsubV = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/diamantVotes/' + tableNumber), function(snap) {
@@ -166,7 +158,7 @@
                     return function() { unsubV(); unsubB(); };
                 }, [connected, sessionCode, tableNumber, resubKey]);
 
-                // Timer sincronizado — derivado de votingTimerEndAt (timestamp absoluto do master)
+                // Timer sincronizado
                 useEffect(function() {
                     var endAt = gameData ? gameData.votingTimerEndAt || 0 : 0;
                     var phase = gameData ? gameData.phase : null;
@@ -183,7 +175,7 @@
                     return function() { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
                 }, [gameData ? gameData.votingTimerEndAt : 0, gameData ? gameData.phase : null]);
 
-                // Conexão (delegada ao ClientCore.joinSession; emails é obrigatório no Diamant)
+                // Conexão
                 var handleConnect = async function(isAuto) {
                     if (!isAuto && !emails.trim()) { setConnectionError(T('d_email_required')); return; }
                     var result = await ClientCore.joinSession({
@@ -244,7 +236,6 @@
                 var saved = gameData && gameData.savedScores ? gameData.savedScores[tableId] || 0 : 0;
                 var myVote = gameData && gameData.votes ? gameData.votes[tableId] : null;
                 var votingTimedOut = gameData ? gameData.votingTimedOut || false : false;
-                // Local timeout: timer chegou a 0 mas ainda estamos em voting com endAt definido
                 var hasTimer = gameData && gameData.votingTimerEndAt ? gameData.votingTimerEndAt > 0 : false;
                 var localTimedOut = hasTimer && localTimer === 0 && phase === 'voting';
                 var timerActive = !votingTimedOut && !localTimedOut;
@@ -266,30 +257,30 @@
                 var isExited = exitedTeams.indexOf(tableId) >= 0;
                 var canBet = phase === 'voting' && isExited && !isInExp && discovered > 0 && timerActive;
 
-                // — helper para nome de mesa com fallback traduzido —
+                // — helper: nome de mesa com fallback traduzido —
                 function tableName(id) {
                     var tbl = allTables.find(function(tb) { return tb.id === id; });
                     return tbl ? (tbl.name || T('table_n', { n: id })) : T('table_n', { n: id });
                 }
 
-                // — componente do botão de língua —
-                function LangButton() {
-                    return h('div', { className: 'relative' },
-                        h('button', {
-                            onClick: function() { setShowLangMenu(function(v) { return !v; }); },
-                            className: 'text-white text-xl bg-white/20 hover:bg-white/30 w-9 h-9 rounded-full flex items-center justify-center shadow transition-all active:scale-95'
-                        }, I18n.getFlag()),
-                        showLangMenu && h('div', {
-                            className: 'absolute right-0 top-11 bg-white rounded-xl shadow-xl p-1.5 flex flex-col gap-1 z-50'
-                        },
-                            I18n.getLanguages().filter(function(l) { return l !== lang; }).map(function(l) {
-                                return h('button', {
-                                    key: l,
-                                    onClick: function() { I18n.setLang(l); setShowLangMenu(false); },
-                                    className: 'w-9 h-9 flex items-center justify-center hover:bg-gray-100 rounded-lg text-xl transition-all active:scale-95'
-                                }, I18n.getFlag(l));
-                            })
-                        )
+                // — seletor de língua para o ecrã de login —
+                function LangSelector() {
+                    return h('div', { className: 'flex gap-2 justify-center mb-5' },
+                        I18n.getLanguages().map(function(l) {
+                            var isActive = l === lang;
+                            return h('button', {
+                                key: l,
+                                onClick: function() { I18n.setLang(l); },
+                                className: 'flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all text-sm font-semibold active:scale-95 ' + (
+                                    isActive
+                                        ? 'border-amber-500 bg-amber-50 text-amber-700 shadow-sm'
+                                        : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
+                                )
+                            },
+                                h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
+                                h('span', null, I18n.getName(l))
+                            );
+                        })
                     );
                 }
 
@@ -319,10 +310,16 @@
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4 flex items-center justify-center' },
                         h('div', { className: 'w-full max-w-sm' },
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
-                                h('div', { className: 'text-center mb-6' },
+                                // Título
+                                h('div', { className: 'text-center mb-4' },
                                     h('div', { className: 'text-5xl mb-2' }, '💎'),
                                     h('h1', { className: 'text-2xl font-black text-amber-800' }, T('d_title'))
                                 ),
+                                // Seletor de língua
+                                LangSelector(),
+                                // Separador
+                                h('div', { className: 'border-t border-gray-100 mb-4' }),
+                                // Formulário
                                 h('div', { className: 'space-y-4' },
                                     h('div', null,
                                         h('label', { className: 'block text-sm font-semibold mb-1' }, T('session_code')),
@@ -428,7 +425,6 @@
                             ),
                             mainLogo && h('img', { src: mainLogo, className: 'h-10 object-contain', style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } }),
                             h('div', { className: 'flex items-center gap-2' },
-                                LangButton(),
                                 h('button', { onClick: function() { setShowRules(true); }, className: 'text-white text-xl font-black bg-blue-500 hover:bg-blue-400 w-9 h-9 rounded-full flex items-center justify-center shadow-lg shadow-blue-400/80 ring-2 ring-blue-300/60 animate-pulse' }, '?'),
                                 h('span', { className: 'text-white/75 text-sm font-mono' }, sessionCode),
                                 h('button', { onClick: handleDisconnect, className: 'text-white/50 hover:text-white text-xl' }, '✕')
@@ -436,12 +432,10 @@
                         )
                     ),
 
-                    // Nota multiplicador (discreta, no topo)
                     multiplierActive && h('div', { className: 'bg-yellow-500/20 px-4 py-1.5 text-center' },
                         h('span', { className: 'text-yellow-200 text-xs' }, T('d_mega_expedition', { n: multiplierVal }))
                     ),
 
-                    // Conteúdo
                     h('div', { className: 'flex-1 flex flex-col items-center justify-center p-4' },
 
                         // Pontuação
@@ -459,7 +453,7 @@
                             )
                         ),
 
-                        // Info expedição com botão para ver equipas
+                        // Info expedição
                         h('div', { className: 'text-center text-white mb-6' },
                             h('div', { className: 'text-sm opacity-75' }, T('d_expedition_n', { n: gameData ? gameData.expedition || 1 : 1 })),
                             h('div', { className: 'flex items-center justify-center gap-2' },
@@ -470,7 +464,7 @@
                             artifactVal > 0 && h('div', { className: 'text-teal-300 mt-1' }, T('d_artifacts_in_play', { n: artifactVal }))
                         ),
 
-                        // Carta revelada (só quando em voting)
+                        // Carta revelada
                         lastCard && phase === 'voting' && !voteSubmitted && lastCard.type === 'ruby' && h('div', {
                             className: 'text-center p-3 rounded-xl mb-4 w-full max-w-sm bg-amber-400 text-amber-900'
                         },
@@ -492,7 +486,7 @@
                             h('div', { className: 'text-xs opacity-75 mt-1' }, T('d_artifact_solo_only'))
                         ),
 
-                        // Estados
+                        // Estados de fase
                         phase === 'waiting_start' && h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-6xl mb-4' }, '⏳'),
                             h('div', { className: 'text-xl font-semibold' }, T('d_waiting_start'))
@@ -504,7 +498,7 @@
                             h('div', { className: 'text-sm opacity-75 mt-2' }, T('d_waiting_next_card'))
                         ),
 
-                        // Aposta — equipa já saiu, pode apostar durante votação
+                        // Aposta
                         canBet && h('div', { className: 'w-full max-w-sm' },
                             localTimer > 0 && h('div', { className: 'text-center mb-3' },
                                 h('span', { className: 'text-3xl font-bold text-orange-400 animate-pulse' }, '⏱️ ' + localTimer + 's')
@@ -546,13 +540,11 @@
                                 )
                         ),
 
-                        // Equipa saiu mas não pode apostar (sem rubis ou apostas bloqueadas)
                         !isInExp && isExited && phase === 'voting' && !canBet && timerActive && h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-6xl mb-4' }, '🏕️'),
                             h('div', { className: 'text-xl font-semibold' }, T('d_at_camp')),
                             discovered <= 0 && h('div', { className: 'text-sm opacity-75 mt-2' }, T('d_no_rubies_to_bet'))
                         ),
-
 
                         canVote && h('div', { className: 'w-full max-w-sm' },
                             localTimer > 0 && h('div', { className: 'text-center mb-4' },
@@ -586,7 +578,7 @@
                             h('div', { className: 'text-sm opacity-75 mt-2' }, T('d_waiting_next_card'))
                         ),
 
-                        // Revelação inline (resumo simples)
+                        // Revelação inline
                         lastReveal && phase === 'exploring' && revealStep === 0 && h('div', { className: 'text-center text-white mt-4' },
                             lastReveal.dangerRepeated
                                 ? h('div', { className: 'bg-red-500/50 rounded-xl p-4' },
@@ -616,12 +608,11 @@
                         )
                     ),
 
-                    // === POPUP REVELAÇÃO (espelha master) ===
+                    // === POPUP REVELAÇÃO ===
                     revealStep >= 1 && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full max-h-[85vh] overflow-y-auto' },
                             h('h2', { className: 'text-lg font-black text-gray-800 text-center mb-3' }, T('d_revelation')),
 
-                            // Apostas
                             h('div', { className: 'mb-3' },
                                 h('h3', { className: 'text-xs font-bold text-indigo-700 mb-2' }, T('d_bets_label')),
                                 (function() {
@@ -658,7 +649,6 @@
                                 })()
                             ),
 
-                            // Decisões (step 2)
                             revealStep === 2 && lastReveal && !lastReveal.dangerRepeated && h('div', null,
                                 h('hr', { className: 'my-2' }),
                                 h('div', { className: 'grid grid-cols-2 gap-3' },
@@ -686,7 +676,6 @@
                                 )
                             ),
 
-                            // Info — à espera ou a ver resultado
                             revealStep === 1 && h('div', { className: 'text-center text-gray-400 text-sm mt-3 animate-pulse' }, T('d_waiting_reveal'))
                         )
                     ),

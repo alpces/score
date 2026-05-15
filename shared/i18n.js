@@ -10,6 +10,8 @@
  *   I18n.getCurrentLang()             → 'pt' | 'en' | ...
  *   I18n.getFlag()                    → emoji da língua activa
  *   I18n.getFlag('en')               → emoji de língua específica
+ *   I18n.getName('en')               → 'English' (nome no próprio idioma)
+ *   I18n.getCountryCode('en')        → 'gb' (código ISO para flag-icons)
  *   I18n.getLanguages()               → ['pt', 'en']
  *   I18n.registerStrings('pt', {...}) → chamado pelos ficheiros de língua
  * ====================================================================
@@ -17,9 +19,13 @@
 (function () {
     'use strict';
 
-    var LANG_KEY  = 'score_lang';
-    var LANGUAGES = ['pt', 'en'];
-    var FLAGS     = { pt: '🇵🇹', en: '🇬🇧' };
+    var LANG_KEY      = 'score_lang';
+    var LANGUAGES     = ['pt', 'en'];
+    var FLAGS         = { pt: '🇵🇹', en: '🇬🇧' };
+    // Nome da língua no seu próprio idioma
+    var NAMES         = { pt: 'Português', en: 'English' };
+    // Código de país ISO 3166-1 alpha-2 para a biblioteca flag-icons
+    var COUNTRY_CODES = { pt: 'pt', en: 'gb' };
 
     var _strings = {};
 
@@ -60,9 +66,13 @@
         });
     }
 
-    function getCurrentLang() { return _current; }
-    function getFlag(lang)    { return FLAGS[lang !== undefined ? lang : _current] || '🌐'; }
-    function getLanguages()   { return LANGUAGES.slice(); }
+    function getCurrentLang()  { return _current; }
+    function getFlag(lang)     { return FLAGS[lang !== undefined ? lang : _current] || '🌐'; }
+    function getLanguages()    { return LANGUAGES.slice(); }
+    /** Nome da língua no seu próprio idioma (ex: 'Português', 'English'). */
+    function getName(lang)     { return NAMES[lang !== undefined ? lang : _current] || lang; }
+    /** Código ISO de país para a biblioteca flag-icons (ex: 'en' → 'gb'). */
+    function getCountryCode(lang) { return COUNTRY_CODES[lang !== undefined ? lang : _current] || (lang || _current); }
 
     window.I18n = {
         registerStrings : registerStrings,
@@ -70,6 +80,8 @@
         t               : t,
         getCurrentLang  : getCurrentLang,
         getFlag         : getFlag,
-        getLanguages    : getLanguages
+        getLanguages    : getLanguages,
+        getName         : getName,
+        getCountryCode  : getCountryCode
     };
 })();

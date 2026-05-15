@@ -8,6 +8,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Mega Hitster - Mesa</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Bandeiras SVG via flag-icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
     <!-- Configuração Firebase, core de cliente partilhado, i18n e módulo Hitster -->
     <script src="shared/firebase-config.js"></script>
     <script src="shared/client-core.js"></script>
@@ -20,7 +22,6 @@
         html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
         #root { min-height: 100dvh; }
         .min-h-screen { min-height: 100dvh !important; }
-        /* h-screen usa 100dvh para contabilizar a barra do browser no mobile */
         .h-screen { height: 100dvh !important; }
 
         @keyframes jokerGlow {
@@ -34,6 +35,9 @@
             }
         }
         .joker-glow { animation: jokerGlow 1.1s ease-in-out infinite; }
+
+        /* Selector de língua — garante que as bandeiras SVG têm dimensão definida */
+        .lang-flag { display: inline-block; width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
     </style>
 </head>
 <body>
@@ -93,9 +97,8 @@
             var g10 = _s(false); var showHelp = g10[0];       var setShowHelp = g10[1];
             var g11 = _s('');    var lastSubmitted = g11[0];  var setLastSubmitted = g11[1];
 
-            // — i18n —
+            // — i18n: estado de língua para forçar re-render quando a língua muda —
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
-            var lg2 = _s(false); var showLangMenu = lg2[0]; var setShowLangMenu = lg2[1];
 
             var timerRef = useRef(null);
             var prevPhaseRef = useRef('waiting');
@@ -108,9 +111,7 @@
                 return function() { window.removeEventListener('i18n:change', handler); };
             }, []);
 
-            // — Conexão à sessão: gameState, clients/<n>, .info/connected, heartbeat,
-            //   visibility/focus → resume são todos geridos pelo ClientCore.connectClient.
-            //   Listeners game-específicos (textResponses) são feitos à parte abaixo. —
+            // — Conexão à sessão —
             useEffect(function() {
                 if (!connected || !sessionCode || !tableNumber) return;
                 var ctrl = ClientCore.connectClient({
@@ -123,13 +124,12 @@
                         clearLocal();
                     },
                     onFbConnectionChange: setFbConnected,
-                    // Bump resubKey para que listeners game-específicos voltem a subscrever após resume
                     onResume: function() { setResubKey(function(k) { return k + 1; }); }
                 });
                 return function() { ctrl.disconnect(); };
             }, [connected, sessionCode, tableNumber]);
 
-            // — wake lock: manter ecrã ligado enquanto conectado —
+            // — wake lock —
             useEffect(function() {
                 if (!connected) return;
                 var lock = ClientCore.attachWakeLock();
@@ -156,10 +156,7 @@
                 if (autoRecon && sessionCode && tableNumber) handleConnect(true);
             }, [autoRecon, sessionCode, tableNumber]);
 
-            // — listener game-específico: textResponses/<n>.
-            //   Re-subscreve quando resubKey muda (sinalizado pelo onResume do core
-            //   após visibility/focus/online), garantindo que mudanças ocorridas
-            //   enquanto a tab estava em background são apanhadas. —
+            // — listener game-específico: textResponses —
             useEffect(function() {
                 if (!connected || !sessionCode || !tableNumber) return;
                 var unsubTxt = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/textResponses/' + tableNumber), function(snap) {
@@ -168,9 +165,7 @@
                 return function() { unsubTxt(); };
             }, [connected, sessionCode, tableNumber, resubKey]);
 
-            // — timers locais derivados de timestamps absolutos —
-            // localAnswerEndRef persiste durante answering→reviewing para que o contador
-            // do cliente nunca desapareça antes de chegar a 0, mesmo com desfasamento de relógio
+            // — timers locais —
             useEffect(function() {
                 var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
                 var jEnd = gameData ? (gameData.jokerTimerEndAt || 0) : 0;
@@ -182,7 +177,6 @@
                     localAnswerEndRef.current = 0;
                     setAnswerTimer(0);
                 }
-                // 'reviewing': mantém localAnswerEndRef para o contador terminar naturalmente
 
                 if (timerRef.current) clearInterval(timerRef.current);
 
@@ -210,18 +204,14 @@
             useEffect(function() {
                 var newPhase = gameData ? (gameData.phase || 'waiting') : 'waiting';
                 if (prevPhaseRef.current !== 'answering' && newPhase === 'answering') {
-                    // Nova ronda: limpar tudo
                     setTextInput(''); setTextSubmitted(false);
                     setSubmitError(''); setLastSubmitted('');
                 }
-                if (newPhase === 'waiting') {
-                    // Volta ao waiting: esconder comprovativo (nova ronda a caminho)
-                    setLastSubmitted('');
-                }
+                if (newPhase === 'waiting') setLastSubmitted('');
                 prevPhaseRef.current = newPhase;
             }, [gameData ? gameData.phase : null]);
 
-            // — conexão (delegada ao ClientCore.joinSession) —
+            // — conexão —
             var handleConnect = async function(isAuto) {
                 var result = await ClientCore.joinSession({
                     rtdb: rtdb, fm: fm,
@@ -256,7 +246,6 @@
                 if (jokerOrder.indexOf(tableId) >= 0) return;
                 if (gameData.phase !== 'joker_window') return;
                 if (gameData.currentCategory && gameData.currentCategory.isTimeline) return;
-                // Tenta 2x antes de desistir — protege contra falhas momentâneas de rede
                 for (var attempt = 0; attempt < 2; attempt++) {
                     try {
                         await withTimeout(fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/histerJokers/' + tableNumber), {
@@ -312,30 +301,30 @@
             var allJokersUsed = gameData ? (gameData.allJokersUsed || false) : false;
             var jokerWindowOpen = phase === 'joker_window';
             var isTimeline = cat && cat.isTimeline;
-            // Joker desativado: se janela fechada, joker já usado, timeline, OU equipa canta
             var jokerEnabled = jokerWindowOpen && !myJokerUsed && !isTimeline && !isSinging;
             var showInput = !isSinging && answerTimer > 0;
             var showCat = cat && (phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
 
-            // — componente do botão de língua —
-            function LangButton() {
-                return h('div', { className: 'relative' },
-                    h('button', {
-                        onClick: function() { setShowLangMenu(function(v) { return !v; }); },
-                        style: { boxShadow: '0 0 7px 2px rgba(255,255,255,0.22), 0 0 0 1.5px rgba(255,255,255,0.18)' },
-                        className: 'w-8 h-8 flex items-center justify-center bg-white bg-opacity-20 hover:bg-opacity-30 rounded-full text-base transition-all active:scale-95'
-                    }, I18n.getFlag()),
-                    showLangMenu && h('div', {
-                        className: 'absolute right-0 top-10 bg-white rounded-xl shadow-xl p-1.5 flex flex-col gap-1 z-50'
-                    },
-                        I18n.getLanguages().filter(function(l) { return l !== lang; }).map(function(l) {
-                            return h('button', {
-                                key: l,
-                                onClick: function() { I18n.setLang(l); setShowLangMenu(false); },
-                                className: 'w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-lg text-base transition-all active:scale-95'
-                            }, I18n.getFlag(l));
-                        })
-                    )
+            // — seletor de língua para o ecrã de login —
+            // Botões com bandeira SVG (flag-icons) + nome da língua.
+            // A língua activa fica destacada; as outras ficam em ghost.
+            function LangSelector() {
+                return h('div', { className: 'flex gap-2 justify-center mb-5' },
+                    I18n.getLanguages().map(function(l) {
+                        var isActive = l === lang;
+                        return h('button', {
+                            key: l,
+                            onClick: function() { I18n.setLang(l); },
+                            className: 'flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all text-sm font-semibold active:scale-95 ' + (
+                                isActive
+                                    ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-sm'
+                                    : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
+                            )
+                        },
+                            h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
+                            h('span', null, I18n.getName(l))
+                        );
+                    })
                 );
             }
 
@@ -369,11 +358,18 @@
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 p-4 flex items-center justify-center' },
                     h('div', { className: 'w-full max-w-sm' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
-                            h('div', { className: 'text-center mb-6' },
+                            // Título
+                            h('div', { className: 'text-center mb-4' },
                                 h('div', { className: 'text-5xl mb-2' }, '🎵'),
                                 h('h1', { className: 'text-2xl font-black text-violet-800' }, T('h_title'))
                             ),
+                            // Seletor de língua
+                            LangSelector(),
+                            // Separador
+                            h('div', { className: 'border-t border-gray-100 mb-4' }),
+                            // Erro de conexão
                             connError && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm font-semibold' }, connError),
+                            // Formulário
                             h('div', { className: 'space-y-4' },
                                 h('div', null,
                                     h('label', { className: 'block text-sm font-semibold mb-1' }, T('session_code')),
@@ -440,7 +436,6 @@
                         ? h('img', { src: mainLogo, alt: 'logo', className: 'h-8 object-contain', onError: function(e) { e.target.style.display = 'none'; } })
                         : h('div', { className: 'text-2xl' }, '🎵'),
                     h('div', { className: 'flex items-center gap-2' },
-                        LangButton(),
                         h('button', {
                             onClick: function() { setShowHelp(true); },
                             style: { boxShadow: '0 0 7px 2px rgba(255,255,255,0.22), 0 0 0 1.5px rgba(255,255,255,0.18)' },
@@ -454,7 +449,7 @@
                     )
                 ),
 
-                // pontuação — sempre visível para o cliente (ocultar pontos só aplica no master)
+                // pontuação
                 h('div', { className: 'relative z-10 mx-4 mt-3 bg-white bg-opacity-15 rounded-2xl p-3 text-center flex-shrink-0' },
                     h('div', { className: 'text-5xl font-black text-white' }, myScore),
                     h('div', { className: 'text-xs text-white opacity-70 mt-0.5' }, T('points'))
@@ -547,8 +542,7 @@
                             )
                         ),
 
-                    // comprovativo — resposta confirmada visível quando o input desapareceu
-                    // (tempo esgotado ou fase reviewing). Persiste até nova ronda.
+                    // comprovativo
                     !showInput && lastSubmitted && (phase === 'answering' || phase === 'reviewing') &&
                         h('div', { className: 'w-full max-w-sm' },
                             h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 backdrop-blur-sm' },
@@ -560,7 +554,7 @@
                             )
                         ),
 
-                    // botão joker — indicador "já usado" durante janela, desaparece fora da janela
+                    // botão joker
                     (jokerWindowOpen && myJokerUsed)
                         ? h('div', { className: 'w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 bg-gray-700 bg-opacity-60 border-2 border-gray-600 select-none' },
                             h('div', { className: 'text-4xl opacity-40' }, '🃏'),
@@ -589,7 +583,6 @@
                     onClick: function(e) { if (e.target === e.currentTarget) setShowHelp(false); }
                 },
                     h('div', { className: 'bg-slate-900 rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 pb-8' },
-                        // header do modal
                         h('div', { className: 'flex items-center justify-between mb-4' },
                             h('div', { className: 'flex items-center gap-2' },
                                 h('span', { className: 'text-2xl' }, '🎵'),
@@ -601,7 +594,6 @@
                             }, '✕')
                         ),
 
-                        // regras + pontuações
                         (function() {
                             var DEFAULT_RULES = [
                                 { id: 'phases',  title: T('h_rule_phases_title'),  content: T('h_rule_phases_content') },
@@ -647,7 +639,7 @@
                     )
                 ),
 
-                // barra de logos secundários
+                // logos secundários
                 secLogos.length > 0 && h('div', { className: 'flex-shrink-0 bg-black bg-opacity-20 px-4 py-1.5 flex items-center justify-center gap-4 overflow-hidden' },
                     secLogos.map(function(logo, idx) {
                         return h('img', {
