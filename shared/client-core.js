@@ -341,11 +341,17 @@
         var gameType = opts.gameType || null;
         var isAuto   = !!opts.isAuto;
 
+        // Tradução de erros: I18n é carregado depois de client-core.js, mas joinSession
+        // só é chamado após interacção do utilizador, por isso I18n já está disponível.
+        var _t = function(key, vars) {
+            return (window.I18n && window.I18n.t) ? window.I18n.t(key, vars) : key;
+        };
+
         if (!code || !table || table < 1) {
-            return { ok: false, error: 'Código e número de mesa são obrigatórios' };
+            return { ok: false, error: _t('err_code_table_required') };
         }
         if (!isAuto && !teamName) {
-            return { ok: false, error: 'O nome da equipa é obrigatório' };
+            return { ok: false, error: _t('err_team_required') };
         }
 
         try {
@@ -354,10 +360,10 @@
                 fm.onValue(fm.ref(rtdb, 'sessions/' + code + '/gameState'), resolve, { onlyOnce: true });
             });
             var gs = gsSnap.val();
-            if (!gs) return { ok: false, error: 'Sessão "' + code + '" não encontrada.' };
-            if (gs.active === false) return { ok: false, error: 'Sessão "' + code + '" já não está ativa.' };
+            if (!gs) return { ok: false, error: _t('err_session_not_found', { code: code }) };
+            if (gs.active === false) return { ok: false, error: _t('err_session_inactive', { code: code }) };
             if (gameType && gs.gameType && gs.gameType !== gameType) {
-                return { ok: false, error: 'Esta sessão pertence a outro jogo. Usa a aplicação correta.' };
+                return { ok: false, error: _t('err_wrong_game') };
             }
 
             // Ler clients/<n> (uma vez só) — usado para tablesLocked + deteção de colisão
@@ -368,7 +374,7 @@
 
             // tablesLocked: bloqueia novas entradas manuais; auto-rejoin de mesas existentes é permitido
             if (gs.tablesLocked && !isAuto && !existing) {
-                return { ok: false, error: 'Novas entradas estão bloqueadas pelo anfitrião.' };
+                return { ok: false, error: _t('err_tables_locked') };
             }
 
             // Colisão de clientId: a mesa pertence a outro dispositivo
@@ -377,15 +383,15 @@
                     if (isAuto) {
                         return {
                             ok: false,
-                            error: 'Outro dispositivo está agora a usar a Mesa ' + table + '. Inicia sessão de novo.',
+                            error: _t('err_table_taken_auto', { n: table }),
                             clearLocal: true
                         };
                     }
-                    return { ok: false, error: 'A Mesa ' + table + ' já está conectada noutro dispositivo! Escolhe outro número.' };
+                    return { ok: false, error: _t('err_table_taken', { n: table }) };
                 }
                 if (!isAuto && !existing.clientId) {
                     // Cliente legacy sem clientId — bloqueia entrada manual por segurança
-                    return { ok: false, error: 'A Mesa ' + table + ' já está conectada! Escolhe outro número.' };
+                    return { ok: false, error: _t('err_table_connected', { n: table }) };
                 }
             }
 
@@ -401,7 +407,7 @@
 
             return { ok: true, code: code, table: table, teamName: teamName, emails: emails };
         } catch(e) {
-            return { ok: false, error: 'Erro ao conectar. Tenta novamente.' };
+            return { ok: false, error: _t('err_connect_generic') };
         }
     }
 

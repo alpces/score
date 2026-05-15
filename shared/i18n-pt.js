@@ -19,6 +19,18 @@ I18n.registerStrings('pt', {
     points              : 'pontos',
     nobody              : 'Ninguém',
 
+    // ── Erros de joinSession (client-core.js) ───────────────────────────────
+    err_code_table_required : 'Código e número de mesa são obrigatórios',
+    err_team_required       : 'O nome da equipa é obrigatório',
+    err_session_not_found   : 'Sessão "{{code}}" não encontrada.',
+    err_session_inactive    : 'Sessão "{{code}}" já não está ativa.',
+    err_wrong_game          : 'Esta sessão pertence a outro jogo. Usa a aplicação correta.',
+    err_tables_locked       : 'Novas entradas estão bloqueadas pelo anfitrião.',
+    err_table_taken_auto    : 'Outro dispositivo está agora a usar a Mesa {{n}}. Inicia sessão de novo.',
+    err_table_taken         : 'A Mesa {{n}} já está conectada noutro dispositivo! Escolhe outro número.',
+    err_table_connected     : 'A Mesa {{n}} já está conectada! Escolhe outro número.',
+    err_connect_generic     : 'Erro ao conectar. Tenta novamente.',
+
     // ── Mega Hitster ─────────────────────────────────────────────────────────
     h_title                 : 'Mega Hitster',
     h_session_ended_msg     : 'A sessão foi terminada pelo anfitrião.',

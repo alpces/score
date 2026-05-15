@@ -19,6 +19,18 @@ I18n.registerStrings('en', {
     points              : 'points',
     nobody              : 'Nobody',
 
+    // ── joinSession errors (client-core.js) ─────────────────────────────────
+    err_code_table_required : 'Session code and table number are required',
+    err_team_required       : 'Team name is required',
+    err_session_not_found   : 'Session "{{code}}" not found.',
+    err_session_inactive    : 'Session "{{code}}" is no longer active.',
+    err_wrong_game          : 'This session belongs to a different game. Please use the correct app.',
+    err_tables_locked       : 'New entries are blocked by the host.',
+    err_table_taken_auto    : 'Another device is now using Table {{n}}. Please sign in again.',
+    err_table_taken         : 'Table {{n}} is already connected from another device! Choose a different number.',
+    err_table_connected     : 'Table {{n}} is already connected! Choose a different number.',
+    err_connect_generic     : 'Connection failed. Please try again.',
+
     // ── Mega Hitster ─────────────────────────────────────────────────────────
     h_title                 : 'Mega Hitster',
     h_session_ended_msg     : 'The session was ended by the host.',

@@ -78,6 +78,7 @@
                 var c17 = _s(0); var resubKey = c17[0]; var setResubKey = c17[1];
                 // — i18n: estado de língua para forçar re-render quando a língua muda —
                 var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
+                var lg2 = _s(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
 
                 // — listener de mudança de língua —
                 useEffect(function() {
@@ -263,24 +264,36 @@
                     return tbl ? (tbl.name || T('table_n', { n: id })) : T('table_n', { n: id });
                 }
 
-                // — seletor de língua para o ecrã de login —
+                // — seletor de língua: botão com dropdown —
                 function LangSelector() {
-                    return h('div', { className: 'flex gap-2 justify-center mb-5' },
-                        I18n.getLanguages().map(function(l) {
-                            var isActive = l === lang;
-                            return h('button', {
-                                key: l,
-                                onClick: function() { I18n.setLang(l); },
-                                className: 'flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all text-sm font-semibold active:scale-95 ' + (
-                                    isActive
-                                        ? 'border-amber-500 bg-amber-50 text-amber-700 shadow-sm'
-                                        : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
-                                )
-                            },
-                                h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
-                                h('span', null, I18n.getName(l))
-                            );
-                        })
+                    var cc = I18n.getCountryCode();
+                    var cn = I18n.getName();
+                    return h('div', { className: 'relative' },
+                        h('button', {
+                            onClick: function() { setShowLangDrop(function(v) { return !v; }); },
+                            className: 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border-2 border-gray-200 text-gray-600 text-sm font-semibold hover:border-amber-300 hover:text-amber-700 transition-all active:scale-95'
+                        },
+                            h('span', { className: 'fi fi-' + cc + ' fi-circle lang-flag' }),
+                            h('span', null, cn),
+                            h('span', { className: 'text-gray-400 text-xs ml-0.5' }, showLangDrop ? '▲' : '▼')
+                        ),
+                        showLangDrop && h('div', {
+                            className: 'absolute top-full right-0 mt-1 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden min-w-max'
+                        },
+                            I18n.getLanguages().map(function(l) {
+                                var isActive = l === lang;
+                                return h('button', {
+                                    key: l,
+                                    onClick: function() { I18n.setLang(l); setShowLangDrop(false); },
+                                    className: 'flex items-center gap-2 px-4 py-2.5 w-full text-left text-sm font-semibold transition-colors ' + (
+                                        isActive ? 'bg-amber-50 text-amber-700' : 'text-gray-700 hover:bg-gray-50'
+                                    )
+                                },
+                                    h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
+                                    h('span', null, I18n.getName(l))
+                                );
+                            })
+                        )
                     );
                 }
 
@@ -310,13 +323,18 @@
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4 flex items-center justify-center' },
                         h('div', { className: 'w-full max-w-sm' },
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
+                                // Cabeçalho: logo + seletor de língua
+                                h('div', { className: 'flex items-center justify-between mb-4' },
+                                    h('div', { className: 'bg-gray-700 rounded-xl p-1.5' },
+                                        h('img', { src: 'logo1.png', className: 'h-8 w-auto', alt: 'Ludonautas' })
+                                    ),
+                                    LangSelector()
+                                ),
                                 // Título
                                 h('div', { className: 'text-center mb-4' },
                                     h('div', { className: 'text-5xl mb-2' }, '💎'),
                                     h('h1', { className: 'text-2xl font-black text-amber-800' }, T('d_title'))
                                 ),
-                                // Seletor de língua
-                                LangSelector(),
                                 // Separador
                                 h('div', { className: 'border-t border-gray-100 mb-4' }),
                                 // Formulário
