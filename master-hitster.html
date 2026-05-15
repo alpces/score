@@ -15,6 +15,23 @@
     <script src="shared/i18n-pt.js"></script>
     <script src="shared/i18n-en.js"></script>
     <script src="games/hitster.js"></script>
+    <!-- Língua padrão do master: 'pt', isolada do score_lang dos clientes -->
+    <script>
+    (function() {
+        var MASTER_LANG_KEY = 'score_lang_master';
+        var savedLang;
+        try { savedLang = localStorage.getItem(MASTER_LANG_KEY); } catch(e) {}
+        var masterLang = savedLang || 'pt';
+        // Sobrepõe setLang para também gravar a preferência do master
+        var _origSetLang = I18n.setLang;
+        I18n.setLang = function(lang) {
+            _origSetLang(lang);
+            try { localStorage.setItem(MASTER_LANG_KEY, lang); } catch(e) {}
+        };
+        // Aplica sem disparar evento (evita react ainda não estar pronto)
+        I18n.setLang(masterLang);
+    })();
+    </script>
     <style>
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .blink { animation: blink 1s ease-in-out infinite; }
@@ -132,7 +149,22 @@
             var lg2 = _s(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
 
             useEffect(function() {
-                var handler = function(e) { setLang(e.detail.lang); };
+                var handler = function(e) {
+                    var newLang = e.detail.lang;
+                    setLang(newLang);
+                    // Recarregar categorias para a nova língua (localStorage por língua)
+                    try {
+                        var rawCats = localStorage.getItem('hitsterCategories_' + newLang);
+                        var savedCats = rawCats ? JSON.parse(rawCats) : null;
+                        setCategories(savedCats && savedCats.length > 0 ? savedCats : getDefaultCategories());
+                    } catch(err) { setCategories(getDefaultCategories()); }
+                    // Recarregar regras para a nova língua (localStorage por língua)
+                    try {
+                        var rawRules = localStorage.getItem('hitsterRules_' + newLang);
+                        var savedRules = rawRules ? JSON.parse(rawRules) : null;
+                        setRulesConfig(savedRules && savedRules.length > 0 ? savedRules : getDefaultRulesConfig());
+                    } catch(err2) { setRulesConfig(getDefaultRulesConfig()); }
+                };
                 window.addEventListener('i18n:change', handler);
                 return function() { window.removeEventListener('i18n:change', handler); };
             }, []);
@@ -197,10 +229,11 @@
                 }
             }, []);
 
-            /* —— CATEGORIAS localStorage (carregar) —— */
+            /* —— CATEGORIAS localStorage (carregar — chave por língua) —— */
             useEffect(function() {
                 try {
-                    var saved = localStorage.getItem('hitsterCategories');
+                    var lang = I18n.getCurrentLang();
+                    var saved = localStorage.getItem('hitsterCategories_' + lang);
                     if (saved) {
                         var cats = JSON.parse(saved);
                         if (Array.isArray(cats) && cats.length > 0) setCategories(cats);
@@ -208,18 +241,19 @@
                 } catch(e) { console.error('Cats load:', e); }
             }, []);
 
-            /* —— CATEGORIAS localStorage (guardar) —— */
+            /* —— CATEGORIAS localStorage (guardar — chave por língua) —— */
             var saveCategories = function(cats) {
                 try {
-                    localStorage.setItem('hitsterCategories', JSON.stringify(cats));
+                    localStorage.setItem('hitsterCategories_' + I18n.getCurrentLang(), JSON.stringify(cats));
                     return true;
                 } catch(e) { console.error('Cats save:', e); return false; }
             };
 
-            /* —— REGRAS localStorage (carregar, com migração do formato antigo) —— */
+            /* —— REGRAS localStorage (carregar — chave por língua) —— */
             useEffect(function() {
                 try {
-                    var saved = localStorage.getItem('hitsterRules');
+                    var lang = I18n.getCurrentLang();
+                    var saved = localStorage.getItem('hitsterRules_' + lang);
                     if (saved) {
                         var r = JSON.parse(saved);
                         if (Array.isArray(r) && r.length > 0) {
@@ -236,9 +270,9 @@
                 } catch(e) {}
             }, []);
 
-            /* —— REGRAS localStorage (guardar) —— */
+            /* —— REGRAS localStorage (guardar — chave por língua) —— */
             var saveRules = function(r) {
-                try { localStorage.setItem('hitsterRules', JSON.stringify(r)); return true; } catch(e) { return false; }
+                try { localStorage.setItem('hitsterRules_' + I18n.getCurrentLang(), JSON.stringify(r)); return true; } catch(e) { return false; }
             };
 
             /* —— SESSÕES ATIVAS (só no setup, desliga durante o jogo) —— */

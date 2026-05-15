@@ -14,6 +14,21 @@
     <script src="shared/i18n.js"></script>
     <script src="shared/i18n-pt.js"></script>
     <script src="shared/i18n-en.js"></script>
+    <!-- Língua padrão do master: 'pt', isolada do score_lang dos clientes -->
+    <script>
+    (function() {
+        var MASTER_LANG_KEY = 'score_lang_master';
+        var savedLang;
+        try { savedLang = localStorage.getItem(MASTER_LANG_KEY); } catch(e) {}
+        var masterLang = savedLang || 'pt';
+        var _origSetLang = I18n.setLang;
+        I18n.setLang = function(lang) {
+            _origSetLang(lang);
+            try { localStorage.setItem(MASTER_LANG_KEY, lang); } catch(e) {}
+        };
+        I18n.setLang(masterLang);
+    })();
+    </script>
     <style>
         /* Selector de língua */
         .lang-flag { display: inline-block; width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
