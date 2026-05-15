@@ -482,9 +482,9 @@
 
             /* —— ARQUIVAR SESSÃO ATIVA SEM ABRIR (para sessões órfãs na history page) —— */
             var closeActiveSession = async function(sc) {
-                if (!confirm('Arquivar sessão "' + sc + '"?')) return;
+                if (!confirm(T('m_h_archive_confirm', { code: sc }))) return;
                 var sd = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: sc });
-                if (!sd) { alert('Sessão não encontrada.'); return; }
+                if (!sd) { alert(T('m_h_session_not_found')); return; }
                 var res = await SessionCore.archiveSession({
                     rtdb: rtdb, fm: fm, sessionId: sc, gameType: GAME_TYPE,
                     history: {
@@ -587,7 +587,7 @@
 
             /* —— REMOVER MESA —— */
             var removeTable = async function(tableId) {
-                if (!confirm('Remover Mesa ' + tableId + '?')) return;
+                if (!confirm(T('m_h_remove_table_confirm', { n: tableId }))) return;
                 try {
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/clients/' + tableId));
                     await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses/' + tableId));
@@ -1063,7 +1063,7 @@
                                         },
                                             tiedAtLast.map(function(t) {
                                                 return h('option', { key: t.id, value: t.id },
-                                                    'Mesa ' + t.id + ' — ' + (t.name || ('Mesa ' + t.id)) +
+                                                    T('table_n', { n: t.id }) + ' — ' + (t.name || T('table_n', { n: t.id })) +
                                                     (showScores ? (' · ' + t.score + ' pts') : '')
                                                 );
                                             })
@@ -1071,7 +1071,7 @@
                                         // Texto simples quando há um único último lugar
                                         : h('div', null,
                                             h('div', { className: 'font-black text-gray-800' }, lp.name || ('Mesa ' + lp.id)),
-                                            showScores && h('div', { className: 'text-sm text-gray-500' }, lp.score + ' pontos')
+                                            showScores && h('div', { className: 'text-sm text-gray-500' }, lp.score + ' ' + T('points'))
                                           )
                                 ),
                                 canSing && h('div', { className: 'flex items-center gap-2 flex-shrink-0' },
@@ -1112,19 +1112,19 @@
                     h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 w-full max-w-2xl max-h-[90vh] flex flex-col slide-in' },
                         h('div', { className: 'flex items-center justify-between mb-4 flex-shrink-0' },
                             h('div', null,
-                                h('h2', { className: 'text-lg font-black text-gray-800' }, '✅ Validar Respostas'),
+                                h('h2', { className: 'text-lg font-black text-gray-800' }, T('m_h_validate_answers')),
                                 h('div', { className: 'text-sm text-gray-500' }, cat.name + ' — ' + pts + ' pts')
                             ),
-                            h('button', { onClick: cancelRound, className: 'text-xs text-red-500 hover:text-red-700 font-semibold' }, '✕ Cancelar ronda')
+                            h('button', { onClick: cancelRound, className: 'text-xs text-red-500 hover:text-red-700 font-semibold' }, T('m_h_cancel_round_btn'))
                         ),
                         singingTeam && h('div', { className: 'bg-purple-50 border-2 border-purple-300 rounded-xl p-3 mb-4 flex-shrink-0' },
                             h('div', { className: 'flex justify-between items-center' },
                                 h('div', null,
-                                    h('div', { className: 'text-xs text-purple-600 font-semibold' }, '🎤 Equipa Cantora'),
-                                    h('div', { className: 'font-black text-gray-800' }, singingTeam.name || ('Mesa ' + singingTeam.id))
+                                    h('div', { className: 'text-xs text-purple-600 font-semibold' }, T('m_h_singing_team')),
+                                    h('div', { className: 'font-black text-gray-800' }, singingTeam.name || T('table_n', { n: singingTeam.id }))
                                 ),
                                 h('div', { className: 'text-right' },
-                                    h('div', { className: 'text-xs text-gray-500' }, 'Ganha por respostas certas das outras (máx. 3)'),
+                                    h('div', { className: 'text-xs text-gray-500' }, T('m_h_singer_pts_desc')),
                                     h('div', { className: 'font-black text-purple-700 text-xl' }, '+' + singingPreview + ' pts')
                                 )
                             )
@@ -1157,11 +1157,11 @@
                                     ),
                                     h('div', { className: 'flex-1 min-w-0' },
                                         h('div', { className: 'font-bold text-gray-800 text-sm' },
-                                            (table.name || ('Mesa ' + table.id)),
+                                            (table.name || T('table_n', { n: table.id })),
                                             usedJoker && h('span', { className: 'ml-2 text-xs bg-yellow-200 text-yellow-800 px-1.5 py-0.5 rounded-full' }, '🃏 Joker ×2')
                                         ),
                                         text ? h('div', { className: 'text-gray-600 text-sm truncate' }, '"' + text + '"')
-                                             : h('div', { className: 'text-gray-400 text-xs italic' }, 'Sem resposta')
+                                             : h('div', { className: 'text-gray-400 text-xs italic' }, T('m_h_no_answer'))
                                     ),
                                     h('div', { className: 'font-black text-lg ' + (checked ? 'text-green-600' : 'text-gray-300') }, checked ? ('+' + pts_gain) : '—')
                                 );
@@ -1170,16 +1170,16 @@
                         h('button', {
                             onClick: confirmValidation,
                             className: 'w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-lg shadow-lg active:scale-95 transition-transform flex-shrink-0'
-                        }, '✅ Confirmar e Pontuar (' + correctIds.filter(function(id) { return id !== singingId; }).length + ' certas)')
+                        }, T('m_h_confirm_score', { n: correctIds.filter(function(id) { return id !== singingId; }).length }))
                     )
                 );
             };
 
             var phaseLabel = {
-                'waiting':      '⏸ A aguardar ronda',
-                'joker_window': allJokersUsed ? ('🎵 Prepara a música! — ' + jokerDisplay + 's') : ('🃏 Janela do Joker — ' + jokerDisplay + 's'),
-                'answering':    '✍️ A responder — ' + answerDisplay + 's',
-                'reviewing':    '✅ A validar respostas'
+                'waiting':      T('m_h_phase_waiting'),
+                'joker_window': allJokersUsed ? T('m_h_phase_music', { n: jokerDisplay }) : T('m_h_phase_joker_win', { n: jokerDisplay }),
+                'answering':    T('m_h_phase_answering', { n: answerDisplay }),
+                'reviewing':    T('m_h_phase_reviewing')
             }[phase] || phase;
 
             var phaseColor = {
@@ -1195,7 +1195,7 @@
                 h('div', { className: 'bg-violet-900 px-4 py-2 flex items-center gap-3 flex-shrink-0 shadow-xl relative' },
                     h('div', { className: 'text-lg font-black' }, '🎵 Mega Hitster'),
                     h('div', { className: 'flex items-center gap-2 bg-violet-800 rounded-lg px-3 py-1' },
-                        h('span', { className: 'text-xs opacity-60' }, 'Sessão'),
+                        h('span', { className: 'text-xs opacity-60' }, T('m_h_session_label')),
                         h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId),
                         h('button', {
                             onClick: function() {
@@ -1216,15 +1216,15 @@
                         onError: function(e) { e.target.style.display = 'none'; }
                     }),
                     h('div', { className: 'flex items-center gap-2 ml-auto' },
-                        h('div', { className: 'text-xs opacity-70' }, tableCount + ' mesas • ' + Object.keys(connectedClients).length + ' online'),
+                        h('div', { className: 'text-xs opacity-70' }, T('m_h_tables_online', { tables: tableCount, online: Object.keys(connectedClients).length })),
                         h('button', {
                             onClick: function() { setShowScores(!showScores); },
                             className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
-                        }, showScores ? '👁️ Ocultar pts' : '👁️ Mostrar pts'),
+                        }, showScores ? T('m_h_hide_pts') : T('m_h_show_pts')),
                         h('button', {
                             onClick: function() { setShowEndModal(true); },
                             className: 'bg-red-700 hover:bg-red-600 px-3 py-1.5 rounded-lg text-sm font-bold'
-                        }, '✕ Sair')
+                        }, T('m_h_exit'))
                     )
                 ),
 
@@ -1235,10 +1235,10 @@
                     ),
                     currentCat && h('div', { className: 'bg-yellow-500 text-yellow-900 font-black px-3 py-1 rounded-full text-sm' }, currentCat.name),
                     singingTeam && h('div', { className: 'bg-purple-700 text-purple-100 px-3 py-1 rounded-full text-sm font-bold' },
-                        '🎤 ' + (singingTeam.name || ('Mesa ' + singingTeam.id)) + ' canta'
+                        T('m_h_sings_label', { name: singingTeam.name || T('table_n', { n: singingTeam.id }) })
                     ),
                     phase === 'answering' && Object.keys(textResponses).length > 0 && h('div', { className: 'flex items-center gap-1 flex-wrap' },
-                        h('span', { className: 'text-xs text-slate-400 mr-1' }, 'Responderam:'),
+                        h('span', { className: 'text-xs text-slate-400 mr-1' }, T('m_h_answered')),
                         Object.keys(textResponses).map(function(tid) {
                             var t = tables.find(function(tb) { return tb.id === parseInt(tid); });
                             var name = t ? t.name : ('Mesa ' + tid);
@@ -1248,7 +1248,7 @@
                         })
                     ),
                     phase === 'reviewing' && responseCount > 0 && h('span', { className: 'bg-green-700 text-green-100 text-xs px-2 py-1 rounded-full font-bold' },
-                        responseCount + ' respostas'
+                        T('m_h_n_responses', { n: responseCount })
                     )
                 ),
 
@@ -1260,8 +1260,8 @@
                         tables.length === 0
                             ? h('div', { className: 'text-center text-slate-500 mt-16' },
                                 h('div', { className: 'text-5xl mb-3' }, '⏳'),
-                                h('div', { className: 'text-lg font-semibold' }, 'A aguardar que as mesas se conectem...'),
-                                h('div', { className: 'text-sm mt-1' }, 'Partilha o código QR com as equipas')
+                                h('div', { className: 'text-lg font-semibold' }, T('m_h_waiting_tables')),
+                                h('div', { className: 'text-sm mt-1' }, T('m_h_share_qr'))
                               )
                             : h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3' },
                                 tables.map(function(table) {
@@ -1286,11 +1286,11 @@
                                     },
                                         h('div', { className: 'flex justify-between items-start mb-1' },
                                             h('div', null,
-                                                h('div', { className: 'text-xs text-slate-500' }, 'Mesa ' + table.id),
-                                                connState === 'online'  && h('span', { className: 'text-xs text-green-400', title: 'Ativo' }, ' ● online'),
-                                                connState === 'idle'    && h('span', { className: 'text-xs text-amber-400', title: 'Sem heartbeat há ' + Math.round(sinceSeen/1000) + 's' }, ' ◌ ausente'),
-                                                connState === 'offline' && h('span', { className: 'text-xs text-red-400 font-bold', title: 'Sem heartbeat há ' + Math.round(sinceSeen/1000) + 's — pode ter perdido o jogo' }, ' ○ offline'),
-                                                connState === 'gone'    && h('span', { className: 'text-xs text-slate-600' }, ' — desligado')
+                                                h('div', { className: 'text-xs text-slate-500' }, T('table_n', { n: table.id })),
+                                                connState === 'online'  && h('span', { className: 'text-xs text-green-400', title: 'Ativo' }, T('m_h_conn_online')),
+                                                connState === 'idle'    && h('span', { className: 'text-xs text-amber-400', title: 'Sem heartbeat há ' + Math.round(sinceSeen/1000) + 's' }, T('m_h_conn_idle')),
+                                                connState === 'offline' && h('span', { className: 'text-xs text-red-400 font-bold', title: 'Sem heartbeat há ' + Math.round(sinceSeen/1000) + 's — pode ter perdido o jogo' }, T('m_h_conn_offline')),
+                                                connState === 'gone'    && h('span', { className: 'text-xs text-slate-600' }, T('m_h_conn_gone'))
                                             ),
                                             h('div', { className: 'flex gap-1' },
                                                 hasJokerThisRound && h('span', { className: 'text-sm' }, '🃏'),
@@ -1298,7 +1298,7 @@
                                                 resp && h('span', { className: 'text-sm' }, '✍️')
                                             )
                                         ),
-                                        h('div', { className: 'font-bold text-white text-sm truncate mb-2' }, table.name || ('Mesa ' + table.id)),
+                                        h('div', { className: 'font-bold text-white text-sm truncate mb-2' }, table.name || T('table_n', { n: table.id })),
                                         showScores && h('div', { className: 'text-3xl font-black text-violet-400 text-center mb-2' }, table.score),
                                         !showScores && h('div', { className: 'text-3xl font-black text-slate-600 text-center mb-2' }, '—'),
                                         h('div', { className: 'flex gap-1 justify-center' },
@@ -1323,46 +1323,46 @@
                     /* —— PAINEL LATERAL —— */
                     h('div', { className: 'w-60 bg-slate-800 border-l border-slate-700 flex flex-col overflow-hidden flex-shrink-0' },
                         h('div', { className: 'p-3 bg-amber-900/30 border-b border-amber-700/40' },
-                            h('div', { className: 'text-xs font-bold text-amber-400 mb-1 uppercase tracking-wide' }, '🔻 Último Lugar'),
+                            h('div', { className: 'text-xs font-bold text-amber-400 mb-1 uppercase tracking-wide' }, T('m_h_last_place_panel')),
                             tiedAtLast.length === 0
-                                ? h('div', { className: 'text-slate-500 text-xs italic' }, 'Sem mesas')
+                                ? h('div', { className: 'text-slate-500 text-xs italic' }, T('m_h_no_tables'))
                                 : ambiguousLast
                                     ? h('div', { className: 'space-y-1' },
                                         tiedAtLast.map(function(t) {
                                             return h('div', { key: t.id, className: 'flex items-center justify-between' },
-                                                h('div', { className: 'font-semibold text-white text-sm truncate' }, t.name || ('Mesa ' + t.id)),
+                                                h('div', { className: 'font-semibold text-white text-sm truncate' }, t.name || T('table_n', { n: t.id })),
                                                 showScores && h('div', { className: 'text-amber-400 font-black text-sm ml-2 flex-shrink-0' }, t.score + ' pts')
                                             );
                                         })
                                       )
                                     : h('div', null,
-                                        h('div', { className: 'font-black text-white text-sm' }, lastPlace.name || ('Mesa ' + lastPlace.id)),
+                                        h('div', { className: 'font-black text-white text-sm' }, lastPlace.name || T('table_n', { n: lastPlace.id })),
                                         showScores && h('div', { className: 'text-lg font-black text-amber-400' }, lastPlace.score + ' pts')
                                       )
                         ),
                         h('div', { className: 'p-3 border-b border-slate-700 flex-shrink-0' },
-                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, '🃏 Jokers Usados'),
+                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, T('m_h_jokers_used')),
                             jokerOrder.length === 0
-                                ? h('div', { className: 'text-slate-500 text-xs italic' }, 'Nenhum joker usado')
+                                ? h('div', { className: 'text-slate-500 text-xs italic' }, T('m_h_no_jokers'))
                                 : h('div', { className: 'space-y-1' },
                                     jokerOrder.map(function(tableId, idx) {
                                         var t = tables.find(function(tb) { return tb.id === tableId; });
                                         return h('div', { key: tableId, className: 'flex items-center gap-2' },
                                             h('div', { className: 'w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center text-xs font-black text-yellow-900' }, idx + 1),
-                                            h('div', { className: 'text-sm font-semibold text-slate-300 truncate' }, t ? (t.name || ('Mesa ' + tableId)) : ('Mesa ' + tableId))
+                                            h('div', { className: 'text-sm font-semibold text-slate-300 truncate' }, t ? (t.name || T('table_n', { n: tableId })) : T('table_n', { n: tableId }))
                                         );
                                     })
                                 )
                         ),
                         showScores && h('div', { className: 'flex-1 overflow-y-auto p-3' },
-                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, '🏆 Ranking'),
+                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, T('m_h_ranking')),
                             h('div', { className: 'space-y-1' },
                                 tables.slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
                                     var medal = ['🥇','🥈','🥉'][idx] || '';
                                     return h('div', { key: t.id, className: 'flex items-center justify-between text-sm' },
                                         h('div', { className: 'flex items-center gap-1' },
                                             h('span', null, medal || (idx + 1) + '.'),
-                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, t.name || ('Mesa ' + t.id))
+                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, t.name || T('table_n', { n: t.id }))
                                         ),
                                         h('span', { className: 'font-black text-violet-400' }, t.score)
                                     );
@@ -1377,11 +1377,11 @@
                     phase === 'waiting' && h('button', {
                         onClick: function() { setShowNewRound(true); setSelectedSinger(null); },
                         className: 'px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
-                    }, '🎵 Nova Ronda #' + roundNumber),
+                    }, T('m_h_new_round', { n: roundNumber })),
                     (phase === 'joker_window' || phase === 'answering') && h('button', {
                         onClick: cancelRound,
                         className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
-                    }, '✕ Cancelar Ronda'),
+                    }, T('m_h_cancel_round_btn')),
                     phase === 'answering' && h('button', {
                         onClick: function() {
                             var newEnd = Date.now() + answerTimeRef.current * 1000;
@@ -1411,24 +1411,24 @@
                         h('button', {
                             onClick: function() { setTablesLocked(!tablesLocked); },
                             className: 'px-3 py-2 rounded-lg font-bold text-sm ' + (tablesLocked ? 'bg-red-800 text-red-200' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')
-                        }, tablesLocked ? '🔒 Bloqueado' : '🔓 Aberto'),
+                        }, tablesLocked ? T('m_h_tables_locked') : T('m_h_tables_open')),
                         h('button', {
                             onClick: function() { setShowManage(!showManage); },
                             className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
-                        }, '⚙️ Mesas'),
+                        }, T('m_h_manage_tables')),
                         h('button', {
                             onClick: function() {
-                                if (!confirm('Repor TODAS as pontuações e jokers a 0?')) return;
+                                if (!confirm(T('m_h_reset_confirm'))) return;
                                 setTables(function(prev) { return prev.map(function(t) { return Object.assign({}, t, { score: 0, jokerUsed: false }); }); });
                                 setJokerOrder([]); setRoundJokers([]);
                                 if (sessionId) fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function(){});
                             },
                             className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
-                        }, '↺ Reset'),
+                        }, T('m_h_reset')),
                         h('button', {
                             onClick: function() { setShowLeaderboard(true); },
                             className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
-                        }, '🏆 Ranking')
+                        }, T('m_h_ranking'))
                     )
                 ),
 
@@ -1460,40 +1460,40 @@
                                     h('div', { className: 'flex items-center gap-2' },
                                         h('span', { className: 'text-xl' }, medal),
                                         h('div', null,
-                                            h('div', { className: 'font-bold text-white' }, t.name || ('Mesa ' + t.id)),
-                                            isLast && h('div', { className: 'text-xs text-amber-400 font-semibold' }, '🔻 Último lugar')
+                                            h('div', { className: 'font-bold text-white' }, t.name || T('table_n', { n: t.id })),
+                                            isLast && h('div', { className: 'text-xs text-amber-400 font-semibold' }, T('m_h_last_place_tag'))
                                         )
                                     ),
                                     h('div', { className: 'text-2xl font-black text-violet-400' }, t.score)
                                 );
                             })
                         ),
-                        h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, 'Fechar')
+                        h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, T('close'))
                     )
                 ),
 
                 // Gerir Mesas
                 showManage && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowManage(false); } },
                     h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
-                        h('h3', { className: 'text-lg font-black text-white mb-4' }, '⚙️ Gerir Mesas'),
+                        h('h3', { className: 'text-lg font-black text-white mb-4' }, T('m_h_manage_title')),
                         tables.length === 0
-                            ? h('p', { className: 'text-slate-400 text-center italic' }, 'Nenhuma mesa conectada.')
+                            ? h('p', { className: 'text-slate-400 text-center italic' }, T('m_h_no_tables_conn'))
                             : h('div', { className: 'space-y-2 max-h-80 overflow-y-auto' },
                                 tables.map(function(table) {
                                     var online = !!connectedClients[table.id];
                                     return h('div', { key: table.id, className: 'flex items-center justify-between p-2 rounded-lg border border-slate-600' },
                                         h('div', null,
-                                            h('div', { className: 'font-bold text-sm text-white' }, table.name || ('Mesa ' + table.id)),
+                                            h('div', { className: 'font-bold text-sm text-white' }, table.name || T('table_n', { n: table.id })),
                                             h('div', { className: 'text-xs ' + (online ? 'text-green-400' : 'text-slate-500') }, online ? '● Online' : '○ Offline')
                                         ),
                                         h('button', {
                                             onClick: function(id) { return function() { removeTable(id); }; }(table.id),
                                             className: 'px-3 py-1 bg-red-900/50 hover:bg-red-800 text-red-300 rounded-lg text-xs font-bold'
-                                        }, '✕ Remover')
+                                        }, T('m_h_remove'))
                                     );
                                 })
                               ),
-                        h('button', { onClick: function() { setShowManage(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, 'Fechar')
+                        h('button', { onClick: function() { setShowManage(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, T('close'))
                     )
                 ),
 
@@ -1501,11 +1501,11 @@
                 showEndModal && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4' },
                     h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in' },
                         h('div', { className: 'text-4xl text-center mb-3' }, '🎵'),
-                        h('h3', { className: 'text-xl font-black text-white text-center mb-2' }, 'Terminar Sessão'),
-                        h('p', { className: 'text-slate-400 text-sm text-center mb-5' }, 'O que queres fazer com a sessão "' + sessionId + '"?'),
+                        h('h3', { className: 'text-xl font-black text-white text-center mb-2' }, T('m_h_end_session_title')),
+                        h('p', { className: 'text-slate-400 text-sm text-center mb-5' }, T('m_h_end_session_msg', { code: sessionId })),
                         h('div', { className: 'space-y-3' },
-                            h('button', { onClick: endSessionArchive, className: 'w-full py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold' }, '📦 Arquivar e Sair'),
-                            h('button', { onClick: endSessionPause, className: 'w-full py-3 bg-amber-700 hover:bg-amber-600 text-white rounded-xl font-bold' }, '⏸️ Pausar (retomar depois)'),
+                            h('button', { onClick: endSessionArchive, className: 'w-full py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold' }, T('m_archive_close')),
+                            h('button', { onClick: endSessionPause, className: 'w-full py-3 bg-amber-700 hover:bg-amber-600 text-white rounded-xl font-bold' }, T('m_h_pause_session')),
                             h('button', { onClick: function() { setShowEndModal(false); }, className: 'w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold' }, T('m_cancel'))
                         )
                     )
