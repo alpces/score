@@ -8,6 +8,16 @@
     <!-- Configuração Firebase e core de sessão partilhados -->
     <script src="shared/firebase-config.js"></script>
     <script src="shared/session-core.js"></script>
+    <!-- Bandeiras SVG via flag-icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
+    <!-- i18n -->
+    <script src="shared/i18n.js"></script>
+    <script src="shared/i18n-pt.js"></script>
+    <script src="shared/i18n-en.js"></script>
+    <style>
+        /* Selector de língua */
+        .lang-flag { display: inline-block; width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
+    </style>
 </head>
 <body>
     <div id="root"></div>
@@ -44,6 +54,7 @@
         window.addEventListener('firebaseReady', function() {
             var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
             var rtdb = window.rtdb, fm = window.fbModules;
+            var T = I18n.t;
 
             function App() {
                 // === SETUP ===
@@ -107,8 +118,15 @@
                 var u12 = _s(null); var existingSessionData = u12[0]; var setExistingSessionData = u12[1];
                 var u13 = _s(false); var showEndSessionModal = u13[0]; var setShowEndSessionModal = u13[1];
                 var u14 = _s(null); var sessionDetail = u14[0]; var setSessionDetail = u14[1];
-                
-                
+                var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
+                var lg2 = _s(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
+
+                useEffect(function() {
+                    var handler = function(e) { setLang(e.detail.lang); };
+                    window.addEventListener('i18n:change', handler);
+                    return function() { window.removeEventListener('i18n:change', handler); };
+                }, []);
+
                 // Multiplicador ativo?
                 var multiplierActive = tables.length >= multiplierThreshold;
                 var currentMultiplier = multiplierActive ? multiplierValue : 1;
@@ -615,18 +633,51 @@
                 var fmtDate = function(ts) { var d = new Date(ts); return d.toLocaleDateString('pt-PT') + ' ' + d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }); };
                 var dangerAwaiting = lastCard && lastCard.type === 'danger' && lastCard.awaitingConfirmation;
                 
+                // === LANG SELECTOR ===
+                function LangSelector() {
+                    var cc = I18n.getCountryCode();
+                    var cn = I18n.getName();
+                    return h('div', { className: 'relative' },
+                        h('button', {
+                            onClick: function() { setShowLangDrop(function(v) { return !v; }); },
+                            className: 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border-2 border-gray-200 text-gray-600 text-sm font-semibold hover:border-amber-300 hover:text-amber-700 transition-all active:scale-95'
+                        },
+                            h('span', { className: 'fi fi-' + cc + ' fi-circle lang-flag' }),
+                            h('span', null, cn),
+                            h('span', { className: 'text-gray-400 text-xs ml-0.5' }, showLangDrop ? '▲' : '▼')
+                        ),
+                        showLangDrop && h('div', {
+                            className: 'absolute top-full right-0 mt-1 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden min-w-max'
+                        },
+                            I18n.getLanguages().map(function(l) {
+                                var isActive = l === lang;
+                                return h('button', {
+                                    key: l,
+                                    onClick: function() { I18n.setLang(l); setShowLangDrop(false); },
+                                    className: 'flex items-center gap-2 px-4 py-2.5 w-full text-left text-sm font-semibold transition-colors ' + (
+                                        isActive ? 'bg-amber-50 text-amber-700' : 'text-gray-700 hover:bg-gray-50'
+                                    )
+                                },
+                                    h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
+                                    h('span', null, I18n.getName(l))
+                                );
+                            })
+                        )
+                    );
+                }
+
                 // === MODAIS ===
                 if (showExistingSessionDialog && existingSessionData) {
                     return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
                             h('div', { className: 'text-center mb-6' },
-                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, '⚠️ Sessão Aberta'),
+                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, T('m_d_open_session')),
                                 h('p', { className: 'text-gray-600' }, '"' + existingSessionData.code + '" já está aberta.')
                             ),
                             h('div', { className: 'space-y-3' },
-                                h('button', { onClick: function() { handleExistingChoice('yes'); }, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, 'Carregar Anterior'),
-                                h('button', { onClick: function() { handleExistingChoice('no'); }, className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700' }, 'Arquivar e Criar Nova'),
-                                h('button', { onClick: function() { handleExistingChoice('cancel'); }, className: 'w-full bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600' }, 'Cancelar')
+                                h('button', { onClick: function() { handleExistingChoice('yes'); }, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, T('m_d_load_previous')),
+                                h('button', { onClick: function() { handleExistingChoice('no'); }, className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700' }, T('m_d_archive_create')),
+                                h('button', { onClick: function() { handleExistingChoice('cancel'); }, className: 'w-full bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600' }, T('m_cancel'))
                             )
                         )
                     );
@@ -635,13 +686,13 @@
                     return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
                             h('div', { className: 'text-center mb-6' },
-                                h('h2', { className: 'text-2xl font-bold mb-2' }, '🏁 Terminar Sessão'),
+                                h('h2', { className: 'text-2xl font-bold mb-2' }, T('m_session_ended_title')),
                                 h('p', { className: 'text-gray-600' }, sessionId + ' · ' + tables.length + ' eq · Exp. ' + expedition)
                             ),
                             h('div', { className: 'space-y-3' },
-                                h('button', { onClick: endSessionArchive, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, '📦 Arquivar e Fechar'),
-                                h('button', { onClick: endSessionPause, className: 'w-full bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600' }, '⏸️ Pausar'),
-                                h('button', { onClick: function() { setShowEndSessionModal(false); }, className: 'w-full bg-gray-400 text-white py-3 rounded-lg font-bold hover:bg-gray-500' }, '❌ Cancelar')
+                                h('button', { onClick: endSessionArchive, className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700' }, T('m_archive_close')),
+                                h('button', { onClick: endSessionPause, className: 'w-full bg-yellow-500 text-white py-3 rounded-lg font-bold hover:bg-yellow-600' }, T('m_pause')),
+                                h('button', { onClick: function() { setShowEndSessionModal(false); }, className: 'w-full bg-gray-400 text-white py-3 rounded-lg font-bold hover:bg-gray-500' }, T('m_cancel'))
                             )
                         )
                     );
@@ -653,12 +704,12 @@
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
                         h('div', { className: 'max-w-4xl mx-auto' },
                             h('div', { className: 'flex justify-between items-center mb-6' },
-                                h('h1', { className: 'text-3xl font-black text-white' }, '🏆 Classificação'),
+                                h('h1', { className: 'text-3xl font-black text-white' }, T('m_leaderboard')),
                                 h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30' }, '✕')
                             ),
                             leaderboardRevealPosition > 1 && h('div', { className: 'text-center mb-6' },
                                 h('button', { onClick: revealNextPosition, className: 'px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xl shadow-lg' },
-                                    leaderboardRevealPosition === 2 ? '🥇 Revelar 1º!' : '👆 Revelar ' + (leaderboardRevealPosition - 1) + 'º')
+                                    leaderboardRevealPosition === 2 ? T('m_h_reveal_first') : T('m_h_reveal_next', { n: leaderboardRevealPosition - 1 }))
                             ),
                             h('div', { className: 'space-y-3' }, sorted.map(function(t, idx) {
                                 var pos = idx + 1, vis = leaderboardRevealPosition !== null && pos >= leaderboardRevealPosition;
@@ -681,7 +732,7 @@
                         h('div', { className: 'text-center' },
                             h('div', { className: 'bg-white p-8 rounded-2xl shadow-2xl mb-6' }, h('img', { src: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId), className: 'mx-auto' })),
                             h('div', { className: 'text-6xl font-black text-white tracking-wider mb-4' }, sessionId),
-                            h('div', { className: 'text-white/75' }, 'Toca para voltar')
+                            h('div', { className: 'text-white/75' }, T('m_tap_to_go_back'))
                         )
                     );
                 }
@@ -691,8 +742,8 @@
                         h('div', { className: 'max-w-5xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
                                 h('div', { className: 'flex justify-between mb-4' },
-                                    h('h2', { className: 'text-xl font-bold' }, '💎 Gestão de Sessões'),
-                                    h('button', { onClick: function() { setShowHistory(false); setSessionDetail(null); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
+                                    h('h2', { className: 'text-xl font-bold' }, T('m_session_mgmt')),
+                                    h('button', { onClick: function() { setShowHistory(false); setSessionDetail(null); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, T('m_back'))
                                 ),
                                 h('div', { className: 'mb-6' },
                                     h('h3', { className: 'text-lg font-bold text-green-700 mb-3' }, '🟢 Abertas (' + activeSessions.length + ')'),
@@ -799,34 +850,40 @@
                 if (!setupComplete) {
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-amber-900 via-orange-900 to-red-900 p-4' },
                         h('div', { className: 'max-w-lg mx-auto py-8' },
-                            h('button', { onClick: function() { setShowHistory(true); }, className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4' }, '📋 Gestão de Sessões'),
+                            h('div', { className: 'flex items-center justify-between px-4 pt-4 mb-4' },
+                                h('div', { className: 'bg-gray-700 rounded-xl p-1.5' },
+                                    h('img', { src: 'logo2.png', className: 'h-8 w-auto', alt: 'Ludonautas' })
+                                ),
+                                LangSelector()
+                            ),
+                            h('button', { onClick: function() { setShowHistory(true); }, className: 'w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 mb-4' }, T('m_session_mgmt')),
                             h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
                                 h('div', { className: 'text-center mb-6' },
                                     h('div', { className: 'text-5xl mb-2' }, '💎'), h('h1', { className: 'text-2xl font-black text-amber-800' }, 'Diamant')
                                 ),
                                 h('div', { className: 'space-y-4' },
                                     h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Código da Sessão (opcional)'),
-                                        h('input', { type: 'text', value: customSessionCode, onChange: function(e) { setCustomSessionCode(e.target.value.toUpperCase()); setCodeError(''); }, placeholder: 'Auto se vazio', maxLength: 10, className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none uppercase font-mono' }),
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, T('m_session_code_opt')),
+                                        h('input', { type: 'text', value: customSessionCode, onChange: function(e) { setCustomSessionCode(e.target.value.toUpperCase()); setCodeError(''); }, placeholder: T('m_code_placeholder'), maxLength: 10, className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none uppercase font-mono' }),
                                         codeError && h('p', { className: 'text-xs text-red-600 mt-1' }, codeError)
                                     ),
                                     h('div', { className: 'bg-amber-50 p-3 rounded-lg border border-amber-200' },
                                         h('p', { className: 'text-sm text-amber-800' }, '📱 Equipas registam-se quando os clientes se conectam.')
                                     ),
                                     h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Timeout Votação (0 = sem limite)'),
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, T('m_d_voting_time')),
                                         h('input', { type: 'number', min: 0, max: 60, value: votingTimeoutDefault, onChange: function(e) { setVotingTimeoutDefault(Math.max(0, +e.target.value || 0)); }, className: 'w-full px-4 py-2 border-2 rounded-lg focus:border-amber-500 outline-none' })
                                     ),
                                     // Multiplicador
                                     h('div', { className: 'bg-blue-50 p-3 rounded-lg border border-blue-200' },
-                                        h('label', { className: 'block text-sm font-semibold mb-2 text-blue-900' }, '✖️ Multiplicador de Rubis'),
+                                        h('label', { className: 'block text-sm font-semibold mb-2 text-blue-900' }, T('m_d_multiplier')),
                                         h('div', { className: 'flex gap-3' },
                                             h('div', { className: 'flex-1' },
-                                                h('label', { className: 'block text-xs text-blue-700 mb-1' }, 'A partir de (nº equipas)'),
+                                                h('label', { className: 'block text-xs text-blue-700 mb-1' }, T('m_d_threshold')),
                                                 h('input', { type: 'number', min: 2, max: 30, value: multiplierThreshold, onChange: function(e) { setMultiplierThreshold(Math.max(2, +e.target.value || 9)); }, className: 'w-full px-3 py-2 border-2 rounded-lg text-center font-bold' })
                                             ),
                                             h('div', { className: 'flex-1' },
-                                                h('label', { className: 'block text-xs text-blue-700 mb-1' }, 'Fator multiplicativo'),
+                                                h('label', { className: 'block text-xs text-blue-700 mb-1' }, T('m_d_mult_value')),
                                                 h('input', { type: 'number', min: 1, max: 10, value: multiplierValue, onChange: function(e) { setMultiplierValue(Math.max(1, +e.target.value || 2)); }, className: 'w-full px-3 py-2 border-2 rounded-lg text-center font-bold' })
                                             )
                                         ),
@@ -834,7 +891,7 @@
                                     ),
                                     // Logos com fundo escuro
                                     availableLogos.length > 0 && h('div', null,
-                                        h('label', { className: 'block text-sm font-semibold mb-2' }, 'Logotipos'),
+                                        h('label', { className: 'block text-sm font-semibold mb-2' }, T('m_logos')),
                                         h('div', { className: 'flex flex-wrap gap-2 bg-gray-800 p-3 rounded-lg' }, availableLogos.map(function(l) {
                                             return h('label', { key: l, className: 'flex items-center p-2 border-2 rounded cursor-pointer ' + (selectedLogos.indexOf(l) >= 0 ? 'border-amber-400 bg-gray-700' : 'border-gray-600 bg-gray-700') },
                                                 h('input', { type: 'checkbox', checked: selectedLogos.indexOf(l) >= 0, onChange: function(e) { if (e.target.checked) setSelectedLogos(selectedLogos.concat([l])); else setSelectedLogos(selectedLogos.filter(function(x) { return x !== l; })); }, className: 'hidden' }),
@@ -842,7 +899,7 @@
                                             );
                                         }))
                                     ),
-                                    h('button', { onClick: startSession, className: 'w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-lg shadow-lg mt-4' }, '🚀 Iniciar Sessão')
+                                    h('button', { onClick: startSession, className: 'w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-lg shadow-lg mt-4' }, T('m_d_start_session'))
                                 )
                             )
                         )
