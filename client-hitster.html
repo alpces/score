@@ -8,9 +8,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Mega Hitster - Mesa</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Configuração Firebase, core de cliente partilhado e módulo Hitster -->
+    <!-- Configuração Firebase, core de cliente partilhado, i18n e módulo Hitster -->
     <script src="shared/firebase-config.js"></script>
     <script src="shared/client-core.js"></script>
+    <script src="shared/i18n.js"></script>
+    <script src="shared/i18n-pt.js"></script>
+    <script src="shared/i18n-en.js"></script>
     <script src="games/hitster.js"></script>
     <style>
         input, textarea { font-size: 16px !important; }
@@ -56,9 +59,12 @@
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
 
+        // Alias de tradução — lê _current dinamicamente, funciona com re-renders por i18n:change
+        var T = I18n.t;
+
         var HEARTBEAT_MS = 15000;
         var localStore  = ClientCore.createLocalStore('hitster');
-        var clearLocal  = localStore.clear;                          // alias para call-sites existentes
+        var clearLocal  = localStore.clear;
         var CLIENT_ID   = ClientCore.getClientId('hitster_clientId');
 
         function App() {
@@ -87,9 +93,20 @@
             var g10 = _s(false); var showHelp = g10[0];       var setShowHelp = g10[1];
             var g11 = _s('');    var lastSubmitted = g11[0];  var setLastSubmitted = g11[1];
 
+            // — i18n —
+            var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
+            var lg2 = _s(false); var showLangMenu = lg2[0]; var setShowLangMenu = lg2[1];
+
             var timerRef = useRef(null);
             var prevPhaseRef = useRef('waiting');
             var localAnswerEndRef = useRef(0);
+
+            // — listener de mudança de língua — força re-render sem recarregar a página
+            useEffect(function() {
+                var handler = function(e) { setLang(e.detail.lang); };
+                window.addEventListener('i18n:change', handler);
+                return function() { window.removeEventListener('i18n:change', handler); };
+            }, []);
 
             // — Conexão à sessão: gameState, clients/<n>, .info/connected, heartbeat,
             //   visibility/focus → resume são todos geridos pelo ClientCore.connectClient.
@@ -218,13 +235,13 @@
                     setConnected(true); setAutoRecon(false); setConnError(''); setSessionLost(false);
                 } else {
                     if (result.clearLocal) clearLocal();
-                    setConnError(result.error || 'Erro ao conectar.');
+                    setConnError(result.error || T('connect_error'));
                     setAutoRecon(false);
                 }
             };
 
             var handleDisconnect = async function() {
-                if (!confirm('Sair da sessão?')) return;
+                if (!confirm(T('disconnect_confirm'))) return;
                 try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber)); } catch(e) {}
                 clearLocal();
                 setConnected(false); setGameData(null); setTextInput(''); setTextSubmitted(false);
@@ -271,7 +288,7 @@
                     setTimeout(function() { setSending(false); }, 500);
                 } else {
                     console.error('Submit falhou:', result.error);
-                    setSubmitError('Falha ao enviar. Verifica a ligação e tenta novamente.');
+                    setSubmitError(T('h_send_failed'));
                     setSending(false);
                     setTextSubmitted(false);
                 }
@@ -286,7 +303,7 @@
             var singingId = gameData ? (gameData.singingTeamId || null) : null;
             var isSinging = singingId === tableId;
             var allTables = gameData ? (gameData.tables || []) : [];
-            var myTable = allTables.find(function(t) { return t.id === tableId; });
+            var myTable = allTables.find(function(tbl) { return tbl.id === tableId; });
             var myScore = myTable ? myTable.score : 0;
             var selLogos = gameData ? (gameData.selectedLogos || []) : [];
             var mainLogo = selLogos.length > 0 ? selLogos[0] : null;
@@ -300,17 +317,39 @@
             var showInput = !isSinging && answerTimer > 0;
             var showCat = cat && (phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
 
+            // — componente do botão de língua —
+            function LangButton() {
+                return h('div', { className: 'relative' },
+                    h('button', {
+                        onClick: function() { setShowLangMenu(function(v) { return !v; }); },
+                        style: { boxShadow: '0 0 7px 2px rgba(255,255,255,0.22), 0 0 0 1.5px rgba(255,255,255,0.18)' },
+                        className: 'w-8 h-8 flex items-center justify-center bg-white bg-opacity-20 hover:bg-opacity-30 rounded-full text-base transition-all active:scale-95'
+                    }, I18n.getFlag()),
+                    showLangMenu && h('div', {
+                        className: 'absolute right-0 top-10 bg-white rounded-xl shadow-xl p-1.5 flex flex-col gap-1 z-50'
+                    },
+                        I18n.getLanguages().filter(function(l) { return l !== lang; }).map(function(l) {
+                            return h('button', {
+                                key: l,
+                                onClick: function() { I18n.setLang(l); setShowLangMenu(false); },
+                                className: 'w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-lg text-base transition-all active:scale-95'
+                            }, I18n.getFlag(l));
+                        })
+                    )
+                );
+            }
+
             // — sessão perdida —
             if (sessionLost) {
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4' },
                     h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center' },
                         h('div', { className: 'text-5xl mb-4' }, '🎵'),
-                        h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, 'Sessão Terminada'),
-                        h('p', { className: 'text-gray-600 mb-4' }, 'A sessão foi terminada pelo anfitrião.'),
+                        h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, T('session_ended')),
+                        h('p', { className: 'text-gray-600 mb-4' }, T('h_session_ended_msg')),
                         h('button', {
                             onClick: function() { setSessionLost(false); setSessionCode(''); setTableNumber(''); },
                             className: 'w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold'
-                        }, 'Voltar ao Início')
+                        }, T('back_to_start'))
                     )
                 );
             }
@@ -320,7 +359,7 @@
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex items-center justify-center' },
                     h('div', { className: 'text-center text-white' },
                         h('div', { className: 'text-5xl mb-4 animate-spin' }, '🎵'),
-                        h('div', { className: 'text-xl font-semibold' }, 'A reconectar...')
+                        h('div', { className: 'text-xl font-semibold' }, T('reconnecting'))
                     )
                 );
             }
@@ -332,12 +371,12 @@
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
                             h('div', { className: 'text-center mb-6' },
                                 h('div', { className: 'text-5xl mb-2' }, '🎵'),
-                                h('h1', { className: 'text-2xl font-black text-violet-800' }, 'Mega Hitster')
+                                h('h1', { className: 'text-2xl font-black text-violet-800' }, T('h_title'))
                             ),
                             connError && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm font-semibold' }, connError),
                             h('div', { className: 'space-y-4' },
                                 h('div', null,
-                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Código da Sessão'),
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('session_code')),
                                     h('input', {
                                         type: 'text', value: sessionCode,
                                         onChange: function(e) { setSessionCode(e.target.value.toUpperCase()); },
@@ -346,37 +385,37 @@
                                     })
                                 ),
                                 h('div', null,
-                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Número da Mesa'),
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('table_number')),
                                     h('input', {
                                         type: 'number', min: 1,
                                         value: tableNumber,
                                         onChange: function(e) { setTableNumber(e.target.value); },
-                                        placeholder: 'Ex: 1',
+                                        placeholder: T('h_table_placeholder'),
                                         className: 'w-full px-4 py-3 border-2 rounded-xl text-center text-xl focus:border-violet-500 outline-none'
                                     })
                                 ),
                                 h('div', null,
-                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Nome da Equipa *'),
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('team_name_label')),
                                     h('input', {
                                         type: 'text', value: teamName,
                                         onChange: function(e) { setTeamName(e.target.value); },
-                                        placeholder: 'Nome da vossa equipa',
+                                        placeholder: T('h_team_placeholder'),
                                         className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-violet-500 outline-none'
                                     })
                                 ),
                                 h('div', null,
-                                    h('label', { className: 'block text-sm font-semibold mb-1' }, 'Email(s) *'),
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('h_emails_label')),
                                     h('input', {
                                         type: 'text', value: emails,
                                         onChange: function(e) { setEmails(e.target.value); },
-                                        placeholder: 'email1@ex.com, email2@ex.com',
+                                        placeholder: T('h_emails_placeholder'),
                                         className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-violet-500 outline-none text-sm'
                                     })
                                 ),
                                 h('button', {
                                     onClick: function() { handleConnect(false); },
                                     className: 'w-full py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform'
-                                }, '🎵 Entrar')
+                                }, T('h_enter_btn'))
                             )
                         )
                     )
@@ -389,18 +428,19 @@
                 // banner offline
                 !fbConnected && h('div', {
                     className: 'absolute top-0 inset-x-0 bg-red-600 text-white text-xs text-center py-1 z-50 font-bold animate-pulse'
-                }, '⚠️ Sem ligação — a tentar reconectar...'),
+                }, T('h_no_connection')),
 
                 // header
                 h('div', { className: 'relative z-10 bg-white bg-opacity-10 backdrop-blur-sm px-4 py-2 flex items-center justify-between flex-shrink-0' },
                     h('div', { className: 'text-white' },
-                        h('div', { className: 'text-xs opacity-70' }, 'Mesa ' + tableNumber),
-                        h('div', { className: 'font-bold text-sm leading-tight truncate max-w-32' }, teamName || ('Mesa ' + tableNumber))
+                        h('div', { className: 'text-xs opacity-70' }, T('table_n', { n: tableNumber })),
+                        h('div', { className: 'font-bold text-sm leading-tight truncate max-w-32' }, teamName || T('table_n', { n: tableNumber }))
                     ),
                     mainLogo
                         ? h('img', { src: mainLogo, alt: 'logo', className: 'h-8 object-contain', onError: function(e) { e.target.style.display = 'none'; } })
                         : h('div', { className: 'text-2xl' }, '🎵'),
                     h('div', { className: 'flex items-center gap-2' },
+                        LangButton(),
                         h('button', {
                             onClick: function() { setShowHelp(true); },
                             style: { boxShadow: '0 0 7px 2px rgba(255,255,255,0.22), 0 0 0 1.5px rgba(255,255,255,0.18)' },
@@ -417,7 +457,7 @@
                 // pontuação — sempre visível para o cliente (ocultar pontos só aplica no master)
                 h('div', { className: 'relative z-10 mx-4 mt-3 bg-white bg-opacity-15 rounded-2xl p-3 text-center flex-shrink-0' },
                     h('div', { className: 'text-5xl font-black text-white' }, myScore),
-                    h('div', { className: 'text-xs text-white opacity-70 mt-0.5' }, 'pontos')
+                    h('div', { className: 'text-xs text-white opacity-70 mt-0.5' }, T('points'))
                 ),
 
                 // área principal
@@ -428,7 +468,7 @@
                         h('div', { className: 'text-xl font-black mb-1' }, cat.name),
                         h('div', { className: 'text-sm font-semibold opacity-75' }, cat.description),
                         h('div', { className: 'mt-2 inline-block bg-yellow-300 bg-opacity-70 rounded-lg px-3 py-0.5' },
-                            h('span', { className: 'font-black' }, cat.points + (cat.points === 1 ? ' ponto' : ' pontos'))
+                            h('span', { className: 'font-black' }, cat.points + ' ' + T(cat.points === 1 ? 'h_pt' : 'h_pts'))
                         )
                     ),
 
@@ -436,7 +476,7 @@
                     phase === 'joker_window' &&
                         h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-3xl font-bold animate-pulse' }, '⏱️ ' + jokerTimer + 's'),
-                            h('div', { className: 'text-sm opacity-75' }, allJokersUsed ? 'A preparar a música...' : 'Tempo para usar o Joker')
+                            h('div', { className: 'text-sm opacity-75' }, allJokersUsed ? T('h_preparing_music') : T('h_joker_time'))
                         ),
 
                     // timer resposta
@@ -444,30 +484,30 @@
                         h('div', { className: 'text-center' },
                             h('div', {
                                 className: 'text-3xl font-bold ' + (answerTimer <= 5 ? 'text-red-300 animate-pulse' : 'text-white')
-                            }, answerTimer <= 0 ? '⏱️ Tempo esgotado' : ('⏱️ ' + answerTimer + 's'))
+                            }, answerTimer <= 0 ? T('h_time_up') : ('⏱️ ' + answerTimer + 's'))
                         ),
 
                     // aguardar
                     phase === 'waiting' &&
                         h('div', { className: 'text-center text-white opacity-75' },
                             h('div', { className: 'text-5xl mb-3' }, '🎵'),
-                            h('div', { className: 'text-lg font-semibold' }, 'A aguardar ronda...')
+                            h('div', { className: 'text-lg font-semibold' }, T('h_waiting_round'))
                         ),
 
                     // revisão
                     phase === 'reviewing' &&
                         h('div', { className: 'text-center text-white' },
                             h('div', { className: 'text-5xl mb-3' }, '✅'),
-                            h('div', { className: 'text-lg font-semibold' }, 'Respostas em revisão...'),
-                            h('div', { className: 'text-sm opacity-70 mt-1' }, 'O anfitrião está a validar')
+                            h('div', { className: 'text-lg font-semibold' }, T('h_reviewing')),
+                            h('div', { className: 'text-sm opacity-70 mt-1' }, T('h_host_validating'))
                         ),
 
                     // equipa canta
                     isSinging && (phase === 'joker_window' || phase === 'answering') &&
                         h('div', { className: 'bg-purple-500 bg-opacity-80 rounded-2xl p-5 w-full max-w-sm text-center text-white shadow-xl' },
                             h('div', { className: 'text-4xl mb-2' }, '🎤'),
-                            h('div', { className: 'font-black text-xl' }, 'A vossa equipa canta!'),
-                            h('div', { className: 'text-sm opacity-80 mt-1' }, 'Não precisam de responder')
+                            h('div', { className: 'font-black text-xl' }, T('h_team_sings')),
+                            h('div', { className: 'text-sm opacity-80 mt-1' }, T('h_no_need_answer'))
                         ),
 
                     // campo de resposta
@@ -482,7 +522,7 @@
                                         if (submitError) setSubmitError('');
                                     },
                                     maxLength: 200,
-                                    placeholder: 'Escreve a tua resposta...',
+                                    placeholder: T('h_answer_placeholder'),
                                     autoFocus: true,
                                     className: 'w-full h-24 px-3 py-2 text-base border-2 border-violet-400 focus:border-violet-600 rounded-lg resize-none focus:outline-none'
                                 }),
@@ -502,7 +542,7 @@
                                             !textInput.trim() ? 'bg-gray-400 cursor-not-allowed' :
                                             'bg-green-600 hover:bg-green-700 shadow-md'
                                         )
-                                    }, sending ? '⏳ A enviar...' : (textSubmitted ? '✓ Enviado' : (submitError ? '🔄 Tentar de novo' : '📤 Enviar')))
+                                    }, sending ? T('h_sending') : (textSubmitted ? T('h_sent') : (submitError ? T('h_retry') : T('h_send'))))
                                 )
                             )
                         ),
@@ -513,8 +553,8 @@
                         h('div', { className: 'w-full max-w-sm' },
                             h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 backdrop-blur-sm' },
                                 h('div', { className: 'flex items-center gap-2 mb-2' },
-                                    h('span', { className: 'text-green-300 text-sm font-black' }, '✓ Resposta enviada'),
-                                    h('span', { className: 'text-white opacity-40 text-xs' }, '(visível só para ti)')
+                                    h('span', { className: 'text-green-300 text-sm font-black' }, T('h_answer_confirmed')),
+                                    h('span', { className: 'text-white opacity-40 text-xs' }, T('h_visible_only_you'))
                                 ),
                                 h('div', { className: 'text-white font-semibold text-base leading-snug' }, lastSubmitted)
                             )
@@ -524,8 +564,8 @@
                     (jokerWindowOpen && myJokerUsed)
                         ? h('div', { className: 'w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 bg-gray-700 bg-opacity-60 border-2 border-gray-600 select-none' },
                             h('div', { className: 'text-4xl opacity-40' }, '🃏'),
-                            h('div', { className: 'text-xs font-black tracking-wider text-gray-400' }, 'JOKER'),
-                            h('div', { className: 'text-xs text-gray-500 font-semibold' }, 'já usado')
+                            h('div', { className: 'text-xs font-black tracking-wider text-gray-400' }, T('h_joker_inactive')),
+                            h('div', { className: 'text-xs text-gray-500 font-semibold' }, T('h_joker_used'))
                           )
                         : (!myJokerUsed && h('button', {
                             onClick: jokerEnabled ? pressJoker : undefined,
@@ -538,7 +578,7 @@
                         },
                             h('div', { className: 'flex flex-col items-center gap-1' },
                                 h('div', { className: 'text-4xl' }, '🃏'),
-                                h('div', { className: 'text-sm font-black tracking-wider' }, jokerEnabled ? 'JOKER!' : 'JOKER')
+                                h('div', { className: 'text-sm font-black tracking-wider' }, jokerEnabled ? T('h_joker_active') : T('h_joker_inactive'))
                             )
                         ))
                 ),
@@ -553,7 +593,7 @@
                         h('div', { className: 'flex items-center justify-between mb-4' },
                             h('div', { className: 'flex items-center gap-2' },
                                 h('span', { className: 'text-2xl' }, '🎵'),
-                                h('span', { className: 'font-black text-white text-lg' }, 'Como Jogar')
+                                h('span', { className: 'font-black text-white text-lg' }, T('h_help_title'))
                             ),
                             h('button', {
                                 onClick: function() { setShowHelp(false); },
@@ -564,9 +604,9 @@
                         // regras + pontuações
                         (function() {
                             var DEFAULT_RULES = [
-                                { id: 'phases',  title: 'Fases de cada Ronda', content: '🃏 Janela do Joker — tens uns segundos para decidir se usas o joker\n✍️ A Responder — escreve e envia a tua resposta antes do tempo acabar\n✅ Em Revisão — o anfitrião valida as respostas e atribui pontos' },
-                                { id: 'joker',   title: '🃏 O Joker',           content: 'Duplica os pontos que ganhas nessa ronda\nCada equipa só tem um joker para todo o jogo\nNão pode ser usado em Timeline Duel\nA equipa cantora não pode usar joker' },
-                                { id: 'cantora', title: '🎤 A Cantora',          content: 'A equipa em último lugar canta a próxima música\nNão precisa de responder\nGanha pontos por cada equipa que acerte (máximo 3)' }
+                                { id: 'phases',  title: T('h_rule_phases_title'),  content: T('h_rule_phases_content') },
+                                { id: 'joker',   title: T('h_rule_joker_title'),   content: T('h_rule_joker_content') },
+                                { id: 'cantora', title: T('h_rule_cantora_title'), content: T('h_rule_cantora_content') }
                             ];
                             var rc = gameData && Array.isArray(gameData.rulesConfig) && gameData.rulesConfig.length > 0
                                 ? gameData.rulesConfig : DEFAULT_RULES;
@@ -586,7 +626,7 @@
                             });
 
                             var scoresBlock = h('div', { key: 'scores', className: 'bg-white bg-opacity-5 rounded-2xl p-4' },
-                                h('div', { className: 'text-xs font-black uppercase tracking-widest text-slate-400 mb-3' }, '🏆 Pontuações'),
+                                h('div', { className: 'text-xs font-black uppercase tracking-widest text-slate-400 mb-3' }, T('h_scores_title')),
                                 h('div', { className: 'space-y-2' },
                                     cats.map(function(cat) {
                                         return h('div', { key: cat.id, className: 'flex items-center justify-between gap-3' },
@@ -595,7 +635,7 @@
                                                 cat.description && h('div', { className: 'text-slate-400 text-xs' }, cat.description)
                                             ),
                                             h('div', { className: 'flex-shrink-0 bg-violet-600 text-white text-xs font-black px-2.5 py-1 rounded-full' },
-                                                cat.points + (cat.points === 1 ? ' pt' : ' pts')
+                                                cat.points + ' ' + T(cat.points === 1 ? 'h_pt' : 'h_pts')
                                             )
                                         );
                                     })
