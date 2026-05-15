@@ -669,7 +669,7 @@
                         h('button', {
                             onClick: function() { setShowHistory(false); },
                             className: 'px-4 py-2 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-xl font-bold text-sm'
-                        }, '✕ Fechar')
+                        }, '✕ ' + T('close'))
                     ),
                     h('div', { className: 'max-w-3xl mx-auto p-6 space-y-8' },
                         h('div', null,
@@ -698,7 +698,7 @@
                                                     setShowHistory(false);
                                                 }; }(s.sessionId, s),
                                                 className: 'px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-bold flex-shrink-0'
-                                            }, '▶ Abrir'),
+                                            }, T('m_h_open')),
                                             h('button', {
                                                 onClick: function(sid) { return function() { closeActiveSession(sid); }; }(s.sessionId),
                                                 className: 'w-8 h-8 flex items-center justify-center rounded-full bg-slate-700 hover:bg-amber-700 flex-shrink-0 text-sm',
@@ -743,12 +743,12 @@
                             h('div', { className: 'flex items-center justify-between p-5 pb-3 flex-shrink-0' },
                                 h('div', null,
                                     h('div', { className: 'font-mono font-black text-xl text-white' }, infoSession.sessionId || infoSession.id),
-                                    h('div', { className: 'text-xs text-slate-400' }, 'Ronda ' + (infoSession.roundNumber || '?'))
+                                    h('div', { className: 'text-xs text-slate-400' }, T('m_round_label') + ' ' + (infoSession.roundNumber || '?'))
                                 ),
                                 h('button', { onClick: function() { setHistInfoId(null); }, className: 'text-slate-400 hover:text-white text-xl font-bold' }, '✕')
                             ),
                             (infoSession.tables || []).length === 0
-                                ? h('p', { className: 'text-slate-400 text-sm text-center italic px-5 pb-5' }, 'Sem equipas registadas')
+                                ? h('p', { className: 'text-slate-400 text-sm text-center italic px-5 pb-5' }, T('m_h_no_teams'))
                                 : h('div', { className: 'space-y-1.5 px-5 pb-5 overflow-y-auto flex-1' },
                                     (infoSession.tables || []).slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
                                         var medal = ['🥇','🥈','🥉'][idx] || '';
@@ -759,7 +759,7 @@
                                             h('div', { className: 'flex items-center justify-between' },
                                                 h('div', { className: 'flex items-center gap-2' },
                                                     medal && h('span', null, medal),
-                                                    h('span', { className: 'font-semibold text-sm text-white' }, t.name || ('Mesa ' + t.id))
+                                                    h('span', { className: 'font-semibold text-sm text-white' }, t.name || T('table_n', { n: t.id }))
                                                 ),
                                                 h('span', { className: 'font-black text-violet-400' }, t.score + ' pts')
                                             ),
@@ -1070,7 +1070,7 @@
                                         )
                                         // Texto simples quando há um único último lugar
                                         : h('div', null,
-                                            h('div', { className: 'font-black text-gray-800' }, lp.name || ('Mesa ' + lp.id)),
+                                            h('div', { className: 'font-black text-gray-800' }, lp.name || T('table_n', { n: lp.id })),
                                             showScores && h('div', { className: 'text-sm text-gray-500' }, lp.score + ' ' + T('points'))
                                           )
                                 ),
@@ -1241,7 +1241,7 @@
                         h('span', { className: 'text-xs text-slate-400 mr-1' }, T('m_h_answered')),
                         Object.keys(textResponses).map(function(tid) {
                             var t = tables.find(function(tb) { return tb.id === parseInt(tid); });
-                            var name = t ? t.name : ('Mesa ' + tid);
+                            var name = t ? t.name : T('table_n', { n: parseInt(tid) });
                             return h('span', { key: tid, className: 'bg-blue-700 text-blue-100 text-xs font-bold px-2 py-0.5 rounded-full' },
                                 name.length > 10 ? name.slice(0,10)+'…' : name
                             );

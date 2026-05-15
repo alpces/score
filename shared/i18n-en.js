@@ -135,6 +135,8 @@ I18n.registerStrings('en', {
     m_h_remove_table_confirm : 'Remove Table {{n}}?',
     m_h_archive_confirm   : 'Archive session "{{code}}"?',
     m_h_session_not_found : 'Session not found.',
+    m_h_open              : '▶ Open',
+    m_h_no_teams          : 'No teams registered',
 
     // ── Hitster — Categories ─────────────────────────────────────────────────────
     cat_exact_year          : 'Exact Year',

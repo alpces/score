@@ -135,6 +135,8 @@ I18n.registerStrings('pt', {
     m_h_remove_table_confirm : 'Remover Mesa {{n}}?',
     m_h_archive_confirm   : 'Arquivar sessão "{{code}}"?',
     m_h_session_not_found : 'Sessão não encontrada.',
+    m_h_open              : '▶ Abrir',
+    m_h_no_teams          : 'Sem equipas registadas',
 
     // ── Hitster — Categorias ─────────────────────────────────────────────────────
     cat_exact_year          : 'Ano Exato',

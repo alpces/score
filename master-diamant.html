@@ -1127,8 +1127,8 @@
                                     if (items.length === 0) return h('div', { className: 'text-gray-400 italic text-sm text-center py-2' }, T('d_no_bets'));
                                     
                                     return h('div', { className: 'space-y-2' }, items.map(function(item, idx) {
-                                        var bName = item.teamName || ('Mesa ' + item.teamId);
-                                        var tName = item.targetName || (function() { var t = tables.find(function(tb) { return tb.id === item.target; }); return t ? (t.name || 'Mesa ' + item.target) : 'Mesa ' + item.target; })();
+                                        var bName = item.teamName || T('table_n', { n: item.teamId });
+                                        var tName = item.targetName || (function() { var t = tables.find(function(tb) { return tb.id === item.target; }); return t ? (t.name || T('table_n', { n: item.target })) : T('table_n', { n: item.target }); })();
                                         var hasResult = item.correct !== undefined;
                                         var bgColor = hasResult ? (item.correct ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400') : 'bg-gray-50 border-gray-200';
                                         
