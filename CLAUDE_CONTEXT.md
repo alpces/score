@@ -20,6 +20,8 @@ Há dois cores partilhados em `shared/` que encapsulam a infraestrutura repetív
 
 ```
 score/
+├── jogar.html                    # Hub público — escolher jogo e entrar como equipa
+├── masters.html                  # Hub de anfitrião — não divulgado (ver robots.txt)
 ├── master.html                   # Organizador — sistema modular (Contador Genérico)
 ├── client.html                   # Participante — sistema modular
 ├── master-hitster.html           # Standalone — Mega Hitster (master)
@@ -30,7 +32,8 @@ score/
 ├── shared/
 │   ├── firebase-config.js        # FirebaseConfig + AppConfig (URLs públicas)
 │   ├── client-core.js            # API de cliente reutilizável (ClientCore)
-│   └── session-core.js           # API de sessão reutilizável (SessionCore)
+│   ├── session-core.js           # API de sessão reutilizável (SessionCore)
+│   └── home-common.js            # Lógica partilhada de masters.html/jogar.html
 │
 ├── games/
 │   ├── game-interface.js         # Interface dos módulos do sistema modular
@@ -40,11 +43,19 @@ score/
 │   └── hitster.js                # Constantes/categorias Hitster (carregado em runtime)
 │
 ├── logo1.png … logo4.png         # Logos opcionais (4; o código aceita até 5)
+├── robots.txt                    # Disallow: /master* (esconde masters dos motores de busca)
 ├── README.md                     # Visão pública
 ├── CLAUDE_CONTEXT.md             # Este ficheiro (referência para IA)
 ├── CHANGELOG.md
 └── DEVELOPMENT_LOG.md            # Log de versões por jogo
 ```
+
+> **Acesso anfitrião vs. jogador:** `jogar.html` é o ponto de entrada público (linkado no
+> README). `masters.html` e todos os `master-*.html` têm `<meta name="robots" content="noindex,
+> nofollow">` e estão cobertos pelo `Disallow: /master*` em `robots.txt` — não são divulgados
+> publicamente, só partilhados diretamente com quem organiza a sessão. `jogar.html` não tem
+> nenhum link para `masters.html` (intencional). Ao criar um novo jogo, replica este padrão no
+> `master-meujogo.html` novo.
 
 ---
 

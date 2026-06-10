@@ -2,18 +2,25 @@
 
 Sistema de gestão de pontuação em tempo real para eventos, quizzes e jogos de tabuleiro. Múltiplos clientes (uma equipa por dispositivo) ligam-se a um master (anfitrião) via Firebase Realtime Database.
 
-[![Live Demo](https://img.shields.io/badge/demo-live-success)](https://alpces.github.io/score/master-hitster.html)
+[![Live Demo](https://img.shields.io/badge/demo-live-success)](https://alpces.github.io/score/jogar.html)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
 ## 🎯 Jogos Disponíveis
 
-| Jogo | Master | Cliente |
-|---|---|---|
-| 🎵 **Mega Hitster** — quiz musical com joker, modo cantora e categorias configuráveis | [master](https://alpces.github.io/score/master-hitster.html) | [client](https://alpces.github.io/score/client-hitster.html) |
-| 💎 **Diamant / Incan Gold** — adaptação do jogo de tabuleiro com votação secreta e apostas | [master](https://alpces.github.io/score/master-diamant.html) | [client](https://alpces.github.io/score/client-diamant.html) |
-| 🎯 **Contador Genérico** — buzzers, +1/-1/+5, respostas de texto (sistema modular legacy) | [master](https://alpces.github.io/score/master.html) | [client](https://alpces.github.io/score/client.html) |
+Acede a **[jogar.html](https://alpces.github.io/score/jogar.html)** e escolhe o jogo a que te
+vais juntar (a equipa fica logo associada à sessão em curso, basta abrir o link/QR partilhado
+pelo anfitrião):
+
+| Jogo | Cliente |
+|---|---|
+| 🎵 **Mega Hitster** — quiz musical com joker, modo cantora e categorias configuráveis | [client](https://alpces.github.io/score/client-hitster.html) |
+| 💎 **Mega Diamant** — adaptação do Diamant/Incan Gold com votação secreta e apostas | [client](https://alpces.github.io/score/client-diamant.html) |
+| ❓ **Mega Concept** — adivinha conceitos a partir de pistas (sistema modular genérico) | [client](https://alpces.github.io/score/client.html) |
+
+> O acesso de anfitrião (`masters.html` e os `master-*.html` correspondentes) não é divulgado
+> publicamente — é partilhado diretamente com quem organiza a sessão. Ver [`robots.txt`](robots.txt).
 
 ---
 
@@ -21,17 +28,20 @@ Sistema de gestão de pontuação em tempo real para eventos, quizzes e jogos de
 
 ```
 score/
-├── master.html                   # Sistema modular (Contador Genérico)
+├── jogar.html                    # Hub público — escolher jogo e entrar como equipa
+├── masters.html                  # Hub de anfitrião — não divulgado (ver robots.txt)
+├── master.html                   # Sistema modular (Mega Concept / Contador Genérico)
 ├── client.html
 ├── master-hitster.html           # Standalone — Mega Hitster
 ├── client-hitster.html
-├── master-diamant.html           # Standalone — Diamant
+├── master-diamant.html           # Standalone — Mega Diamant
 ├── client-diamant.html
 │
 ├── shared/
 │   ├── firebase-config.js        # Config Firebase + URLs públicas
 │   ├── client-core.js            # Lifecycle de cliente reutilizável
-│   └── session-core.js           # Lifecycle de sessão reutilizável
+│   ├── session-core.js           # Lifecycle de sessão reutilizável
+│   └── home-common.js            # Lógica partilhada das páginas de entrada
 │
 ├── games/
 │   ├── game-system.js            # Core do sistema modular (legacy)
@@ -41,6 +51,7 @@ score/
 │   └── diamant.js                # Referência de regras Diamant
 │
 ├── logo1.png … logo4.png         # Logos opcionais
+├── robots.txt                    # Esconde /master* dos motores de busca
 ├── CLAUDE_CONTEXT.md             # 🤖 Referência completa para IAs
 ├── CHANGELOG.md
 └── DEVELOPMENT_LOG.md
@@ -85,7 +96,8 @@ python -m http.server 8000
 npx serve
 ```
 
-Abrir `http://localhost:8000/master-hitster.html` no browser.
+Abrir `http://localhost:8000/jogar.html` (jogadores) ou `http://localhost:8000/masters.html`
+(anfitriões) no browser.
 
 ### Configurar Firebase
 A configuração está em `shared/firebase-config.js`. Para usar a tua própria base de dados, substitui as credenciais nesse ficheiro.
@@ -101,7 +113,11 @@ Padrão recomendado: jogo standalone (par master+client) usando os shared cores.
 3. Implementar a UI e a lógica game-específica; delegar tudo o que é genérico (Firebase, lifecycle, etc.) aos cores.
 4. Escolher o enricher de arquivo apropriado (`mergeEmailsIntoTables` ou `attachClientsField`) ou escrever um custom.
 5. Adicionar URLs em `shared/firebase-config.js` (`AppConfig`).
-6. Adicionar entrada no histórico aqui no README.
+6. Adicionar `<meta name="robots" content="noindex, nofollow">` ao `<head>` do `master-meujogo.html`
+   (o `robots.txt` já cobre `/master*`, mas a meta tag protege quem consulta a página diretamente).
+7. Adicionar um cartão (ícone, título, descrição curta, `data-game-link`) a `masters.html` e a
+   `jogar.html`.
+8. Adicionar entrada na tabela "Jogos Disponíveis" aqui no README.
 
 A documentação técnica completa (APIs dos cores, padrões defensivos, estrutura Firebase, convenções) está em **[`CLAUDE_CONTEXT.md`](./CLAUDE_CONTEXT.md)**.
 
