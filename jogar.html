@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogos de Tabuleiro Sem Tabuleiro — Jogar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="shared/home-common.js" defer></script>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-indigo-900 text-white">
+    <div class="max-w-5xl mx-auto px-4 py-8 sm:py-12">
+
+        <div class="flex justify-end mb-4">
+            <a id="cross-hub-link" href="masters.html"
+               class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-sm font-semibold transition-all active:scale-95">
+                🛠️ Sou o anfitrião →
+            </a>
+        </div>
+
+        <header class="text-center mb-10">
+            <img src="logo1.png" alt="Jogos de Tabuleiro Sem Tabuleiro" class="mx-auto w-full max-w-md rounded-xl shadow-2xl">
+            <p class="mt-6 text-lg sm:text-xl text-slate-300">Escolhe o jogo a que te vais juntar</p>
+            <div id="session-badge" class="hidden mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 font-mono font-bold text-sm"></div>
+        </header>
+
+        <main class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+            <a data-game-link href="client-hitster.html"
+               class="group h-full flex flex-col items-center text-center gap-3 p-6 rounded-2xl bg-slate-800/60 border border-violet-500/30 hover:border-violet-400 hover:bg-slate-800 hover:-translate-y-1 hover:shadow-xl hover:shadow-violet-900/40 transition-all">
+                <div class="text-6xl">🎵</div>
+                <h2 class="text-xl font-black">Mega Hitster</h2>
+                <p class="text-sm text-slate-300 flex-1">Em equipa, responde aos desafios sobre cada música e tenta não ficar em último lugar.</p>
+                <span class="px-4 py-2 rounded-xl bg-violet-600 group-hover:bg-violet-500 font-bold text-sm transition-all active:scale-95">Entrar →</span>
+            </a>
+
+            <a data-game-link href="client-diamant.html"
+               class="group h-full flex flex-col items-center text-center gap-3 p-6 rounded-2xl bg-slate-800/60 border border-amber-500/30 hover:border-amber-400 hover:bg-slate-800 hover:-translate-y-1 hover:shadow-xl hover:shadow-amber-900/40 transition-all">
+                <div class="text-6xl">💎</div>
+                <h2 class="text-xl font-black">Mega Diamant</h2>
+                <p class="text-sm text-slate-300 flex-1">Decide com a tua equipa: continuar na expedição ou fugir com os rubis?</p>
+                <span class="px-4 py-2 rounded-xl bg-amber-500 group-hover:bg-amber-400 font-bold text-sm transition-all active:scale-95">Entrar →</span>
+            </a>
+
+            <a data-game-link href="client.html"
+               class="group h-full flex flex-col items-center text-center gap-3 p-6 rounded-2xl bg-slate-800/60 border border-sky-500/30 hover:border-sky-400 hover:bg-slate-800 hover:-translate-y-1 hover:shadow-xl hover:shadow-sky-900/40 transition-all">
+                <div class="text-6xl">❓</div>
+                <h2 class="text-xl font-black">Mega Concept</h2>
+                <p class="text-sm text-slate-300 flex-1">Junta-te à tua equipa e tenta adivinhar as palavras a partir das pistas.</p>
+                <span class="px-4 py-2 rounded-xl bg-sky-600 group-hover:bg-sky-500 font-bold text-sm transition-all active:scale-95">Entrar →</span>
+            </a>
+
+        </main>
+
+        <footer class="text-center mt-12 text-sm text-slate-400">
+            Feito por <a href="https://ludonautas.pt" class="underline hover:text-white" target="_blank" rel="noopener">ALPCeS · Ludonautas</a>
+        </footer>
+    </div>
+</body>
+</html>
