@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>App Master - Sistema de Pontuação</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
+    <script src="shared/firebase-config.js"></script>
+    <script src="shared/client-core.js"></script>
+    <script src="shared/session-core.js"></script>
+
     <!-- Sistema de Módulos de Jogos -->
     <script src="games/game-interface.js"></script>
     <script src="games/game-system.js"></script>
@@ -20,15 +23,7 @@
         import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getDatabase, ref, set, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
-            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
-            projectId: "contador-de-pontos-321ee",
-            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
-            messagingSenderId: "817191889469",
-            appId: "1:817191889469:web:cfb88023612f6b37491854",
-            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
-        };
+        const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
         window.db = getFirestore(app);
@@ -72,9 +67,10 @@
         };
 
         window.addEventListener('firebaseReady', () => {
-            const { useState, useEffect, createElement: h } = React;
+            const { useState, useEffect, useRef, createElement: h } = React;
             const { db, rtdb, fbModules } = window;
             const { collection, getDocs, setDoc, doc, deleteDoc, ref, set, remove, onValue, update } = fbModules;
+            const fm = fbModules;
 
             function App() {
                 const [setupComplete, setSetupComplete] = useState(false);
@@ -131,6 +127,15 @@
                 const [showExistingSessionDialog, setShowExistingSessionDialog] = useState(false);
                 const [existingSessionData, setExistingSessionData] = useState(null);
                 const [showEndSessionModal, setShowEndSessionModal] = useState(false);
+
+                const lastSeenMapRef = useRef({});
+                const [presenceTick, setPresenceTick] = useState(0);
+                const archivingRef = useRef(false);
+
+                useEffect(() => {
+                    const iv = setInterval(() => setPresenceTick(n => n + 1), 5000);
+                    return () => clearInterval(iv);
+                }, []);
 
                 useEffect(() => {
                     (async () => {
@@ -241,46 +246,48 @@
                 useEffect(() => {
                     if (!setupComplete || !sessionId) return;
 
-                    const clientsRef = ref(rtdb, `sessions/${sessionId}/clients`);
                     const buzzersRef = ref(rtdb, `sessions/${sessionId}/buzzers`);
                     const responsesRef = ref(rtdb, `sessions/${sessionId}/textResponses`);
 
-                    const unsubClients = onValue(clientsRef, (snapshot) => {
-                        const data = snapshot.val() || {};
-                        setConnectedClients(data);
-                        
-                        if (numTables === 0) {
-                            const newTables = Object.values(data).map(client => ({
-                                id: client.tableNumber,
-                                name: client.teamName || '',
-                                score: initialScore
-                            }));
-                            setTables(prev => {
-                                const merged = [...prev];
-                                newTables.forEach(nt => {
-                                    const existing = merged.find(t => t.id === nt.id);
-                                    if (!existing) {
-                                        merged.push(nt);
-                                    } else if (nt.name && nt.name !== `Mesa ${nt.id}`) {
-                                        // Atualiza o nome se o cliente reconectou com um nome diferente
-                                        existing.name = nt.name;
-                                    }
+                    const unsubClients = SessionCore.subscribeClients({
+                        rtdb, fm, sessionId,
+                        onLastSeen: (lsMap) => { lastSeenMapRef.current = lsMap; },
+                        onStructural: (data) => {
+                            setConnectedClients(data);
+
+                            if (numTables === 0) {
+                                const newTables = Object.values(data).map(client => ({
+                                    id: client.tableNumber,
+                                    name: client.teamName || '',
+                                    score: initialScore
+                                }));
+                                setTables(prev => {
+                                    const merged = [...prev];
+                                    newTables.forEach(nt => {
+                                        const existing = merged.find(t => t.id === nt.id);
+                                        if (!existing) {
+                                            merged.push(nt);
+                                        } else if (nt.name && nt.name !== `Mesa ${nt.id}`) {
+                                            // Atualiza o nome se o cliente reconectou com um nome diferente
+                                            existing.name = nt.name;
+                                        }
+                                    });
+                                    return merged.sort((a, b) => a.id - b.id);
                                 });
-                                return merged.sort((a, b) => a.id - b.id);
-                            });
-                        } else {
-                            setTables(prev => prev.map(t => {
-                                const client = Object.values(data).find(c => c.tableNumber === t.id);
-                                if (client) {
-                                    // Só atualiza o nome se o cliente forneceu um nome personalizado
-                                    // Se for apenas "Mesa X", mantém o nome atual
-                                    const newName = (client.teamName && client.teamName !== `Mesa ${t.id}`) 
-                                        ? client.teamName 
-                                        : t.name;
-                                    return { ...t, name: newName };
-                                }
-                                return t;
-                            }));
+                            } else {
+                                setTables(prev => prev.map(t => {
+                                    const client = Object.values(data).find(c => c.tableNumber === t.id);
+                                    if (client) {
+                                        // Só atualiza o nome se o cliente forneceu um nome personalizado
+                                        // Se for apenas "Mesa X", mantém o nome atual
+                                        const newName = (client.teamName && client.teamName !== `Mesa ${t.id}`)
+                                            ? client.teamName
+                                            : t.name;
+                                        return { ...t, name: newName };
+                                    }
+                                    return t;
+                                }));
+                            }
                         }
                     });
 
@@ -336,7 +343,7 @@
                     } catch (e) { console.error(e); }
                 };
 
-                useEffect(() => { if (setupComplete && sessionId) syncGame(); }, [tables, yellowCategory, redCategory, textInputActive, textInputTimeRemaining, buzzersBlocked, selectedLogos]);
+                useEffect(() => { if (setupComplete && sessionId && !archivingRef.current) syncGame(); }, [tables, yellowCategory, redCategory, textInputActive, textInputTimeRemaining, buzzersBlocked, selectedLogos]);
 
                 useEffect(() => {
                     if (textInputActive && textInputTimeRemaining > 0) {
@@ -495,11 +502,12 @@
                     } else if (choice === 'no') {
                         // ===== OPÇÃO 2: Arquivar sessão antiga e criar nova =====
                         setShowExistingSessionDialog(false);
-                        
+                        archivingRef.current = true; // previne sync da sessão antiga durante o arquivo
+
                         try {
                             // PASSO 1: Marcar sessão como inativa PRIMEIRO
                             console.log(`🔒 Marcando sessão ${code} como inativa antes de arquivar...`);
-                            await update(ref(rtdb, `sessions/${code}/gameState`), { 
+                            await update(ref(rtdb, `sessions/${code}/gameState`), {
                                 active: false,
                                 closedAt: Date.now()
                             });
@@ -552,11 +560,13 @@
                             
                             // PASSO 6: Criar nova sessão com o mesmo código (agora disponível)
                             console.log(`✅ Criando nova sessão com código ${code}...`);
+                            archivingRef.current = false; // nova sessão pode voltar a sincronizar
                             await proceedWithSessionCreation(code);
-                            
+
                         } catch (e) {
                             console.error('Erro ao arquivar sessão antiga:', e);
                             alert('Erro ao arquivar a sessão antiga. Detalhes: ' + e.message);
+                            archivingRef.current = false;
                             // Mostrar diálogo novamente para tentar outra vez
                             setShowExistingSessionDialog(true);
                         }
@@ -647,7 +657,8 @@
                  * Função auxiliar: Limpa todos os estados e volta ao setup
                  */
                 const resetToSetup = () => {
-                    setSetupComplete(false); 
+                    archivingRef.current = false;
+                    setSetupComplete(false);
                     setTables([]); 
                     setCategories([]); 
                     setYellowCategory(null); 
@@ -687,7 +698,8 @@
                  */
                 const endSessionArchive = async () => {
                     if (!sessionId) return;
-                    
+
+                    archivingRef.current = true; // previne sync re-marcar active:true durante o arquivo
                     try {
                         const currentSessionId = sessionId;
                         
@@ -745,10 +757,11 @@
                         
                         // Voltar ao setup
                         resetToSetup();
-                        
+
                     } catch (e) {
                         console.error('❌ Erro ao arquivar sessão:', e);
                         alert('Erro ao arquivar sessão: ' + e.message);
+                        archivingRef.current = false; // sessão continua ativa, restaurar sync
                     }
                 };
 
@@ -907,7 +920,10 @@
                  */
                 const closeActiveSession = async (sessionCode) => {
                     if (!confirm(`Tem a certeza que deseja fechar e arquivar a sessão "${sessionCode}"?`)) return;
-                    
+
+                    const isCurrentSession = sessionCode === sessionId;
+                    if (isCurrentSession) archivingRef.current = true; // previne sync da sessão atual durante o arquivo
+
                     try {
                         // Buscar dados da sessão ativa
                         const sessionRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
@@ -987,6 +1003,8 @@
                     } catch (e) {
                         console.error('Erro ao fechar sessão:', e);
                         alert('Erro ao fechar sessão: ' + e.message);
+                    } finally {
+                        if (isCurrentSession) archivingRef.current = false;
                     }
                 };
 
@@ -1654,10 +1672,16 @@
                                 const buzzerInfo = buzzerOrder.find(b => b.tableId === t.id);
                                 const isZeroScore = t.score === 0;
                                 const tableFlashes = Object.entries(flashEffects).filter(([_, effect]) => effect.tableId === t.id);
-                                
-                                return h('div', { 
-                                    key: t.id, 
-                                    className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}` 
+
+                                const lastSeen = lastSeenMapRef.current[t.id] || 0;
+                                const sinceSeen = lastSeen ? (Date.now() - lastSeen) : Infinity;
+                                const connState = ClientCore.computeConnState(sinceSeen, !!connectedClients[t.id]);
+                                const presenceLabel = { online: 'Ativo', idle: 'Ausente', offline: 'Offline', gone: '—' }[connState];
+                                const presenceColor = { online: 'text-green-500', idle: 'text-amber-500', offline: 'text-red-500', gone: 'text-gray-400' }[connState];
+
+                                return h('div', {
+                                    key: t.id,
+                                    className: `rounded-lg p-1 flex flex-col justify-between relative h-full ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white'}`
                                 },
                                     tableFlashes.length > 0 && h('div', { className: 'absolute inset-0 flex items-center justify-center z-10 bg-black bg-opacity-50 rounded-lg' },
                                         h('span', { className: 'text-5xl font-bold text-white' }, tableFlashes[tableFlashes.length - 1][1].text)
@@ -1665,7 +1689,10 @@
                                     hasBuzzer && h('div', { className: 'absolute top-0 right-0 bg-yellow-400 text-black rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold' }, buzzerInfo?.order),
                                     h('div', { className: `text-center mb-1 ${hasBuzzer ? 'text-white' : ''}` },
                                         h('div', { className: `text-xl font-bold leading-tight ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.name || `Mesa ${t.id}`),
-                                        h('div', { className: `text-[10px] ${hasBuzzer ? 'text-white opacity-75' : 'text-gray-500'}` }, `Mesa ${t.id}`)
+                                        h('div', { className: `text-[10px] ${hasBuzzer ? 'text-white opacity-75' : 'text-gray-500'}` },
+                                            `Mesa ${t.id}`,
+                                            h('span', { className: `ml-1 font-bold ${hasBuzzer ? 'text-white' : presenceColor}` }, presenceLabel)
+                                        )
                                     ),
                                     h('div', { className: 'flex items-center justify-center gap-1 mb-1 flex-1' },
                                         h('button', { 

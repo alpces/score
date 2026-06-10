@@ -2,10 +2,22 @@
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>App Cliente - Visualização de Mesa</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
+    <script src="shared/firebase-config.js"></script>
+    <script src="shared/client-core.js"></script>
+    <style>
+        input, textarea { font-size: 16px !important; }
+        html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
+        #root { min-height: 100dvh; }
+        .min-h-screen { min-height: 100dvh !important; }
+        .h-screen { height: 100dvh !important; }
+    </style>
+
     <!-- Sistema de Módulos de Jogos (para futura expansão) -->
     <script src="games/game-interface.js"></script>
     <script src="games/game-system.js"></script>
@@ -17,21 +29,13 @@
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getDatabase, ref, onValue, set, update } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+        import { getDatabase, ref, onValue, set, update, get, remove, goOffline, goOnline } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBudmIz5XvRzhlOfj0wHI0W5EIles3wsmY",
-            authDomain: "contador-de-pontos-321ee.firebaseapp.com",
-            projectId: "contador-de-pontos-321ee",
-            storageBucket: "contador-de-pontos-321ee.firebasestorage.app",
-            messagingSenderId: "817191889469",
-            appId: "1:817191889469:web:cfb88023612f6b37491854",
-            databaseURL: "https://contador-de-pontos-321ee-default-rtdb.europe-west1.firebasedatabase.app"
-        };
+        const firebaseConfig = window.FirebaseConfig;
 
         const app = initializeApp(firebaseConfig);
         window.rtdb = getDatabase(app);
-        window.fbModules = { ref, onValue, set, update };
+        window.fbModules = { ref, onValue, set, update, get, remove, goOffline, goOnline };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -39,10 +43,6 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <script>
-        // Tipo de jogo atual (lido do Firebase gameData.gameType)
-        // Por defeito é 'generic' se não especificado
-        const DEFAULT_GAME_TYPE = 'generic';
-        
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -69,9 +69,34 @@
         };
 
         window.addEventListener('firebaseReady', () => {
-            const { useState, useEffect, createElement: h } = React;
+            const { useState, useEffect, useRef, createElement: h } = React;
             const { rtdb, fbModules } = window;
-            const { ref, onValue, set, update } = fbModules;
+            const { ref, onValue, set, update, get, remove } = fbModules;
+            const fm = fbModules;
+
+            const localStore = ClientCore.createLocalStore('score');
+            const clearLocal = localStore.clear;
+            const CLIENT_ID = ClientCore.getClientId('score_clientId');
+            const HEARTBEAT_MS = 15000;
+
+            // Esta app não tem i18n (PT-only) — traduzir as chaves de erro do ClientCore.joinSession
+            const JOIN_ERRORS = {
+                err_code_table_required: 'Código e número de mesa são obrigatórios',
+                err_team_required: 'O nome da equipa é obrigatório',
+                err_session_not_found: 'Sessão "{{code}}" não encontrada.',
+                err_session_inactive: 'Sessão "{{code}}" já não está ativa.',
+                err_wrong_game: 'Esta sessão pertence a outro jogo. Usa a aplicação correta.',
+                err_tables_locked: 'Novas entradas estão bloqueadas pelo anfitrião.',
+                err_table_taken: 'A Mesa {{n}} já está conectada noutro dispositivo! Escolhe outro número.',
+                err_table_connected: 'A Mesa {{n}} já está conectada! Escolhe outro número.'
+            };
+
+            const translateJoinError = (key, vars) => {
+                const tpl = JOIN_ERRORS[key];
+                if (!tpl) return key;
+                if (!vars) return tpl;
+                return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? String(vars[k]) : `{{${k}}}`);
+            };
 
             function App() {
                 const [registered, setRegistered] = useState(false);
@@ -82,260 +107,251 @@
                 const [error, setError] = useState('');
                 const [connecting, setConnecting] = useState(false);
                 const [autoReconnecting, setAutoReconnecting] = useState(false);
+                const [sessionLost, setSessionLost] = useState(false);
+                const [fbConnected, setFbConnected] = useState(true);
+                const [resubKey, setResubKey] = useState(0);
 
                 const [gameData, setGameData] = useState(null);
                 const [myTable, setMyTable] = useState(null);
                 const [buzzerState, setBuzzerState] = useState({ pressed: false, enabled: true });
-                
+
                 const [textInput, setTextInput] = useState('');
                 const [textJustSubmitted, setTextJustSubmitted] = useState(false);
                 const [isSubmitting, setIsSubmitting] = useState(false);
+                const [lastSubmitted, setLastSubmitted] = useState('');
+                const [submitError, setSubmitError] = useState('');
+
+                const prevTextActiveRef = useRef(false);
 
                 // Carregar sessão do URL ou localStorage
                 useEffect(() => {
+                    const saved = localStore.load();
+                    if (saved) {
+                        setSessionCode(saved.session);
+                        setTableNumber(saved.table);
+                        if (saved.team) setTeamName(saved.team);
+                        const emailsArr = saved.emails ? saved.emails.split(',').filter(e => e.trim()) : [];
+                        setEmails(emailsArr.length ? emailsArr : ['']);
+                        setAutoReconnecting(true);
+                        return;
+                    }
+
                     const urlParams = new URLSearchParams(window.location.search);
                     const sessionFromUrl = urlParams.get('session');
-                    
                     if (sessionFromUrl) {
                         setSessionCode(sessionFromUrl.toUpperCase());
-                    }
-                    
-                    // Tentar restaurar sessão do localStorage
-                    const savedSession = localStorage.getItem('gameSession');
-                    if (savedSession) {
-                        try {
-                            const data = JSON.parse(savedSession);
-                            if (data.sessionCode && data.tableNumber) {
-                                setSessionCode(data.sessionCode);
-                                setTableNumber(data.tableNumber);
-                                setTeamName(data.teamName || '');
-                                setEmails(data.emails || ['']);
-                                setTextInput(data.textInput || '');
-                                // Auto-reconectar
-                                setAutoReconnecting(true);
-                            }
-                        } catch (e) {
-                            console.error('Erro ao restaurar sessão:', e);
-                            localStorage.removeItem('gameSession');
-                        }
                     }
                 }, []);
 
                 // Auto-reconectar quando dados são carregados do localStorage
                 useEffect(() => {
                     if (autoReconnecting && sessionCode && tableNumber) {
-                        handleAutoReconnect();
+                        handleConnect(true);
                     }
                 }, [autoReconnecting, sessionCode, tableNumber]);
 
-                // Guardar texto no localStorage enquanto escreve
+                // Ligação em tempo real (heartbeat, presença, .info/connected, retomar ao voltar ao primeiro plano)
                 useEffect(() => {
-                    if (registered && sessionCode && tableNumber) {
-                        const savedSession = localStorage.getItem('gameSession');
-                        if (savedSession) {
-                            try {
-                                const data = JSON.parse(savedSession);
-                                data.textInput = textInput;
-                                localStorage.setItem('gameSession', JSON.stringify(data));
-                            } catch (e) {}
-                        }
-                    }
-                }, [textInput, registered]);
+                    if (!registered || !sessionCode || !tableNumber) return;
 
-                useEffect(() => {
-                    if (!registered || !sessionCode) return;
-
-                    const gameStateRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
-                    const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
-                    const clientRef = ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`);
-                    const textResponseRef = ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`);
-
-                    const unsubGame = onValue(gameStateRef, (snapshot) => {
-                        const data = snapshot.val();
-                        if (data) {
-                            setGameData(data);
-                            const table = data.tables?.find(t => t.id === parseInt(tableNumber));
-                            if (table) {
-                                setMyTable(table);
-                            }
-                        }
+                    const ctrl = ClientCore.connectClient({
+                        rtdb, fm,
+                        sessionCode, tableNumber,
+                        heartbeatMs: HEARTBEAT_MS,
+                        onGameState: setGameData,
+                        onSessionLost: () => {
+                            setSessionLost(true);
+                            setRegistered(false);
+                            setGameData(null);
+                            setMyTable(null);
+                            setBuzzerState({ pressed: false, enabled: true });
+                            setTextJustSubmitted(false);
+                            clearLocal();
+                        },
+                        onFbConnectionChange: setFbConnected,
+                        onResume: () => setResubKey(k => k + 1)
                     });
+
+                    return () => ctrl.disconnect();
+                }, [registered, sessionCode, tableNumber]);
+
+                // Manter o ecrã ligado enquanto a mesa estiver registada
+                useEffect(() => {
+                    if (!registered) return;
+                    const lock = ClientCore.attachWakeLock();
+                    return () => lock.release();
+                }, [registered]);
+
+                // Atualizar a mesa correspondente sempre que o estado do jogo mudar
+                useEffect(() => {
+                    if (gameData?.tables) {
+                        const table = gameData.tables.find(t => t.id === parseInt(tableNumber));
+                        setMyTable(table || null);
+                    }
+                }, [gameData, tableNumber]);
+
+                // Garantir que o nó do buzzer existe (sem resetar em reconexão)
+                useEffect(() => {
+                    if (!registered || !gameData?.enableBuzzer || !sessionCode || !tableNumber) return;
+                    const buzzerCheckRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
+                    get(buzzerCheckRef).then((snapshot) => {
+                        if (!snapshot.exists()) {
+                            set(buzzerCheckRef, { pressed: false, enabled: true, timestamp: null });
+                        }
+                    }).catch(() => {});
+                }, [registered, gameData?.enableBuzzer, sessionCode, tableNumber]);
+
+                // Listeners do buzzer e da resposta de texto desta mesa (resubscrevem após retomar ligação)
+                useEffect(() => {
+                    if (!registered || !sessionCode || !tableNumber) return;
+
+                    const buzzerRef = ref(rtdb, `sessions/${sessionCode}/buzzers/${tableNumber}`);
+                    const textResponseRef = ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`);
 
                     const unsubBuzzer = onValue(buzzerRef, (snapshot) => {
                         const data = snapshot.val();
                         if (data) {
                             setBuzzerState(data);
-                        } else if (registered && gameData?.enableBuzzer) {
-                            set(buzzerRef, { pressed: false, enabled: true, timestamp: null });
                         }
                     });
 
                     const unsubTextResponse = onValue(textResponseRef, (snapshot) => {
-                        const data = snapshot.val();
-                        if (!data) {
-                            setTextInput('');
-                            setTextJustSubmitted(false);
-                        }
-                    });
-
-                    const unsubClient = onValue(clientRef, (snapshot) => {
-                        if (!snapshot.exists() && registered) {
-                            // Limpar localStorage quando desconectado pelo master
-                            localStorage.removeItem('gameSession');
-                            setRegistered(false);
-                            setError('Foste desconectado pelo master. Por favor, conecta-te novamente.');
-                            setGameData(null);
-                            setMyTable(null);
-                            setBuzzerState({ pressed: false, enabled: true });
-                            setTextInput('');
+                        if (!snapshot.val()) {
                             setTextJustSubmitted(false);
                         }
                     });
 
                     return () => {
-                        unsubGame();
                         unsubBuzzer();
-                        unsubClient();
                         unsubTextResponse();
                     };
-                }, [registered, sessionCode, tableNumber]);
+                }, [registered, sessionCode, tableNumber, resubKey]);
 
-                const handleRegister = async () => {
+                // Reiniciar input/comprovativo quando começa uma nova ronda de texto
+                useEffect(() => {
+                    const newActive = !!gameData?.textInputActive;
+                    if (!prevTextActiveRef.current && newActive) {
+                        setTextInput('');
+                        setTextJustSubmitted(false);
+                        setSubmitError('');
+                        setLastSubmitted('');
+                    }
+                    prevTextActiveRef.current = newActive;
+                }, [gameData?.textInputActive]);
+
+                // Liga (registo manual) ou reconecta (silencioso, após refresh)
+                const handleConnect = async (isAuto) => {
                     setError('');
-                    
-                    if (!sessionCode.trim()) {
-                        setError('Código da sessão é obrigatório');
-                        return;
-                    }
-                    
-                    if (!tableNumber || tableNumber < 1 || tableNumber > 20) {
-                        setError('Número da mesa inválido (1-20)');
-                        return;
-                    }
 
-                    setConnecting(true);
-
-                    const sessionRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/gameState`);
-                    onValue(sessionRef, async (snapshot) => {
-                        const data = snapshot.val();
-                        if (!data || !data.active) {
-                            setError('Código de sessão inválido ou jogo não iniciado');
-                            setConnecting(false);
-                        } else {
-                            const clientCheckRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`);
-                            onValue(clientCheckRef, async (clientSnapshot) => {
-                                const isReconnection = clientSnapshot.exists();
-
-                                if (!isReconnection) {
-                                    const validEmails = emails.filter(e => e.trim());
-                                    if (validEmails.length === 0) {
-                                        setError('Pelo menos um e-mail tem que ser preenchido');
-                                        setConnecting(false);
-                                        return;
-                                    }
-                                }
-
-                                const existingClientData = clientSnapshot.val() || {};
-                                await set(ref(rtdb, `sessions/${sessionCode.toUpperCase()}/clients/${tableNumber}`), {
-                                    tableNumber: parseInt(tableNumber),
-                                    teamName: teamName || existingClientData.teamName || `Mesa ${tableNumber}`,
-                                    emails: isReconnection ? (existingClientData.emails || []) : emails.filter(e => e.trim()),
-                                    connectedAt: Date.now()
-                                });
-
-                                // Só criar buzzer se não existir (não resetar em reconexão)
-                                if (data.enableBuzzer && !isReconnection) {
-                                    const buzzerCheckRef = ref(rtdb, `sessions/${sessionCode.toUpperCase()}/buzzers/${tableNumber}`);
-                                    onValue(buzzerCheckRef, async (buzzerSnapshot) => {
-                                        if (!buzzerSnapshot.exists()) {
-                                            await set(buzzerCheckRef, {
-                                                pressed: false,
-                                                enabled: true,
-                                                timestamp: null
-                                            });
-                                        }
-                                    }, { onlyOnce: true });
-                                }
-
-                                // Guardar sessão no localStorage
-                                const sessionData = {
-                                    sessionCode: sessionCode.toUpperCase(),
-                                    tableNumber: tableNumber,
-                                    teamName: teamName || existingClientData.teamName || `Mesa ${tableNumber}`,
-                                    emails: isReconnection ? (existingClientData.emails || []) : emails.filter(e => e.trim()),
-                                    textInput: textInput || ''
-                                };
-                                localStorage.setItem('gameSession', JSON.stringify(sessionData));
-
-                                setSessionCode(sessionCode.toUpperCase());
-                                if (isReconnection && existingClientData.teamName) {
-                                    setTeamName(existingClientData.teamName);
-                                }
-                                setRegistered(true);
-                                setConnecting(false);
-                            }, (err) => {
-                                setError('Erro ao conectar. Tenta novamente.');
-                                setConnecting(false);
-                            }, { onlyOnce: true });
+                    if (!isAuto) {
+                        if (!sessionCode.trim()) {
+                            setError('Código da sessão é obrigatório');
+                            return;
                         }
-                    }, (err) => {
-                        setError('Erro ao conectar. Tenta novamente.');
-                        setConnecting(false);
-                    }, { onlyOnce: true });
-                };
-
-                // Auto-reconectar silenciosamente (após refresh)
-                const handleAutoReconnect = async () => {
-                    const sessionRef = ref(rtdb, `sessions/${sessionCode}/gameState`);
-                    onValue(sessionRef, async (snapshot) => {
-                        const data = snapshot.val();
-                        if (!data || !data.active) {
-                            // Sessão não existe mais, limpar localStorage
-                            localStorage.removeItem('gameSession');
-                            setAutoReconnecting(false);
-                            setSessionCode('');
-                            setTableNumber('');
-                            setTeamName('');
-                            setTextInput('');
-                        } else {
-                            // Sessão existe, verificar se cliente ainda está registado
-                            const clientRef = ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`);
-                            onValue(clientRef, async (clientSnapshot) => {
-                                if (clientSnapshot.exists()) {
-                                    // Cliente existe, restaurar sessão
-                                    const clientData = clientSnapshot.val();
-                                    setTeamName(clientData.teamName || `Mesa ${tableNumber}`);
-                                    setRegistered(true);
-                                } else {
-                                    // Cliente foi removido, limpar
-                                    localStorage.removeItem('gameSession');
-                                    setSessionCode('');
-                                    setTableNumber('');
-                                    setTeamName('');
-                                    setTextInput('');
-                                }
-                                setAutoReconnecting(false);
-                            }, { onlyOnce: true });
+                        if (!tableNumber || tableNumber < 1 || tableNumber > 20) {
+                            setError('Número da mesa inválido (1-20)');
+                            return;
                         }
-                    }, { onlyOnce: true });
-                };
+                        setConnecting(true);
+                    }
 
-                // Desconectar manualmente (botão X)
-                const handleDisconnect = () => {
-                    if (confirm('Tens a certeza que queres sair da sessão?')) {
-                        localStorage.removeItem('gameSession');
-                        setRegistered(false);
+                    const code = sessionCode.toUpperCase();
+                    const table = tableNumber;
+
+                    const giveUpAuto = () => {
+                        clearLocal();
+                        setAutoReconnecting(false);
                         setSessionCode('');
                         setTableNumber('');
                         setTeamName('');
                         setEmails(['']);
-                        setTextInput('');
-                        setGameData(null);
-                        setMyTable(null);
-                        setBuzzerState({ pressed: false, enabled: true });
-                        setTextJustSubmitted(false);
-                        setError('');
+                    };
+
+                    let existing = null;
+                    try {
+                        const snap = await get(ref(rtdb, `sessions/${code}/clients/${table}`));
+                        existing = snap.val();
+                    } catch (e) {
+                        if (isAuto) { giveUpAuto(); return; }
+                        setError('Erro ao conectar. Tenta novamente.');
+                        setConnecting(false);
+                        return;
                     }
+
+                    if (!existing && isAuto) {
+                        // Mesa foi removida pelo master entretanto - não recriar automaticamente
+                        giveUpAuto();
+                        return;
+                    }
+
+                    let emailsStr;
+                    if (existing) {
+                        emailsStr = (existing.emails || []).join(',');
+                    } else {
+                        const validEmails = emails.map(e => e.trim()).filter(Boolean);
+                        if (validEmails.length === 0) {
+                            setError('Pelo menos um e-mail tem que ser preenchido');
+                            setConnecting(false);
+                            return;
+                        }
+                        emailsStr = validEmails.join(',');
+                    }
+
+                    const finalTeamName = (existing && existing.teamName) || teamName.trim() || `Mesa ${table}`;
+
+                    const result = await ClientCore.joinSession({
+                        rtdb, fm,
+                        sessionCode: code, tableNumber: table,
+                        teamName: finalTeamName,
+                        emails: emailsStr,
+                        clientId: CLIENT_ID, gameType: 'generic',
+                        isAuto
+                    });
+
+                    if (result.ok) {
+                        localStore.save({ session: result.code, table: result.table, team: finalTeamName, emails: emailsStr });
+                        setSessionCode(result.code);
+                        setTableNumber(String(result.table));
+                        setTeamName(finalTeamName);
+                        const emailsArr = emailsStr.split(',').filter(e => e.trim());
+                        setEmails(emailsArr.length ? emailsArr : ['']);
+                        setRegistered(true);
+                        setAutoReconnecting(false);
+                        setConnecting(false);
+                        setSessionLost(false);
+                        setError('');
+                    } else {
+                        if (isAuto || result.clearLocal) {
+                            giveUpAuto();
+                        } else {
+                            setError(translateJoinError(result.error, { code, n: table }) || 'Erro ao conectar. Tenta novamente.');
+                            setConnecting(false);
+                        }
+                    }
+                };
+
+                // Desconectar manualmente (botão X)
+                const handleDisconnect = async () => {
+                    if (!confirm('Tens a certeza que queres sair da sessão?')) return;
+
+                    try {
+                        await remove(ref(rtdb, `sessions/${sessionCode}/clients/${tableNumber}`));
+                    } catch (e) {}
+
+                    clearLocal();
+                    setRegistered(false);
+                    setSessionCode('');
+                    setTableNumber('');
+                    setTeamName('');
+                    setEmails(['']);
+                    setTextInput('');
+                    setGameData(null);
+                    setMyTable(null);
+                    setBuzzerState({ pressed: false, enabled: true });
+                    setTextJustSubmitted(false);
+                    setLastSubmitted('');
+                    setSubmitError('');
+                    setError('');
                 };
 
                 const pressBuzzer = async () => {
@@ -367,41 +383,37 @@
                     // Validações
                     if (!textInput.trim()) return;
                     if (isSubmitting) return; // Prevenir duplo clique
-                    
+
                     const canSubmit = isUnlimitedTime || textTimeRemaining > 0;
                     if (!canSubmit) return;
 
                     setIsSubmitting(true);
+                    setSubmitError('');
 
-                    try {
-                        await set(ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`), {
-                            text: textInput.trim(),
-                            submitted: true,
-                            timestamp: Date.now()
-                        });
+                    const payload = {
+                        text: textInput.trim(),
+                        submitted: true,
+                        timestamp: Date.now(),
+                        clientId: CLIENT_ID
+                    };
+
+                    const result = await ClientCore.submitWithVerify({
+                        rtdb, fm,
+                        path: `sessions/${sessionCode}/textResponses/${tableNumber}`,
+                        payload,
+                        clientId: CLIENT_ID,
+                        verifyKey: 'text'
+                    });
+
+                    if (result.ok) {
                         setTextJustSubmitted(true);
-                        
-                        // Feedback visual de sucesso
-                        setTimeout(() => {
-                            setIsSubmitting(false);
-                        }, 500);
-                    } catch (e) {
-                        console.error('Erro ao enviar resposta:', e);
+                        setLastSubmitted(payload.text);
+                        setSubmitError('');
+                        setTimeout(() => setIsSubmitting(false), 500);
+                    } else {
+                        setSubmitError('Erro ao enviar. Tenta novamente.');
+                        setTextJustSubmitted(false);
                         setIsSubmitting(false);
-                        // Tentar novamente automaticamente
-                        setTimeout(async () => {
-                            try {
-                                await set(ref(rtdb, `sessions/${sessionCode}/textResponses/${tableNumber}`), {
-                                    text: textInput.trim(),
-                                    submitted: true,
-                                    timestamp: Date.now()
-                                });
-                                setTextJustSubmitted(true);
-                            } catch (e2) {
-                                console.error('Erro na segunda tentativa:', e2);
-                                alert('Erro ao enviar. Tenta novamente.');
-                            }
-                        }, 1000);
                     }
                 };
 
@@ -417,9 +429,6 @@
                 const selectedLogos = gameData?.selectedLogos || [];
                 const mainLogo = selectedLogos.length > 0 ? selectedLogos[0] : null;
                 const sponsorLogos = selectedLogos.slice(1);
-                
-                // Tipo de jogo (para futura expansão com módulos diferentes)
-                const gameType = gameData?.gameType || DEFAULT_GAME_TYPE;
 
                 // Mostrar loading quando está a auto-reconectar
                 if (autoReconnecting) {
@@ -428,6 +437,26 @@
                             h('div', { className: 'text-4xl mb-4 animate-spin' }, '🔄'),
                             h('div', { className: 'text-xl font-semibold' }, 'A reconectar...'),
                             h('div', { className: 'text-sm opacity-75 mt-2' }, 'Por favor aguarde')
+                        )
+                    );
+                }
+
+                if (sessionLost) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex items-center justify-center' },
+                        h('div', { className: 'max-w-md w-full bg-white rounded-2xl shadow-2xl p-6 text-center' },
+                            h('div', { className: 'text-5xl mb-4' }, '👋'),
+                            h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, 'Sessão terminada'),
+                            h('p', { className: 'text-gray-600 mb-4' }, 'O anfitrião terminou esta sessão ou desconectou esta mesa.'),
+                            h('button', {
+                                onClick: () => {
+                                    setSessionLost(false);
+                                    setSessionCode('');
+                                    setTableNumber('');
+                                    setTeamName('');
+                                    setEmails(['']);
+                                },
+                                className: 'w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold'
+                            }, 'Voltar ao registo')
                         )
                     );
                 }
@@ -505,7 +534,7 @@
                                     )
                                 ),
                                 h('button', {
-                                    onClick: handleRegister,
+                                    onClick: () => handleConnect(false),
                                     disabled: connecting,
                                     className: `w-full py-4 rounded-lg text-lg font-bold transition-colors shadow-lg ${
                                         connecting ? 'bg-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'
@@ -522,6 +551,10 @@
                 const isUnlimitedTime = showTextInput && textTimeRemaining === 0;
 
                 return h('div', { className: 'h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4 flex flex-col overflow-hidden relative' },
+                    // Banner de ligação ao servidor perdida
+                    !fbConnected && h('div', { className: 'absolute top-0 inset-x-0 bg-red-600 text-white text-xs text-center py-1 z-50 font-bold animate-pulse' },
+                        'Sem ligação ao servidor — a tentar reconectar...'
+                    ),
                     // Logotipos patrocinadores em background
                     sponsorLogos.length > 0 && h('div', { className: 'absolute inset-0 pointer-events-none overflow-hidden' },
                         sponsorLogos.map((logo, index) => h('img', {
@@ -629,7 +662,17 @@
                                                             : 'bg-green-600 text-white hover:bg-green-700 shadow-lg hover:shadow-xl'
                                             }`
                                         }, isSubmitting ? '⏳ A enviar...' : (textJustSubmitted ? '✓ Enviado' : '📤 Enviar'))
-                                    )
+                                    ),
+                                    submitError && h('div', { className: 'mt-2 text-center text-sm text-red-600 font-semibold' }, submitError)
+                                )
+                            ),
+                            !showTextInput && lastSubmitted && h('div', { className: 'w-full max-w-2xl' },
+                                h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 backdrop-blur-sm' },
+                                    h('div', { className: 'flex items-center gap-2 mb-2' },
+                                        h('span', { className: 'text-green-300 text-sm font-black' }, '✓ Resposta enviada'),
+                                        h('span', { className: 'text-white opacity-60 text-xs' }, '(visível só para vocês)')
+                                    ),
+                                    h('div', { className: 'text-white font-semibold text-base leading-snug' }, lastSubmitted)
                                 )
                             )
                         ),
