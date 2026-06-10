@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command \"\\(Get-Content 'c:\\\\Users\\\\Andre\\\\Documents\\\\GitHub\\\\score\\\\master.html'\\).Count\")",
+      "Bash(sed '$d')",
+      "Bash(node --check /tmp/master_script.js)",
+      "Bash(cd \"c:\\\\Users\\\\Andre\\\\Documents\\\\GitHub\\\\score\" && sed -n '39,1808p' master.html > /tmp/master_script.js && node --check /tmp/master_script.js && echo \"MASTER OK\")",
+      "Bash(sed -n '46,695p' client.html)",
+      "Bash(node --check /tmp/client_script.js)",
+      "Bash(sed -n '31,41p' client.html)",
+      "Bash(node --check /tmp/client_module.mjs)",
+      "Bash(sed -n '46,694p' client.html)",
+      "Bash(sed -n '31,40p' client.html)",
+      "Bash(curl -sv http://localhost:8089/master.html)",
+      "Bash(curl -sL http://localhost:8089/master.html)",
+      "Bash(curl -sL http://localhost:8089/client.html)",
+      "Bash(git commit -m ' *)",
+      "Bash(ls \"C:\\\\Users\\\\Andre\\\\.claude\\\\projects\\\\c--Users-Andre-Documents-GitHub-score\\\\memory\\\\\" 2>/dev/null || echo \"NO DIR\")",
+      "Read(//c/Users/Andre/.claude/projects/c--Users-Andre-Documents-GitHub-score/memory\" 2>/dev/**)",
+      "Read(//c/Users/Andre/.claude/projects/c--Users-Andre-Documents-GitHub-score/**)",
+      "Read(//c/Users/Andre/.claude/projects/c--Users-Andre-Documents-GitHub-score//**)",
+      "Bash(npm run *)",
+      "Bash(npm install)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git add *)",
+      "Bash(git log *)",
+      "Bash(firebase deploy *)",
+      "Bash(npm run build)"
+    ],
+    "deny": [
+      "Bash(rm *)",
+      "Bash(git push --force *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
+    ]
+  }
+}

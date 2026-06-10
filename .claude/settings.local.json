@@ -4,7 +4,13 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "Bash(git commit -m 'fix\\(hitster\\): dropdown option text color \\(text-gray-800 on select\\) *)"
+      "Bash(git commit -m 'fix\\(hitster\\): dropdown option text color \\(text-gray-800 on select\\) *)",
+      "Bash(git -C \"C:/Users/Andre/Documents/GitHub/score\" add client-diamant.html client-hitster.html shared/i18n.js shared/i18n-pt.js shared/i18n-en.js)",
+      "Bash(git -C C:/Users/Andre/Documents/GitHub/score commit -m ' *)",
+      "Bash(git -C \"C:/Users/Andre/Documents/GitHub/score\" add client-hitster.html client-diamant.html shared/i18n.js)",
+      "Bash(git -C \"C:/Users/Andre/Documents/GitHub/score\" push)",
+      "Bash(grep -n \"T\\('\\\\\\\\|T\\(\\\\\"\" \"C:\\\\Users\\\\Andre\\\\Documents\\\\GitHub\\\\score\\\\master-hitster.html\")",
+      "Bash(grep -n \"'Mesa '\\\\\\\\|'Ronda '\\\\\\\\|'Gerir Mesas'\\\\\\\\|Fechar\\\\\\\\|Arquivar\\\\\\\\|Remover\\\\\\\\|Cancelar\" \"C:\\\\Users\\\\Andre\\\\Documents\\\\GitHub\\\\score\\\\master-hitster.html\")"
     ]
   }
 }
