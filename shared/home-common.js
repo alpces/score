@@ -1,16 +1,16 @@
 /**
  * Lógica partilhada pelas páginas de entrada (masters.html, jogar.html).
  *
- * Lê o código de sessão da própria URL (?sessao= ou ?session=) e propaga-o
- * para os links dos jogos via ?session=, que é o parâmetro que client.html,
- * client-hitster.html e client-diamant.html já sabem ler.
+ * Lê o código de sessão da própria URL (?session=) e propaga-o para os
+ * links dos jogos via ?session=, que é o mesmo parâmetro que client.html,
+ * client-hitster.html, client-diamant.html e os masters já sabem ler.
  */
 (function () {
     'use strict';
 
     function getSessionCode() {
         var params = new URLSearchParams(window.location.search);
-        var code = params.get('sessao') || params.get('session');
+        var code = params.get('session');
         return code ? code.toUpperCase() : null;
     }
 
@@ -30,7 +30,7 @@
 
         var crossLink = document.getElementById('cross-hub-link');
         if (crossLink) {
-            crossLink.setAttribute('href', withParam(crossLink.getAttribute('href'), 'sessao', code));
+            crossLink.setAttribute('href', withParam(crossLink.getAttribute('href'), 'session', code));
         }
 
         var badge = document.getElementById('session-badge');

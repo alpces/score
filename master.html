@@ -138,6 +138,12 @@
                     return () => clearInterval(iv);
                 }, []);
 
+                // Pré-preenche o código da sessão a partir de ?session= (ex: vindo de masters.html)
+                useEffect(() => {
+                    const fromUrl = new URLSearchParams(window.location.search).get('session');
+                    if (fromUrl) setCustomSessionCode(fromUrl.toUpperCase());
+                }, []);
+
                 useEffect(() => {
                     (async () => {
                         try {

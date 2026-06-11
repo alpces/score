@@ -143,6 +143,12 @@
                     return function() { window.removeEventListener('i18n:change', handler); };
                 }, []);
 
+                // Pré-preenche o código da sessão a partir de ?session= (ex: vindo de masters.html)
+                useEffect(function() {
+                    var fromUrl = new URLSearchParams(window.location.search).get('session');
+                    if (fromUrl) setCustomSessionCode(fromUrl.toUpperCase());
+                }, []);
+
                 // Multiplicador ativo?
                 var multiplierActive = tables.length >= multiplierThreshold;
                 var currentMultiplier = multiplierActive ? multiplierValue : 1;

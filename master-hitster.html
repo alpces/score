@@ -149,6 +149,12 @@
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
             var lg2 = _s(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
 
+            // Pré-preenche o código da sessão a partir de ?session= (ex: vindo de masters.html)
+            useEffect(function() {
+                var fromUrl = new URLSearchParams(window.location.search).get('session');
+                if (fromUrl) setCodeInput(fromUrl.toUpperCase());
+            }, []);
+
             useEffect(function() {
                 var handler = function(e) {
                     var newLang = e.detail.lang;
