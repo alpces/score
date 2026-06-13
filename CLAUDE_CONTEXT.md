@@ -28,6 +28,8 @@ score/
 ├── client-hitster.html           # Standalone — Mega Hitster (cliente)
 ├── master-diamant.html           # Standalone — Diamant / Incan Gold (master)
 ├── client-diamant.html           # Standalone — Diamant / Incan Gold (cliente)
+├── master-justone.html           # Standalone — Mega Just One (master, modos Consola/Público)
+├── client-justone.html           # Standalone — Mega Just One (cliente)
 │
 ├── shared/
 │   ├── firebase-config.js        # FirebaseConfig + AppConfig (URLs públicas)
@@ -40,14 +42,17 @@ score/
 │   ├── game-system.js            # Core do sistema modular (NÃO MODIFICAR)
 │   ├── generic.js                # Módulo: Contador Genérico
 │   ├── diamant.js                # Referência de regras Diamant (não usado em runtime)
-│   └── hitster.js                # Constantes/categorias Hitster (carregado em runtime)
+│   ├── hitster.js                # Constantes/categorias Hitster (carregado em runtime)
+│   ├── justone-words-pt.txt      # Pool de palavras PT-PT por dificuldade (Mega Just One)
+│   └── justone-words-en.txt      # Pool de palavras EN por dificuldade (Mega Just One)
 │
 ├── logo1.png … logo4.png         # Logos opcionais (4; o código aceita até 5)
 ├── robots.txt                    # Disallow: /master* (esconde masters dos motores de busca)
 ├── README.md                     # Visão pública
 ├── CLAUDE_CONTEXT.md             # Este ficheiro (referência para IA)
 ├── CHANGELOG.md
-└── DEVELOPMENT_LOG.md            # Log de versões por jogo
+├── DEVELOPMENT_LOG.md            # Log de versões por jogo
+└── RULES-JUSTONE.md              # Regras PT-PT do Mega Just One
 ```
 
 > **Acesso anfitrião vs. jogador:** `jogar.html` é o ponto de entrada público (linkado no
@@ -257,6 +262,56 @@ Adaptação do jogo de tabuleiro. Fases: `waiting_start → expedition → votin
 - Multiplicador automático quando ≥ N equipas
 - `sessionLog` rastreia `joined`/`active`/`left` por mesa
 
+### Mega Just One (`master-justone.html`, `client-justone.html`)
+Adaptação competitiva (mesa vs. mesa) do "Just One". Fases:
+`waiting → choosing_difficulty → clue_giving → reviewing → guessing → reveal →
+choosing_difficulty → ...`
+- **Master com dois modos por dispositivo** (`masterMode`, localStorage
+  `justoneMasterMode`, override `?mode=console|public`, entrada direta
+  `?mode=public&session=CODE`): Consola (anfitrião — vê `secret`, controla tudo) e
+  Público (projetor — subscreve só `publicState` + presença, nunca `secret`,
+  `justoneClues`, `justoneDifficultyChoice` ou `justoneStats`).
+- **Separação de nós Firebase**: `gameState` (canal geral via ClientCore — nunca
+  contém a palavra secreta, exceto `revealedWord`/`visibleClues` durante `reveal`),
+  `secret` (só a palavra — nunca subscrito pelo modo Público nem pelo cliente
+  adivinhador), `publicState` (projeção sanitizada escrita pela Consola, único nó
+  de dados que o modo Público subscreve), `justoneClues/{tableId}`,
+  `justoneDifficultyChoice`, `justoneStats/{roundNumber}`.
+- `buildVisibleClues(phase, justoneClues, clueStatus)` gera a projeção partilhada
+  `visibleClues` (em `guessing`: só pistas `valid`, sem `status`; em `reveal`:
+  todas, com `status`) usada tanto em `gameState` como em `publicState`.
+- Pool de palavras em `games/justone-words-pt.txt` / `-en.txt`, cada um dividido em
+  3 níveis (easy/medium/hard via marcadores `# --- Fácil/Médio/Difícil ---` ou
+  `Easy/Medium/Hard`); seletor "Idioma da lista de palavras" (`wordPoolLang`)
+  independente do idioma da interface; fetch + fallback embutido por idioma/nível
+  (`EMBEDDED_FALLBACK_WORDS`) + localStorage editável no setup (uma chave por
+  idioma — `justoneWordPool_pt`/`_en`). Sem reciclagem: `drawSecretWord` devolve
+  `null` quando um nível esgota (UI desativa esse nível e avisa se todos esgotarem).
+- Ronda: 1 mesa "adivinha" (round-robin por `id`); no início da ronda essa mesa
+  escolhe a dificuldade (Fácil/Médio/Difícil) — via cliente
+  (`justoneDifficultyChoice`) ou fallback do master — antes de a palavra secreta ser
+  sorteada desse nível; as outras mesas submetem 1 pista cada
+  (`sessions/{id}/justoneClues/{tableId}`), opcionalmente limitado por um timer
+  (`timerSeconds`/`clueDeadline` — bloqueia o input, não muda a fase).
+- Master valida pistas (`clueStatus`), com pré-deteção de duplicados
+  (`detectDuplicateClues` — normaliza acentos/maiúsculas).
+- Pontuação configurável por dificuldade (`scoringConfig`, persistido em
+  `localStorage['justoneScoringConfig']`; defeitos Fácil +2/Médio +3/Difícil +5 para
+  o guesser, +1 por pista válida em todos os níveis, penalização por erro -1 em
+  todos os níveis mas configurável por nível, floor 0). "Passar" = ninguém pontua
+  (`guessResult: 'passed'`).
+- `tables[].timesGuessed` conta quantas vezes cada mesa já foi a equipa
+  adivinhadora; `isLapComplete`/`getCompletedLaps` detetam "voltas completas" —
+  arquivar/encerrar sessão só fica disponível nesse momento ("Pausar Sessão" não
+  tem essa restrição).
+- `justoneStats/{roundNumber}` regista cada ronda concluída (dificuldade,
+  resultado, pistas válidas/anuladas, nº de mesas); painel "Estatísticas" (só modo
+  Consola) agrega por dificuldade ao vivo e exporta CSV/JSON.
+- `revealAll` controla visibilidade pós-resolução.
+- Sem `games/justone*.js` em runtime — tudo inline, como o Diamant standalone
+  (`games/diamant.js` pertence ao motor antigo `master.html`/`client.html`, não ao
+  standalone).
+
 ### Contador Genérico (`master.html` + `client.html` + `games/generic.js`)
 Sistema modular legacy. Buzzers, +1/-1/+5, respostas de texto, leaderboard. Não usa shared cores.
 
@@ -328,6 +383,7 @@ MASTER_MEUJOGO_URL: 'https://alpces.github.io/score/master-meujogo.html',
 |---|---|
 | Genérico / Diamant | purple-600, indigo-600, green-500, red-500 |
 | Mega Hitster | violet-900, purple-900, indigo-900 (fundo); yellow-500 (joker); violet-400/600 (pontos) |
+| Mega Just One | teal-900, cyan-900 (fundo); teal-600/teal-400 (ações, pontos, destaques) |
 
 - **Botões**: `rounded-lg`, `font-bold`, `active:scale-95 transition-all`
 - **Cards**: `bg-white rounded-2xl shadow-2xl p-4` (claros) / `bg-slate-800 rounded-xl border` (escuros)

@@ -17,6 +17,7 @@ pelo anfitrião):
 |---|---|
 | 🎵 **Mega Hitster** — quiz musical com joker, modo cantora e categorias configuráveis | [client](https://alpces.github.io/score/client-hitster.html) |
 | 💎 **Mega Diamant** — adaptação do Diamant/Incan Gold com votação secreta e apostas | [client](https://alpces.github.io/score/client-diamant.html) |
+| 🤫 **Mega Just One** — pistas de uma só palavra, mesa contra mesa, com validação pelo anfitrião | [client](https://alpces.github.io/score/client-justone.html) |
 | ❓ **Mega Concept** — adivinha conceitos a partir de pistas (sistema modular genérico) | [client](https://alpces.github.io/score/client.html) |
 
 > O acesso de anfitrião (`masters.html` e os `master-*.html` correspondentes) não é divulgado
@@ -36,6 +37,8 @@ score/
 ├── client-hitster.html
 ├── master-diamant.html           # Standalone — Mega Diamant
 ├── client-diamant.html
+├── master-justone.html           # Standalone — Mega Just One (modos Consola/Público)
+├── client-justone.html
 │
 ├── shared/
 │   ├── firebase-config.js        # Config Firebase + URLs públicas
@@ -48,13 +51,16 @@ score/
 │   ├── game-interface.js
 │   ├── generic.js                # Módulo: Contador Genérico
 │   ├── hitster.js                # Constantes Hitster
-│   └── diamant.js                # Referência de regras Diamant
+│   ├── diamant.js                # Referência de regras Diamant
+│   ├── justone-words-pt.txt      # Pool de palavras PT-PT (Mega Just One)
+│   └── justone-words-en.txt      # Pool de palavras EN (Mega Just One)
 │
 ├── logo1.png … logo4.png         # Logos opcionais
 ├── robots.txt                    # Esconde /master* dos motores de busca
 ├── CLAUDE_CONTEXT.md             # 🤖 Referência completa para IAs
 ├── CHANGELOG.md
-└── DEVELOPMENT_LOG.md
+├── DEVELOPMENT_LOG.md
+└── RULES-JUSTONE.md              # Regras PT-PT do Mega Just One
 ```
 
 ---

@@ -1,0 +1,59 @@
+# Mega Just One — lista de palavras (PT-PT)
+# Uma palavra por linha. Linhas com # ou vazias são ignoradas.
+# Edita este ficheiro para personalizar o pool de palavras da tua sessão.
+
+# --- Fácil ---
+cão
+gato
+casa
+sol
+praia
+chuva
+livro
+mesa
+porta
+janela
+carro
+bicicleta
+escola
+comboio
+relógio
+chave
+telefone
+computador
+cadeira
+espelho
+
+# --- Médio ---
+guarda-chuva
+semáforo
+biblioteca
+fogueira
+labirinto
+vulcão
+mochila
+ferramenta
+calendário
+boneca
+castelo
+floresta
+montanha
+deserto
+piscina
+hospital
+aeroporto
+mercado
+jardim
+ponte
+
+# --- Difícil ---
+liberdade
+saudade
+amizade
+silêncio
+coragem
+mistério
+tradição
+inveja
+paciência
+sabedoria

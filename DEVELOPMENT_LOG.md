@@ -4,6 +4,35 @@ Registo de desenvolvimento do Sistema de Pontuação Modular.
 
 ---
 
+## 🤫 Mega Just One (Junho 2026)
+
+Novo jogo standalone, adaptação competitiva (mesa vs. mesa) do "Just One". Decisões
+de arquitetura específicas, para referência futura:
+
+- **Separação `gameState`/`secret`/`publicState` como garantia de segurança por
+  desenho**: o modo Público (projetor) e o cliente da mesa adivinhadora nunca
+  chegam a fazer `onValue` no nó `secret` — não é apenas ocultação na UI, a palavra
+  nunca existe na memória dessas instâncias, mesmo com bug de render ou ecrã
+  espelhado. `publicState` é uma projeção sanitizada escrita só pela Consola
+  (debounced 200ms, mesmo padrão de `gameState`).
+- **`buildVisibleClues(phase, justoneClues, clueStatus)`** como projeção
+  partilhada entre `gameState.visibleClues` e `publicState.visibleClues` — evita
+  duplicar, em dois sítios, a lógica de "que pistas são visíveis em cada fase"
+  (`guessing`: só `valid`, sem `status`; `reveal`: todas, com `status`).
+- **Dois ficheiros de pool de palavras (PT/EN)** com seletor de idioma
+  independente do idioma da interface, e drenagem sem reciclagem por nível de
+  dificuldade (`drawSecretWord` devolve `null` quando um nível esgota; a UI
+  desativa esse nível em vez de reciclar silenciosamente).
+- **`tables[].timesGuessed`/"voltas completas"** (`isLapComplete`/
+  `getCompletedLaps`) como mecanismo de paridade entre equipas para condicionar o
+  fim de sessão — "Pausar Sessão" fica isento desta restrição.
+- **Escolha de modo por dispositivo** (`masterMode`, localStorage
+  `justoneMasterMode`, override `?mode=console|public`, entrada direta
+  `?mode=public&session=CODE`) permite Consola+Público em simultâneo (PC +
+  telemóvel, ou 2 ecrãs) sem coordenação extra.
+
+---
+
 ## 🧱 Refactor — Extracção dos Shared Cores (Maio 2026)
 
 Migração da infraestrutura repetida em todos os jogos para dois ficheiros partilhados em `shared/`. Trabalho feito em fases incrementais, cada uma validada manualmente antes de avançar.

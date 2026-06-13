@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Mega Just One - Mesa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Bandeiras SVG via flag-icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
+    <!-- Configuração Firebase, core de cliente partilhado e i18n -->
+    <script src="shared/firebase-config.js"></script>
+    <script src="shared/client-core.js"></script>
+    <script src="shared/i18n.js"></script>
+    <script src="shared/i18n-pt.js"></script>
+    <script src="shared/i18n-en.js"></script>
+    <style>
+        input, textarea { font-size: 16px !important; }
+        html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
+        #root { min-height: 100dvh; }
+        .min-h-screen { min-height: 100dvh !important; }
+        .h-screen { height: 100dvh !important; }
+
+        /* Selector de língua — garante que as bandeiras SVG têm dimensão definida */
+        .lang-flag { display: inline-block; width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set, remove, get, update, goOffline, goOnline } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = window.FirebaseConfig;
+
+        const app = initializeApp(firebaseConfig);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { ref, onValue, set, remove, get, update, goOffline, goOnline };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script>
+    window.addEventListener('firebaseReady', function() {
+        var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
+        var rtdb = window.rtdb, fm = window.fbModules;
+
+        // Alias de tradução — lê _current dinamicamente, funciona com re-renders por i18n:change
+        var T = I18n.t;
+
+        var HEARTBEAT_MS = 15000;
+        var localStore  = ClientCore.createLocalStore('justone');
+        var clearLocal  = localStore.clear;
+        var CLIENT_ID   = ClientCore.getClientId('justone_clientId');
+
+        // — pool de palavras: fallback embutido por idioma + helpers de esgotamento —
+        var EMBEDDED_FALLBACK_WORDS = {
+            pt: {
+                easy:   ['cão', 'gato', 'casa', 'sol', 'praia'],
+                medium: ['castelo', 'floresta', 'biblioteca', 'vulcão', 'mochila'],
+                hard:   ['liberdade', 'saudade', 'silêncio', 'coragem', 'mistério']
+            },
+            en: {
+                easy:   ['dog', 'cat', 'house', 'sun', 'beach'],
+                medium: ['castle', 'forest', 'library', 'volcano', 'backpack'],
+                hard:   ['freedom', 'longing', 'silence', 'courage', 'mystery']
+            }
+        };
+
+        function getTierPool(pool, wordPoolLang, difficulty) {
+            return (pool && pool[difficulty] && pool[difficulty].length)
+                ? pool[difficulty] : EMBEDDED_FALLBACK_WORDS[wordPoolLang || 'pt'][difficulty];
+        }
+
+        function isTierExhausted(pool, wordPoolLang, usedWords, difficulty) {
+            var tierPool = getTierPool(pool, wordPoolLang, difficulty);
+            return tierPool.every(function(w) { return (usedWords || []).indexOf(w) >= 0; });
+        }
+
+        var DIFFICULTY_BUTTON_COLORS = {
+            easy:   'bg-green-500 hover:bg-green-600',
+            medium: 'bg-amber-500 hover:bg-amber-600',
+            hard:   'bg-red-500 hover:bg-red-600'
+        };
+        var DIFFICULTY_BADGE_COLORS = {
+            easy:   'bg-green-100 text-green-800',
+            medium: 'bg-amber-100 text-amber-800',
+            hard:   'bg-red-100 text-red-800'
+        };
+
+        function App() {
+            var _s = function(v) { return useState(v); };
+
+            // — conexão —
+            var r1 = _s(false);  var connected = r1[0];       var setConnected = r1[1];
+            var r2 = _s('');     var sessionCode = r2[0];     var setSessionCode = r2[1];
+            var r3 = _s('');     var tableNumber = r3[0];     var setTableNumber = r3[1];
+            var r4 = _s('');     var teamName = r4[0];        var setTeamName = r4[1];
+            var r5 = _s('');     var emails = r5[0];          var setEmails = r5[1];
+            var r6 = _s('');     var connError = r6[0];       var setConnError = r6[1];
+            var r7 = _s(false);  var autoRecon = r7[0];       var setAutoRecon = r7[1];
+            var r8 = _s(false);  var sessionLost = r8[0];     var setSessionLost = r8[1];
+            var r9 = _s(true);   var fbConnected = r9[0];     var setFbConnected = r9[1];
+            var r10 = _s(0);     var resubKey = r10[0];       var setResubKey = r10[1];
+
+            // — jogo —
+            var g1 = _s(null);          var gameData = g1[0];       var setGameData = g1[1];
+            var g2 = _s(null);          var secretWordData = g2[0]; var setSecretWordData = g2[1];
+            var g3 = _s(Date.now());    var nowTick = g3[0];        var setNowTick = g3[1];
+            var g4 = _s(false);         var showHelp = g4[0];       var setShowHelp = g4[1];
+
+            // — pista própria —
+            var c1 = _s('');     var clueInput = c1[0];          var setClueInput = c1[1];
+            var c2 = _s(false);  var clueSubmitted = c2[0];      var setClueSubmitted = c2[1];
+            var c3 = _s(false);  var sending = c3[0];            var setSending = c3[1];
+            var c4 = _s('');     var submitError = c4[0];        var setSubmitError = c4[1];
+            var c5 = _s('');     var lastSubmittedClue = c5[0];  var setLastSubmittedClue = c5[1];
+            var c6 = _s(false);  var choosingDifficulty = c6[0]; var setChoosingDifficulty = c6[1];
+
+            // — i18n —
+            var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
+            var lg2 = _s(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
+
+            var prevRoundNumberRef = useRef(null);
+
+            // — dados derivados —
+            var tableId       = parseInt(tableNumber || '0');
+            var phase         = gameData ? (gameData.phase || 'waiting') : 'waiting';
+            var isGuesser     = !!(gameData && gameData.guesserTableId === tableId);
+            var secretWord    = secretWordData ? secretWordData.word : null;
+            var difficulty    = gameData ? gameData.secretWordDifficulty : null;
+            var scoringConfig = gameData ? gameData.scoringConfig : null;
+            var cfg           = (scoringConfig && difficulty) ? scoringConfig[difficulty] : null;
+            var clueDeadline  = gameData ? gameData.clueDeadline : null;
+            var clueLocked    = !!(clueDeadline && nowTick > clueDeadline);
+            var clueStatus    = gameData ? (gameData.clueStatus || {}) : {};
+            var myClueStatus  = clueStatus[tableId];
+            var annulledCount = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'annulled'; }).length;
+            var revealAll     = gameData ? gameData.revealAll : false;
+            var guessResult   = gameData ? gameData.guessResult : null;
+            var visibleClues  = gameData ? gameData.visibleClues : null;
+            var revealedWord  = gameData ? gameData.revealedWord : null;
+            var allTables     = gameData ? (gameData.tables || []) : [];
+            var myTable       = allTables.find(function(t) { return t.id === tableId; });
+            var guesserTable  = allTables.find(function(t) { return gameData && t.id === gameData.guesserTableId; });
+            var myScore       = myTable ? myTable.score : 0;
+            var selLogos      = gameData ? (gameData.selectedLogos || []) : [];
+            var mainLogo      = selLogos.length > 0 ? selLogos[0] : null;
+            var secLogos      = selLogos.slice(1);
+
+            // — listener de mudança de língua — força re-render sem recarregar a página
+            useEffect(function() {
+                var handler = function(e) { setLang(e.detail.lang); };
+                window.addEventListener('i18n:change', handler);
+                return function() { window.removeEventListener('i18n:change', handler); };
+            }, []);
+
+            // 1. — conexão à sessão —
+            useEffect(function() {
+                if (!connected || !sessionCode || !tableNumber) return;
+                var ctrl = ClientCore.connectClient({
+                    rtdb: rtdb, fm: fm,
+                    sessionCode: sessionCode, tableNumber: tableNumber,
+                    heartbeatMs: HEARTBEAT_MS,
+                    onGameState: setGameData,
+                    onSessionLost: function() {
+                        setSessionLost(true); setConnected(false); setGameData(null);
+                        clearLocal();
+                    },
+                    onFbConnectionChange: setFbConnected,
+                    onResume: function() { setResubKey(function(k) { return k + 1; }); }
+                });
+                return function() { ctrl.disconnect(); };
+            }, [connected, sessionCode, tableNumber]);
+
+            // 2. — wake lock —
+            useEffect(function() {
+                if (!connected) return;
+                var lock = ClientCore.attachWakeLock();
+                return function() { lock.release(); };
+            }, [connected]);
+
+            // 3. — restaurar sessão local —
+            useEffect(function() {
+                var saved = localStore.load();
+                if (saved) {
+                    setSessionCode(saved.session);
+                    setTableNumber(saved.table);
+                    if (saved.team)   setTeamName(saved.team);
+                    if (saved.emails) setEmails(saved.emails);
+                    setAutoRecon(true);
+                } else {
+                    var p = new URLSearchParams(window.location.search);
+                    var u = p.get('session');
+                    if (u) setSessionCode(u.toUpperCase());
+                }
+            }, []);
+
+            // 4. — auto-reconnect —
+            useEffect(function() {
+                if (autoRecon && sessionCode && tableNumber) handleConnect(true);
+            }, [autoRecon, sessionCode, tableNumber]);
+
+            // 6. — limpar estado local da pista quando o anfitrião limpa justoneClues —
+            useEffect(function() {
+                if (!connected || !sessionCode || !tableNumber) return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/justoneClues/' + tableNumber), function(snap) {
+                    if (!snap.val()) setClueSubmitted(false);
+                });
+                return function() { unsub(); };
+            }, [connected, sessionCode, tableNumber, resubKey]);
+
+            // 6b. — subscrição condicional à palavra secreta: nunca para a mesa adivinhadora —
+            useEffect(function() {
+                if (!sessionCode || !connected || isGuesser) {
+                    setSecretWordData(null);
+                    return;
+                }
+                var secretRef = fm.ref(rtdb, 'sessions/' + sessionCode + '/secret');
+                var unsub = fm.onValue(secretRef, function(snap) { setSecretWordData(snap.val() || null); });
+                return function() { unsub(); setSecretWordData(null); };
+            }, [sessionCode, connected, isGuesser]);
+
+            // 6c. — tick do timer de pistas —
+            useEffect(function() {
+                if (!gameData || phase !== 'clue_giving' || !gameData.clueDeadline) return;
+                var id = setInterval(function() { setNowTick(Date.now()); }, 1000);
+                return function() { clearInterval(id); };
+            }, [phase, gameData && gameData.clueDeadline]);
+
+            // 7. — reset de estado local ao iniciar nova ronda —
+            useEffect(function() {
+                if (!gameData) return;
+                var rn = gameData.roundNumber;
+                if (prevRoundNumberRef.current === null) {
+                    prevRoundNumberRef.current = rn;
+                    return;
+                }
+                if (rn !== prevRoundNumberRef.current && gameData.phase === 'choosing_difficulty') {
+                    setClueInput(''); setClueSubmitted(false); setLastSubmittedClue('');
+                    setChoosingDifficulty(false); setSubmitError('');
+                }
+                prevRoundNumberRef.current = rn;
+            }, [gameData ? gameData.roundNumber : null, gameData ? gameData.phase : null]);
+
+            // — conexão —
+            var handleConnect = async function(isAuto) {
+                var result = await ClientCore.joinSession({
+                    rtdb: rtdb, fm: fm,
+                    sessionCode: sessionCode, tableNumber: tableNumber,
+                    teamName: teamName, emails: emails,
+                    clientId: CLIENT_ID, gameType: 'justone',
+                    isAuto: isAuto
+                });
+                if (result.ok) {
+                    localStore.save({ session: result.code, table: result.table, team: teamName, emails: emails });
+                    setConnected(true); setAutoRecon(false); setConnError(''); setSessionLost(false);
+                } else {
+                    if (result.clearLocal) clearLocal();
+                    setConnError(result.error || T('connect_error'));
+                    setAutoRecon(false);
+                }
+            };
+
+            var handleDisconnect = async function() {
+                if (!confirm(T('disconnect_confirm'))) return;
+                try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber)); } catch(e) {}
+                clearLocal();
+                setConnected(false); setGameData(null); setSecretWordData(null);
+            };
+
+            // — submeter pista —
+            var submitClue = async function() {
+                if (!clueInput.trim() || sending || clueLocked) return;
+                setSending(true); setSubmitError('');
+                var payload = { text: clueInput.trim(), timestamp: Date.now(), clientId: CLIENT_ID };
+                var result = await ClientCore.submitWithVerify({
+                    rtdb: rtdb, fm: fm,
+                    path: 'sessions/' + sessionCode + '/justoneClues/' + tableNumber,
+                    payload: payload, clientId: CLIENT_ID, verifyKey: 'text'
+                });
+                if (result.ok) {
+                    setClueSubmitted(true); setLastSubmittedClue(payload.text);
+                    setTimeout(function() { setSending(false); }, 500);
+                } else {
+                    setSubmitError(T('j_send_failed')); setSending(false); setClueSubmitted(false);
+                }
+            };
+
+            // — escolher dificuldade (só mesa adivinhadora) —
+            var chooseDifficulty = async function(level) {
+                if (choosingDifficulty) return;
+                setChoosingDifficulty(true);
+                var payload = { difficulty: level, timestamp: Date.now(), clientId: CLIENT_ID };
+                await ClientCore.submitWithVerify({
+                    rtdb: rtdb, fm: fm,
+                    path: 'sessions/' + sessionCode + '/justoneDifficultyChoice',
+                    payload: payload, clientId: CLIENT_ID, verifyKey: 'difficulty'
+                });
+            };
+
+            // — seletor de língua: botão com dropdown —
+            function LangSelector() {
+                var cc = I18n.getCountryCode();
+                var cn = I18n.getName();
+                return h('div', { className: 'relative' },
+                    h('button', {
+                        onClick: function() { setShowLangDrop(function(v) { return !v; }); },
+                        className: 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border-2 border-gray-200 text-gray-600 text-sm font-semibold hover:border-teal-300 hover:text-teal-700 transition-all active:scale-95'
+                    },
+                        h('span', { className: 'fi fi-' + cc + ' fi-circle lang-flag' }),
+                        h('span', null, cn),
+                        h('span', { className: 'text-gray-400 text-xs ml-0.5' }, showLangDrop ? '▲' : '▼')
+                    ),
+                    showLangDrop && h('div', {
+                        className: 'absolute top-full right-0 mt-1 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden min-w-max'
+                    },
+                        I18n.getLanguages().map(function(l) {
+                            var isActive = l === lang;
+                            return h('button', {
+                                key: l,
+                                onClick: function() { I18n.setLang(l); setShowLangDrop(false); },
+                                className: 'flex items-center gap-2 px-4 py-2.5 w-full text-left text-sm font-semibold transition-colors ' + (
+                                    isActive ? 'bg-teal-50 text-teal-700' : 'text-gray-700 hover:bg-gray-50'
+                                )
+                            },
+                                h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
+                                h('span', null, I18n.getName(l))
+                            );
+                        })
+                    )
+                );
+            }
+
+            // — sessão perdida —
+            if (sessionLost) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex items-center justify-center p-4' },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center' },
+                        h('div', { className: 'text-5xl mb-4' }, '🤫'),
+                        h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, T('session_ended')),
+                        h('p', { className: 'text-gray-600 mb-4' }, T('j_session_ended_msg')),
+                        h('button', {
+                            onClick: function() { setSessionLost(false); setSessionCode(''); setTableNumber(''); },
+                            className: 'w-full py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold'
+                        }, T('back_to_start'))
+                    )
+                );
+            }
+
+            // — a reconectar —
+            if (autoRecon) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex items-center justify-center' },
+                    h('div', { className: 'text-center text-white' },
+                        h('div', { className: 'text-5xl mb-4 animate-spin' }, '🤫'),
+                        h('div', { className: 'text-xl font-semibold' }, T('reconnecting'))
+                    )
+                );
+            }
+
+            // — login —
+            if (!connected) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 p-4 flex items-center justify-center' },
+                    h('div', { className: 'w-full max-w-sm' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
+                            // Cabeçalho: logo + seletor de língua
+                            h('div', { className: 'flex items-center justify-between mb-4' },
+                                h('div', { className: 'bg-gray-700 rounded-xl p-1.5' },
+                                    h('img', { src: 'logo2.png', className: 'h-8 w-auto', alt: 'Ludonautas' })
+                                ),
+                                LangSelector()
+                            ),
+                            // Título
+                            h('div', { className: 'text-center mb-4' },
+                                h('div', { className: 'text-5xl mb-2' }, '🤫'),
+                                h('h1', { className: 'text-2xl font-black text-teal-800' }, T('j_title'))
+                            ),
+                            // Separador
+                            h('div', { className: 'border-t border-gray-100 mb-4' }),
+                            // Erro de conexão
+                            connError && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm font-semibold' }, connError),
+                            // Formulário
+                            h('div', { className: 'space-y-4' },
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('session_code')),
+                                    h('input', {
+                                        type: 'text', value: sessionCode,
+                                        onChange: function(e) { setSessionCode(e.target.value.toUpperCase()); },
+                                        placeholder: 'ABC123',
+                                        className: 'w-full px-4 py-3 border-2 rounded-xl text-center font-mono text-xl uppercase focus:border-teal-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('table_number')),
+                                    h('input', {
+                                        type: 'number', min: 1,
+                                        value: tableNumber,
+                                        onChange: function(e) { setTableNumber(e.target.value); },
+                                        placeholder: T('d_table_placeholder'),
+                                        className: 'w-full px-4 py-3 border-2 rounded-xl text-center text-xl focus:border-teal-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('team_name_label')),
+                                    h('input', {
+                                        type: 'text', value: teamName,
+                                        onChange: function(e) { setTeamName(e.target.value); },
+                                        className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-teal-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold mb-1' }, T('email_label')),
+                                    h('input', {
+                                        type: 'text', value: emails,
+                                        onChange: function(e) { setEmails(e.target.value); },
+                                        className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-teal-500 outline-none text-sm'
+                                    })
+                                ),
+                                h('button', {
+                                    onClick: function() { handleConnect(false); },
+                                    className: 'w-full py-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform'
+                                }, T('h_enter_btn'))
+                            )
+                        )
+                    )
+                );
+            }
+
+            // — jogo —
+            return h('div', { className: 'h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex flex-col overflow-hidden' },
+
+                // banner offline
+                !fbConnected && h('div', {
+                    className: 'absolute top-0 inset-x-0 bg-red-600 text-white text-xs text-center py-1 z-50 font-bold animate-pulse'
+                }, T('h_no_connection')),
+
+                // header
+                h('div', { className: 'relative z-10 bg-white bg-opacity-10 backdrop-blur-sm px-4 py-2 flex items-center justify-between flex-shrink-0' },
+                    h('div', { className: 'text-white' },
+                        h('div', { className: 'text-xs opacity-70' }, T('table_n', { n: tableNumber })),
+                        h('div', { className: 'font-bold text-sm leading-tight truncate max-w-32' }, teamName || T('table_n', { n: tableNumber }))
+                    ),
+                    mainLogo
+                        ? h('img', { src: mainLogo, alt: 'logo', className: 'h-8 object-contain', onError: function(e) { e.target.style.display = 'none'; } })
+                        : h('div', { className: 'text-2xl' }, '🤫'),
+                    h('div', { className: 'flex items-center gap-2' },
+                        h('button', {
+                            onClick: function() { setShowHelp(true); },
+                            style: { boxShadow: '0 0 7px 2px rgba(255,255,255,0.22), 0 0 0 1.5px rgba(255,255,255,0.18)' },
+                            className: 'w-8 h-8 flex items-center justify-center bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-full text-sm font-black transition-all active:scale-95'
+                        }, '?'),
+                        h('div', { className: 'text-xs text-white opacity-60 font-mono' }, sessionCode),
+                        h('button', {
+                            onClick: handleDisconnect,
+                            className: 'w-7 h-7 flex items-center justify-center bg-red-600 hover:bg-red-500 text-white rounded text-sm font-bold transition-all active:scale-95'
+                        }, '✕')
+                    )
+                ),
+
+                // ronda + equipa a adivinhar
+                gameData && phase !== 'waiting' && h('div', { className: 'relative z-10 mx-4 mt-2 flex items-center justify-between text-white text-opacity-70 text-xs font-bold flex-shrink-0' },
+                    h('span', null, T('j_round_label', { n: gameData.roundNumber })),
+                    h('span', null, T('j_guesser_team_label', { name: guesserTable ? guesserTable.name : T('table_n', { n: gameData.guesserTableId }) }))
+                ),
+
+                // pontuação
+                h('div', { className: 'relative z-10 mx-4 mt-3 bg-white bg-opacity-15 rounded-2xl p-3 text-center flex-shrink-0' },
+                    h('div', { className: 'text-5xl font-black text-white' }, myScore),
+                    h('div', { className: 'text-xs text-white opacity-70 mt-0.5' }, T('points'))
+                ),
+
+                // área principal
+                h('div', { className: 'relative z-10 flex-1 flex flex-col items-center justify-center gap-3 p-4 overflow-y-auto' },
+
+                    // — waiting —
+                    phase === 'waiting' &&
+                        h('div', { className: 'text-center text-white opacity-75' },
+                            h('div', { className: 'text-5xl mb-3' }, '🤫'),
+                            h('div', { className: 'text-lg font-semibold' }, T('j_waiting_start'))
+                        ),
+
+                    // — choosing_difficulty —
+                    phase === 'choosing_difficulty' && gameData && (
+                        isGuesser
+                            ? h('div', { className: 'w-full max-w-sm space-y-3' },
+                                h('div', { className: 'text-center text-white' },
+                                    h('div', { className: 'text-3xl mb-2' }, '🎯'),
+                                    h('h2', { className: 'text-lg font-black' }, T('j_choose_difficulty_title')),
+                                    h('p', { className: 'text-sm opacity-80 mt-1' }, T('j_choose_difficulty_hint'))
+                                ),
+                                ['easy', 'medium', 'hard'].map(function(level) {
+                                    var cfgLevel = scoringConfig ? scoringConfig[level] : null;
+                                    var exhausted = isTierExhausted(gameData.wordPool, gameData.wordPoolLang, gameData.usedWords || [], level);
+                                    var disabled = exhausted || choosingDifficulty;
+                                    return h('button', {
+                                        key: level,
+                                        disabled: disabled,
+                                        onClick: function() { chooseDifficulty(level); },
+                                        className: 'w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 ' + (
+                                            disabled ? 'bg-gray-400 cursor-not-allowed opacity-60' : DIFFICULTY_BUTTON_COLORS[level]
+                                        )
+                                    },
+                                        h('div', { className: 'text-lg' }, T('j_difficulty_button_label', { name: T('j_difficulty_' + level), points: cfgLevel ? cfgLevel.guesser : 0 })),
+                                        h('div', { className: 'text-xs opacity-80' }, exhausted ? T('m_j_tier_exhausted') : T('j_difficulty_button_penalty', { points: cfgLevel ? cfgLevel.penalty : 0 }))
+                                    );
+                                }),
+                                choosingDifficulty && h('div', { className: 'text-center text-white text-opacity-70 text-sm' }, T('j_waiting_for_difficulty'))
+                              )
+                            : h('div', { className: 'text-center text-white' },
+                                h('div', { className: 'text-5xl mb-3' }, '🎯'),
+                                h('div', { className: 'text-lg font-semibold' }, T('j_team_choosing_difficulty', { name: guesserTable ? guesserTable.name : T('table_n', { n: gameData.guesserTableId }) }))
+                              )
+                    ),
+
+                    // — clue_giving —
+                    phase === 'clue_giving' && h('div', { className: 'w-full max-w-sm space-y-3' },
+                        clueDeadline && h('div', { className: 'text-center' },
+                            h('div', { className: 'text-2xl font-bold ' + (clueLocked ? 'text-red-300' : 'text-white') },
+                                clueLocked ? '🔒' : T('j_clue_time_remaining', { seconds: Math.max(0, Math.ceil((clueDeadline - nowTick) / 1000)) })
+                            )
+                        ),
+                        isGuesser
+                            ? h('div', { className: 'text-center text-white' },
+                                h('div', { className: 'text-5xl mb-3' }, '🤫'),
+                                h('div', { className: 'text-lg font-semibold' }, T('j_you_are_guessing'))
+                              )
+                            : h('div', { className: 'space-y-3' },
+                                h('div', { className: 'bg-white rounded-2xl shadow-xl p-4 text-center' },
+                                    h('div', { className: 'text-xs text-gray-500 mb-1' }, T('j_secret_word_label')),
+                                    h('div', { className: 'text-2xl font-black text-teal-800' }, secretWord || '...')
+                                ),
+                                h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                                    h('input', {
+                                        type: 'text', value: clueInput,
+                                        disabled: clueLocked,
+                                        onChange: function(e) {
+                                            setClueInput(e.target.value);
+                                            if (clueSubmitted) setClueSubmitted(false);
+                                            if (submitError) setSubmitError('');
+                                        },
+                                        maxLength: 30,
+                                        placeholder: T('j_clue_placeholder'),
+                                        className: 'w-full px-3 py-2 text-base border-2 border-teal-400 focus:border-teal-600 rounded-lg focus:outline-none text-center font-bold disabled:bg-gray-100 disabled:text-gray-400'
+                                    }),
+                                    h('div', { className: 'text-xs text-gray-400 text-center mt-1' }, T('j_clue_input_hint')),
+                                    submitError && h('div', { className: 'mt-2 px-3 py-2 bg-red-100 border border-red-400 text-red-700 text-xs rounded-lg font-semibold' }, submitError),
+                                    h('button', {
+                                        onClick: submitClue,
+                                        disabled: !clueInput.trim() || sending || clueLocked,
+                                        className: 'w-full mt-2 px-6 py-2 rounded-lg font-bold text-white text-sm transition-all active:scale-95 ' + (
+                                            clueLocked ? 'bg-gray-400 cursor-not-allowed' :
+                                            sending ? 'bg-yellow-500 cursor-wait' :
+                                            clueSubmitted ? 'bg-green-500' :
+                                            submitError ? 'bg-red-600 hover:bg-red-700 shadow-md' :
+                                            !clueInput.trim() ? 'bg-gray-400 cursor-not-allowed' :
+                                            'bg-teal-600 hover:bg-teal-700 shadow-md'
+                                        )
+                                    }, sending ? T('j_sending') : (clueSubmitted ? T('j_sent') : (submitError ? T('j_retry') : T('j_send'))))
+                                ),
+                                lastSubmittedClue && h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 backdrop-blur-sm' },
+                                    h('div', { className: 'flex items-center gap-2 mb-1' },
+                                        h('span', { className: 'text-green-300 text-sm font-black' }, T('j_clue_confirmed')),
+                                        h('span', { className: 'text-white opacity-40 text-xs' }, T('j_visible_only_you'))
+                                    ),
+                                    h('div', { className: 'text-white font-semibold text-base' }, lastSubmittedClue)
+                                ),
+                                clueLocked && h('div', { className: 'text-center text-red-200 font-bold text-sm' }, T('j_clue_time_expired'))
+                              )
+                    ),
+
+                    // — reviewing —
+                    phase === 'reviewing' &&
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-5xl mb-3' }, '✅'),
+                            h('div', { className: 'text-lg font-semibold' }, T('j_reviewing')),
+                            h('div', { className: 'text-sm opacity-70 mt-1' }, T('j_host_validating'))
+                        ),
+
+                    // — guessing —
+                    phase === 'guessing' && (
+                        isGuesser
+                            ? h('div', { className: 'w-full max-w-sm space-y-3' },
+                                h('div', { className: 'text-center text-white' },
+                                    h('div', { className: 'text-3xl mb-2' }, '🤔'),
+                                    h('div', { className: 'text-lg font-bold' }, T('j_guessing_now'))
+                                ),
+                                h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                                    h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-700 mb-2' }, T('j_valid_clues_label')),
+                                    h('div', { className: 'flex flex-wrap gap-2 mb-2' },
+                                        Object.keys(visibleClues || {}).map(function(tid) {
+                                            return h('span', { key: tid, className: 'px-3 py-1.5 bg-teal-100 text-teal-800 rounded-full font-bold text-sm' }, visibleClues[tid].text);
+                                        })
+                                    ),
+                                    annulledCount > 0 && h('div', { className: 'text-sm text-gray-500 italic' }, T('j_annulled_clues_count', { n: annulledCount }))
+                                ),
+                                h('div', { className: 'text-center text-white text-opacity-70 text-sm' }, T('j_pass_hint'))
+                              )
+                            : h('div', { className: 'text-center text-white' },
+                                h('div', { className: 'text-5xl mb-3' }, myClueStatus === 'valid' ? '✅' : '🚫'),
+                                h('div', { className: 'text-lg font-semibold' }, myClueStatus === 'valid' ? T('j_my_clue_valid') : T('j_my_clue_annulled'))
+                              )
+                    ),
+
+                    // — reveal —
+                    phase === 'reveal' && h('div', { className: 'w-full max-w-sm space-y-3' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-xl p-4 text-center' },
+                            difficulty && h('div', { className: 'inline-block mb-2 px-3 py-1 rounded-full text-xs font-black uppercase ' + (DIFFICULTY_BADGE_COLORS[difficulty] || '') }, T('j_difficulty_' + difficulty)),
+                            h('div', { className: 'text-xs text-gray-500 mb-1' }, T('j_reveal_secret_word')),
+                            h('div', { className: 'text-3xl font-black text-teal-800' }, revealedWord)
+                        ),
+                        h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                            h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-700 mb-2' }, T('j_reveal_all_clues')),
+                            h('div', { className: 'space-y-1.5' },
+                                Object.keys(visibleClues || {}).map(function(tid) {
+                                    var c = visibleClues[tid];
+                                    var tbl = allTables.find(function(t) { return t.id === parseInt(tid, 10); });
+                                    return h('div', { key: tid, className: 'flex items-center justify-between gap-2 text-sm' },
+                                        h('span', { className: 'font-semibold text-gray-700' }, (tbl ? tbl.name : T('table_n', { n: tid })) + ': ' + c.text),
+                                        h('span', { className: c.status === 'valid' ? 'text-green-600 font-bold' : 'text-gray-400 font-bold' }, c.status === 'valid' ? '✅' : '🚫')
+                                    );
+                                })
+                            )
+                        ),
+                        h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 text-center text-white' },
+                            guessResult === 'correct' && h('div', null,
+                                h('div', { className: 'font-bold text-lg' }, T('j_result_correct', { name: guesserTable ? guesserTable.name : '', points: cfg ? cfg.guesser : 0 })),
+                                myClueStatus === 'valid' && h('div', { className: 'text-green-300 mt-1' }, T('j_clue_bonus_earned', { points: cfg ? cfg.clueGiver : 0 }))
+                            ),
+                            guessResult === 'incorrect' && h('div', { className: 'font-bold text-lg' }, T('j_result_incorrect', { name: guesserTable ? guesserTable.name : '', points: cfg ? cfg.penalty : 0 })),
+                            guessResult === 'passed' && h('div', { className: 'font-bold text-lg' }, isGuesser ? T('j_result_passed') : T('j_team_passed', { name: guesserTable ? guesserTable.name : '' }))
+                        ),
+                        h('div', { className: 'text-center text-white text-opacity-70 text-sm' }, T('j_waiting_next_round'))
+                    )
+                ),
+
+                // modal de ajuda
+                showHelp && h('div', {
+                    className: 'absolute inset-0 bg-black bg-opacity-80 z-50 flex items-end justify-center',
+                    onClick: function(e) { if (e.target === e.currentTarget) setShowHelp(false); }
+                },
+                    h('div', { className: 'bg-slate-900 rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 pb-8' },
+                        h('div', { className: 'flex items-center justify-between mb-4' },
+                            h('div', { className: 'flex items-center gap-2' },
+                                h('span', { className: 'text-2xl' }, '🤫'),
+                                h('span', { className: 'font-black text-white text-lg' }, T('j_help_title'))
+                            ),
+                            h('button', {
+                                onClick: function() { setShowHelp(false); },
+                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-white bg-opacity-10 text-white font-bold hover:bg-opacity-20'
+                            }, '✕')
+                        ),
+                        [
+                            { id: 'goal',    title: T('j_rule_goal_title'),    content: T('j_rule_goal_content') },
+                            { id: 'clues',   title: T('j_rule_clues_title'),   content: T('j_rule_clues_content') },
+                            { id: 'scoring', title: T('j_rule_scoring_title'), content: T('j_rule_scoring_content') }
+                        ].map(function(block) {
+                            return h('div', { key: block.id, className: 'bg-white bg-opacity-5 rounded-2xl p-4 mb-3' },
+                                h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-400 mb-2' }, block.title),
+                                h('div', { className: 'text-sm text-slate-300' }, block.content)
+                            );
+                        })
+                    )
+                ),
+
+                // logos secundários
+                secLogos.length > 0 && h('div', { className: 'flex-shrink-0 bg-black bg-opacity-20 px-4 py-1.5 flex items-center justify-center gap-4 overflow-hidden' },
+                    secLogos.map(function(logo, idx) {
+                        return h('img', {
+                            key: idx, src: logo, alt: '',
+                            className: 'h-6 object-contain opacity-75 flex-shrink-0',
+                            onError: function(e) { e.target.style.display = 'none'; }
+                        });
+                    })
+                )
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+    });
+    </script>
+</body>
+</html>

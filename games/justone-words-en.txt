@@ -1,0 +1,59 @@
+# Mega Just One — word list (EN)
+# One word per line. Lines starting with # or empty lines are ignored.
+# Edit this file to customize your session's word pool.
+
+# --- Easy ---
+dog
+cat
+house
+sun
+beach
+rain
+book
+table
+door
+window
+car
+bicycle
+school
+train
+clock
+key
+phone
+computer
+chair
+mirror
+
+# --- Medium ---
+umbrella
+stoplight
+library
+campfire
+maze
+volcano
+backpack
+toolbox
+calendar
+doll
+castle
+forest
+mountain
+desert
+pool
+hospital
+airport
+market
+garden
+bridge
+
+# --- Hard ---
+freedom
+longing
+friendship
+silence
+courage
+mystery
+tradition
+envy
+patience
+wisdom

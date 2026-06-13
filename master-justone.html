@@ -1,0 +1,2082 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Mega Just One - Master</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuração Firebase e core de sessão partilhados -->
+    <script src="shared/firebase-config.js"></script>
+    <script src="shared/session-core.js"></script>
+    <!-- Bandeiras SVG via flag-icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
+    <!-- i18n -->
+    <script src="shared/i18n.js"></script>
+    <script src="shared/i18n-pt.js"></script>
+    <script src="shared/i18n-en.js"></script>
+    <!-- Língua padrão do master: 'pt', isolada do score_lang dos clientes -->
+    <script>
+    (function() {
+        var MASTER_LANG_KEY = 'score_lang_master';
+        var savedLang;
+        try { savedLang = localStorage.getItem(MASTER_LANG_KEY); } catch(e) {}
+        var masterLang = savedLang || 'pt';
+        var _origSetLang = I18n.setLang;
+        I18n.setLang = function(lang) {
+            _origSetLang(lang);
+            try { localStorage.setItem(MASTER_LANG_KEY, lang); } catch(e) {}
+        };
+        I18n.setLang(masterLang);
+    })();
+    </script>
+    <style>
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .blink { animation: blink 1s ease-in-out infinite; }
+        @keyframes slideIn { from{transform:translateY(-8px);opacity:0} to{transform:translateY(0);opacity:1} }
+        .slide-in { animation: slideIn 0.2s ease-out; }
+        /* Selector de língua */
+        .lang-flag { display: inline-block; width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
+    </style>
+</head>
+<body class="bg-slate-900">
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, set, remove, onValue, update, get } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+
+        const firebaseConfig = window.FirebaseConfig;
+
+        const app = initializeApp(firebaseConfig);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { ref, set, remove, onValue, update, get };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script>
+    var CLIENT_URL = window.AppConfig.CLIENT_JUSTONE_URL;
+    var GAME_TYPE  = 'justone';
+    var MASTER_MODE_KEY = 'justoneMasterMode';
+
+    window.addEventListener('firebaseReady', function() {
+        var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
+        var rtdb = window.rtdb, fm = window.fbModules;
+        var T = I18n.t;
+
+        // — pool de palavras: parser de texto + fallback embutido por idioma —
+        function parseWordPoolText(text) {
+            var pools = { easy: [], medium: [], hard: [] };
+            var current = 'easy';
+            (text || '').split('\n').forEach(function(rawLine) {
+                var line = rawLine.trim();
+                if (!line) return;
+                if (line.charAt(0) === '#') {
+                    var norm = line.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+                    if (norm.indexOf('medio') >= 0 || norm.indexOf('medium') >= 0) current = 'medium';
+                    else if (norm.indexOf('dificil') >= 0 || norm.indexOf('hard') >= 0) current = 'hard';
+                    else if (norm.indexOf('facil') >= 0 || norm.indexOf('easy') >= 0) current = 'easy';
+                    return;
+                }
+                pools[current].push(line);
+            });
+            return pools;
+        }
+
+        var EMBEDDED_FALLBACK_WORDS = {
+            pt: {
+                easy:   ['cão', 'gato', 'casa', 'sol', 'praia'],
+                medium: ['castelo', 'floresta', 'biblioteca', 'vulcão', 'mochila'],
+                hard:   ['liberdade', 'saudade', 'silêncio', 'coragem', 'mistério']
+            },
+            en: {
+                easy:   ['dog', 'cat', 'house', 'sun', 'beach'],
+                medium: ['castle', 'forest', 'library', 'volcano', 'backpack'],
+                hard:   ['freedom', 'longing', 'silence', 'courage', 'mystery']
+            }
+        };
+
+        function getTierPool(pool, wordPoolLang, difficulty) {
+            return (pool && pool[difficulty] && pool[difficulty].length)
+                ? pool[difficulty] : EMBEDDED_FALLBACK_WORDS[wordPoolLang || 'pt'][difficulty];
+        }
+
+        function isTierExhausted(pool, wordPoolLang, usedWords, difficulty) {
+            var tierPool = getTierPool(pool, wordPoolLang, difficulty);
+            return tierPool.every(function(w) { return (usedWords || []).indexOf(w) >= 0; });
+        }
+
+        function drawSecretWord(pool, wordPoolLang, usedWords, difficulty) {
+            var tierPool = getTierPool(pool, wordPoolLang, difficulty);
+            var available = tierPool.filter(function(w) { return usedWords.indexOf(w) < 0; });
+            if (available.length === 0) return null;
+            var word = available[Math.floor(Math.random() * available.length)];
+            return { word: word, usedWords: usedWords.concat([word]) };
+        }
+
+        // — rotação de adivinhadores e voltas completas —
+        function getNextGuesser(tables, currentGuesserId) {
+            if (tables.length === 0) return null;
+            var ids = tables.map(function(t) { return t.id; }).sort(function(a, b) { return a - b; });
+            var idx = ids.indexOf(currentGuesserId);
+            return ids[(idx + 1) % ids.length];
+        }
+
+        function getCompletedLaps(tables) {
+            if (tables.length === 0) return 0;
+            return Math.min.apply(null, tables.map(function(t) { return t.timesGuessed || 0; }));
+        }
+
+        function isLapComplete(tables) {
+            if (tables.length === 0) return false;
+            var first = tables[0].timesGuessed || 0;
+            return tables.every(function(t) { return (t.timesGuessed || 0) === first; });
+        }
+
+        // — validação de pistas —
+        function normalizeClueText(text) {
+            return (text || '').toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        }
+
+        function detectDuplicateClues(clues) {
+            var norm = {};
+            Object.keys(clues).forEach(function(tid) {
+                var n = normalizeClueText(clues[tid].text);
+                if (!n) return;
+                (norm[n] = norm[n] || []).push(tid);
+            });
+            var dupSet = {};
+            Object.values(norm).forEach(function(ids) {
+                if (ids.length >= 2) ids.forEach(function(id) { dupSet[id] = true; });
+            });
+            return dupSet;
+        }
+
+        // — projeção partilhada gameState.visibleClues / publicState.visibleClues —
+        function buildVisibleClues(phase, justoneClues, clueStatus) {
+            if (phase === 'guessing') {
+                var valid = {};
+                Object.keys(clueStatus).forEach(function(tid) {
+                    if (clueStatus[tid] === 'valid' && justoneClues[tid]) valid[tid] = { text: justoneClues[tid].text };
+                });
+                return valid;
+            }
+            if (phase === 'reveal') {
+                var all = {};
+                Object.keys(justoneClues).forEach(function(tid) {
+                    all[tid] = { text: justoneClues[tid].text, status: clueStatus[tid] || 'annulled' };
+                });
+                return all;
+            }
+            return null;
+        }
+
+        // — pontuação: configuração por defeito + persistência —
+        var DEFAULT_SCORING_CONFIG = {
+            easy:   { guesser: 2, clueGiver: 1, penalty: 1 },
+            medium: { guesser: 3, clueGiver: 1, penalty: 1 },
+            hard:   { guesser: 5, clueGiver: 1, penalty: 1 }
+        };
+        function getDefaultScoringConfig() { return JSON.parse(JSON.stringify(DEFAULT_SCORING_CONFIG)); }
+
+        function loadScoringConfig() {
+            try {
+                var raw = localStorage.getItem('justoneScoringConfig');
+                if (!raw) return getDefaultScoringConfig();
+                var cfg = JSON.parse(raw);
+                var def = getDefaultScoringConfig();
+                ['easy', 'medium', 'hard'].forEach(function(tier) {
+                    if (!cfg[tier]) cfg[tier] = def[tier];
+                    if (typeof cfg[tier].penalty !== 'number') cfg[tier].penalty = 1;
+                });
+                return cfg;
+            } catch(e) { return getDefaultScoringConfig(); }
+        }
+        function saveScoringConfig(cfg) {
+            try { localStorage.setItem('justoneScoringConfig', JSON.stringify(cfg)); return true; } catch(e) { return false; }
+        }
+
+        function loadTimerSeconds() {
+            try {
+                var raw = localStorage.getItem('justoneTimerSeconds');
+                var n = raw !== null ? parseInt(raw, 10) : 0;
+                return (isNaN(n) || n < 0) ? 0 : n;
+            } catch(e) { return 0; }
+        }
+        function saveTimerSeconds(n) {
+            try { localStorage.setItem('justoneTimerSeconds', String(n)); return true; } catch(e) { return false; }
+        }
+
+        var DIFFICULTY_BUTTON_COLORS = {
+            easy:   'bg-green-500 hover:bg-green-600',
+            medium: 'bg-amber-500 hover:bg-amber-600',
+            hard:   'bg-red-500 hover:bg-red-600'
+        };
+        var DIFFICULTY_BADGE_COLORS = {
+            easy:   'bg-green-100 text-green-800',
+            medium: 'bg-amber-100 text-amber-800',
+            hard:   'bg-red-100 text-red-800'
+        };
+
+        // — estatísticas —
+        function aggregateStats(statsObj) {
+            var byDiff = { easy: { chosen: 0, correct: 0, incorrect: 0, passed: 0 },
+                           medium: { chosen: 0, correct: 0, incorrect: 0, passed: 0 },
+                           hard: { chosen: 0, correct: 0, incorrect: 0, passed: 0 } };
+            Object.values(statsObj || {}).forEach(function(r) {
+                var d = byDiff[r.difficulty]; if (!d) return;
+                d.chosen++;
+                if (r.result === 'correct') d.correct++;
+                else if (r.result === 'incorrect') d.incorrect++;
+                else if (r.result === 'passed') d.passed++;
+            });
+            return byDiff;
+        }
+
+        function statsToCsv(statsObj) {
+            var header = 'round,difficulty,result,activeTables,validClues,annulledClues,timestamp';
+            var rows = Object.values(statsObj || {}).sort(function(a, b) { return a.round - b.round; })
+                .map(function(r) {
+                    return [r.round, r.difficulty, r.result, r.activeTables, r.validClues, r.annulledClues, r.timestamp].join(',');
+                });
+            return [header].concat(rows).join('\n');
+        }
+
+        function downloadBlob(content, filename, mime) {
+            var blob = new Blob([content], { type: mime });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a);
+            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        }
+
+        function App() {
+            var _s = function(v) { return useState(v); };
+
+            /* —— MODO (Consola/Público) —— */
+            var m1 = _s(null);     var masterMode = m1[0];        var setMasterMode = m1[1]; // null|'console'|'public'
+            var m2 = _s(false);    var modeChosen = m2[0];        var setModeChosen = m2[1]; // já resolvido (URL/localStorage/escolha)
+
+            /* —— SETUP —— */
+            var s1  = _s(false);   var setupDone = s1[0];          var setSetupDone = s1[1];
+            var s2  = _s(null);    var sessionId = s2[0];          var setSessionId = s2[1];
+            var s3  = _s('');      var codeInput = s3[0];          var setCodeInput = s3[1];
+            var s4  = _s('');      var codeError = s4[0];          var setCodeError = s4[1];
+            var s5  = _s(false);   var codeCopied = s5[0];         var setCodeCopied = s5[1];
+            var s6  = _s([]);      var activeSessions = s6[0];     var setActiveSessions = s6[1];
+            var s7  = _s([]);      var sessionHistory = s7[0];     var setSessionHistory = s7[1];
+            var s8  = _s(false);   var showHistory = s8[0];        var setShowHistory = s8[1];
+            var s9  = _s(false);   var showExistDialog = s9[0];    var setShowExistDialog = s9[1];
+            var s10 = _s(null);    var existingData = s10[0];      var setExistingData = s10[1];
+            var s11 = _s(null);    var histInfoId = s11[0];        var setHistInfoId = s11[1];
+            var s12 = _s({});      var histInfoClients = s12[0];   var setHistInfoClients = s12[1];
+            var s13 = _s([]);      var availableLogos = s13[0];    var setAvailableLogos = s13[1];
+            var s14 = _s([]);      var selectedLogos = s14[0];     var setSelectedLogos = s14[1];
+
+            /* —— SETUP: POOL DE PALAVRAS —— */
+            var w1 = _s(I18n.getCurrentLang() === 'en' ? 'en' : 'pt');
+            var wordPoolLang = w1[0]; var setWordPoolLang = w1[1];
+            var w2 = _s('');       var wordPoolText = w2[0];       var setWordPoolText = w2[1];
+            var w3 = _s({ easy: [], medium: [], hard: [] });
+            var wordPool = w3[0]; var setWordPool = w3[1];
+            var w4 = _s(false);    var showWordPoolEdit = w4[0];   var setShowWordPoolEdit = w4[1];
+            var w5 = _s(false);    var wordPoolSaved = w5[0];      var setWordPoolSaved = w5[1];
+            var w6 = _s('');       var wordPoolWarning = w6[0];    var setWordPoolWarning = w6[1];
+
+            /* —— SETUP: PONTUAÇÃO —— */
+            var sc1 = _s(getDefaultScoringConfig());
+            var scoringConfig = sc1[0]; var setScoringConfig = sc1[1];
+            var sc2 = _s(false);   var showScoringEdit = sc2[0];   var setShowScoringEdit = sc2[1];
+            var sc3 = _s(false);   var scoringSaved = sc3[0];      var setScoringSaved = sc3[1];
+
+            /* —— SETUP: TIMER —— */
+            var tm1 = _s(0);       var timerSeconds = tm1[0];      var setTimerSeconds = tm1[1];
+            var tm2 = _s(false);   var timerSaved = tm2[0];        var setTimerSaved = tm2[1];
+
+            /* —— JOGO —— */
+            var g1  = _s([]);             var tables = g1[0];               var setTables = g1[1];
+            var g2  = _s('waiting');      var phase = g2[0];                var setPhase = g2[1];
+            var g3  = _s(1);              var roundNumber = g3[0];          var setRoundNumber = g3[1];
+            var g4  = _s(null);           var guesserTableId = g4[0];       var setGuesserTableId = g4[1];
+            var g5  = _s(null);           var secretWord = g5[0];           var setSecretWord = g5[1];
+            var g6  = _s(null);           var secretWordDifficulty = g6[0]; var setSecretWordDifficulty = g6[1];
+            var g7  = _s([]);             var usedWords = g7[0];            var setUsedWords = g7[1];
+            var g8  = _s({});             var clueStatus = g8[0];           var setClueStatus = g8[1];
+            var g9  = _s(false);          var revealAll = g9[0];            var setRevealAll = g9[1];
+            var g10 = _s(null);           var guessResult = g10[0];         var setGuessResult = g10[1];
+            var g11 = _s(null);           var clueDeadline = g11[0];        var setClueDeadline = g11[1];
+            var g12 = _s(true);           var showScores = g12[0];          var setShowScores = g12[1];
+            var g13 = _s(false);          var tablesLocked = g13[0];        var setTablesLocked = g13[1];
+
+            /* —— PÚBLICO (só leitura) —— */
+            var pb1 = _s(null);    var publicState = pb1[0];       var setPublicState = pb1[1];
+            var pb2 = _s(Date.now()); var nowTick = pb2[0];        var setNowTick = pb2[1];
+
+            /* —— UI (CONSOLA) —— */
+            var u1  = _s({});      var connectedClients = u1[0];        var setConnectedClients = u1[1];
+            var u2  = _s({});      var justoneClues = u2[0];             var setJustoneClues = u2[1];
+            var u3  = _s(null);    var justoneDifficultyChoice = u3[0];  var setJustoneDifficultyChoice = u3[1];
+            var u4  = _s({});      var justoneStats = u4[0];             var setJustoneStats = u4[1];
+            var u5  = _s(false);   var showReview = u5[0];               var setShowReview = u5[1];
+            var u6  = _s(false);   var showLeaderboard = u6[0];          var setShowLeaderboard = u6[1];
+            var u7  = _s(false);   var showQR = u7[0];                   var setShowQR = u7[1];
+            var u8  = _s(false);   var showEndModal = u8[0];             var setShowEndModal = u8[1];
+            var u9  = _s(false);   var showManage = u9[0];               var setShowManage = u9[1];
+            var u10 = _s(false);   var showStats = u10[0];               var setShowStats = u10[1];
+            var u11 = _s(0);       var presenceTick = u11[0];            var setPresenceTick = u11[1];
+
+            /* —— LÍNGUA —— */
+            var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
+            var lg2 = _s(false);                 var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
+
+            /* —— REFS —— */
+            var archivingRef = useRef(false);
+            var syncTimerRef = useRef(null);
+            var publicSyncTimerRef = useRef(null);
+            var lastSeenMapRef = useRef({});
+            var processedDifficultyChoiceRef = useRef(null);
+
+            /* —— RESOLUÇÃO DE MODO (Consola/Público) E PRÉ-PREENCHIMENTO DO CÓDIGO —— */
+            useEffect(function() {
+                var params = new URLSearchParams(window.location.search);
+                var urlSession = params.get('session');
+                var urlMode = params.get('mode');
+
+                if (urlMode === 'public' && urlSession) {
+                    // entrada direta em modo Público — salta o setup
+                    setSessionId(urlSession.toUpperCase());
+                    setSetupDone(true);
+                    setMasterMode('public');
+                    try { localStorage.setItem(MASTER_MODE_KEY, 'public'); } catch(e) {}
+                    setModeChosen(true);
+                    return;
+                }
+
+                if (urlSession) setCodeInput(urlSession.toUpperCase());
+
+                if (urlMode === 'public' || urlMode === 'console') {
+                    setMasterMode(urlMode);
+                    try { localStorage.setItem(MASTER_MODE_KEY, urlMode); } catch(e) {}
+                    setModeChosen(true);
+                    return;
+                }
+
+                var saved;
+                try { saved = localStorage.getItem(MASTER_MODE_KEY); } catch(e) {}
+                if (saved === 'console' || saved === 'public') {
+                    setMasterMode(saved);
+                    setModeChosen(true);
+                }
+            }, []);
+
+            /* —— MUDANÇA DE LÍNGUA —— */
+            useEffect(function() {
+                var handler = function(e) { setLang(e.detail.lang); };
+                window.addEventListener('i18n:change', handler);
+                return function() { window.removeEventListener('i18n:change', handler); };
+            }, []);
+
+            /* —— TROCAR MODO (limpa localStorage, volta ao ecrã de escolha) —— */
+            var switchMode = function() {
+                setMasterMode(null);
+                setModeChosen(false);
+                try { localStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
+            };
+
+            var chooseMode = function(mode) {
+                setMasterMode(mode);
+                setModeChosen(true);
+                try { localStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
+            };
+
+            /* —— CARREGAR CONFIG DE PONTUAÇÃO E TIMER (localStorage, no mount) —— */
+            useEffect(function() {
+                setScoringConfig(loadScoringConfig());
+                setTimerSeconds(loadTimerSeconds());
+            }, []);
+
+            /* —— POOL DE PALAVRAS: carregar no mount e quando wordPoolLang muda —— */
+            useEffect(function() {
+                var lang2 = wordPoolLang;
+                var stored;
+                try { stored = localStorage.getItem('justoneWordPool_' + lang2); } catch(e) {}
+                if (stored) {
+                    var parsed = parseWordPoolText(stored);
+                    if (parsed.easy.length || parsed.medium.length || parsed.hard.length) {
+                        setWordPoolText(stored);
+                        setWordPool(parsed);
+                        setWordPoolWarning('');
+                        return;
+                    }
+                }
+                fetch('games/justone-words-' + lang2 + '.txt')
+                    .then(function(r) { return r.ok ? r.text() : ''; })
+                    .then(function(text) {
+                        var parsed2 = parseWordPoolText(text);
+                        if (parsed2.easy.length || parsed2.medium.length || parsed2.hard.length) {
+                            setWordPoolText(text);
+                            setWordPool(parsed2);
+                            try { localStorage.setItem('justoneWordPool_' + lang2, text); } catch(e) {}
+                        } else {
+                            setWordPoolText('');
+                            setWordPool({ easy: [], medium: [], hard: [] });
+                        }
+                        setWordPoolWarning('');
+                    })
+                    .catch(function() {
+                        setWordPoolText('');
+                        setWordPool({ easy: [], medium: [], hard: [] });
+                        setWordPoolWarning('');
+                    });
+            }, [wordPoolLang]);
+
+            /* —— TICK PRESENÇA (Consola): força re-avaliação de connState a cada 5s —— */
+            useEffect(function() {
+                if (masterMode !== 'console') return;
+                var iv = setInterval(function() { setPresenceTick(function(n) { return n + 1; }); }, 5000);
+                return function() { clearInterval(iv); };
+            }, [masterMode]);
+
+            /* —— LOGOS DISPONÍVEIS —— */
+            useEffect(function() {
+                var logos = [], loaded = 0;
+                for (var i = 1; i <= 5; i++) {
+                    (function(idx) {
+                        var p = 'logo' + idx + '.png';
+                        var img = new Image();
+                        img.onload  = function() { logos.push(p); loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                        img.onerror = function() { loaded++; if (loaded === 5) setAvailableLogos(logos.sort()); };
+                        img.src = p;
+                    })(i);
+                }
+            }, []);
+
+            /* —— SESSÕES ATIVAS (só no ecrã de setup) —— */
+            useEffect(function() {
+                if (setupDone) return;
+                var unsub = SessionCore.subscribeActiveSessions({
+                    rtdb: rtdb, fm: fm, gameType: GAME_TYPE, onChange: setActiveSessions
+                });
+                return function() { unsub(); };
+            }, [setupDone]);
+
+            /* —— HISTÓRICO DE SESSÕES —— */
+            useEffect(function() {
+                if (!showHistory) return;
+                var unsub = SessionCore.subscribeSessionHistory({
+                    rtdb: rtdb, fm: fm, gameType: GAME_TYPE, onChange: setSessionHistory
+                });
+                return function() { unsub(); };
+            }, [showHistory]);
+
+            /* —— CLIENTES DO POPUP DE INFO (histórico) —— */
+            useEffect(function() {
+                if (!histInfoId) { setHistInfoClients({}); return; }
+                var isActive = activeSessions.some(function(s) { return s.sessionId === histInfoId; });
+                if (isActive) {
+                    SessionCore.readClientsOnce({ rtdb: rtdb, fm: fm, sessionId: histInfoId }).then(setHistInfoClients);
+                } else {
+                    setHistInfoClients({});
+                }
+            }, [histInfoId]);
+
+            /* —— SYNC gameState (Consola → Firebase, debounced 200ms) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console' || archivingRef.current) return;
+                if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+                syncTimerRef.current = setTimeout(function() {
+                    fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
+                        gameType: GAME_TYPE, active: true, timestamp: Date.now(),
+                        phase: phase,
+                        roundNumber: roundNumber,
+                        guesserTableId: guesserTableId,
+                        secretWordDifficulty: secretWordDifficulty,
+                        usedWords: usedWords,
+                        wordPool: wordPool,
+                        wordPoolLang: wordPoolLang,
+                        scoringConfig: scoringConfig,
+                        timerSeconds: timerSeconds,
+                        clueDeadline: clueDeadline,
+                        clueStatus: clueStatus,
+                        revealAll: revealAll,
+                        guessResult: guessResult,
+                        visibleClues: buildVisibleClues(phase, justoneClues, clueStatus),
+                        revealedWord: revealAll ? secretWord : null,
+                        tables: tables,
+                        showScores: showScores,
+                        tablesLocked: tablesLocked,
+                        selectedLogos: selectedLogos
+                    }).catch(function(e) { console.error('Sync gameState:', e); });
+                }, 200);
+                return function() { clearTimeout(syncTimerRef.current); };
+            }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, usedWords,
+                wordPool, wordPoolLang, scoringConfig, timerSeconds, clueDeadline, clueStatus, revealAll,
+                guessResult, tables, showScores, tablesLocked, selectedLogos, secretWord, justoneClues]);
+
+            /* —— SYNC publicState (Consola → Firebase, debounced 200ms) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console' || archivingRef.current) return;
+                if (publicSyncTimerRef.current) clearTimeout(publicSyncTimerRef.current);
+                publicSyncTimerRef.current = setTimeout(function() {
+                    fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/publicState'), buildPublicState())
+                        .catch(function(e) { console.error('Sync publicState:', e); });
+                }, 200);
+                return function() { clearTimeout(publicSyncTimerRef.current); };
+            }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, tables,
+                justoneClues, clueStatus, guessResult, secretWord, revealAll, clueDeadline]);
+
+            /* —— LISTENER: CLIENTES (Consola) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console') return;
+                var unsub = SessionCore.subscribeClients({
+                    rtdb: rtdb, fm: fm, sessionId: sessionId,
+                    onLastSeen: function(lsMap) { lastSeenMapRef.current = lsMap; },
+                    onStructural: function(data) {
+                        setConnectedClients(data);
+                        setTables(function(prev) {
+                            var merged = prev.slice();
+                            var changed = false;
+                            Object.values(data).forEach(function(client) {
+                                var id = client.tableNumber;
+                                var idx = merged.findIndex(function(t) { return t.id === id; });
+                                if (idx < 0) {
+                                    merged.push({ id: id, name: client.teamName || ('Mesa ' + id), score: 0, timesGuessed: 0 });
+                                    changed = true;
+                                } else if (client.teamName && client.teamName !== merged[idx].name) {
+                                    merged[idx] = Object.assign({}, merged[idx], { name: client.teamName });
+                                    changed = true;
+                                }
+                            });
+                            return changed ? merged.sort(function(a, b) { return a.id - b.id; }) : prev;
+                        });
+                    }
+                });
+                return function() { unsub(); };
+            }, [sessionId, masterMode]);
+
+            /* —— LISTENER: PISTAS SUBMETIDAS (Consola) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console') return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues'), function(snap) {
+                    setJustoneClues(snap.val() || {});
+                });
+                return function() { unsub(); };
+            }, [sessionId, masterMode]);
+
+            /* —— LISTENER: ESCOLHA DE DIFICULDADE (Consola) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console') return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneDifficultyChoice'), function(snap) {
+                    setJustoneDifficultyChoice(snap.val() || null);
+                });
+                return function() { unsub(); };
+            }, [sessionId, masterMode]);
+
+            /* —— PROCESSAR ESCOLHA DE DIFICULDADE (auto-confirma e sorteia a palavra) —— */
+            useEffect(function() {
+                if (masterMode !== 'console') return;
+                if (phase !== 'choosing_difficulty') return;
+                if (!justoneDifficultyChoice) return;
+                if (processedDifficultyChoiceRef.current === justoneDifficultyChoice.timestamp) return;
+                processedDifficultyChoiceRef.current = justoneDifficultyChoice.timestamp;
+                confirmDifficultyAndDrawWord(justoneDifficultyChoice.difficulty);
+            }, [justoneDifficultyChoice, phase, masterMode]);
+
+            /* —— LISTENER: ESTATÍSTICAS (Consola, só quando o painel está aberto) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console' || !showStats) return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneStats'), function(snap) {
+                    setJustoneStats(snap.val() || {});
+                });
+                return function() { unsub(); };
+            }, [sessionId, masterMode, showStats]);
+
+            /* —— SUBSCRIÇÃO publicState (modo Público — ÚNICA fonte de dados deste modo) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'public') return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/publicState'), function(snap) {
+                    setPublicState(snap.val() || null);
+                });
+                return function() { unsub(); setPublicState(null); };
+            }, [sessionId, masterMode]);
+
+            /* —— TICK DO TIMER DE PISTAS (consola + público) —— */
+            useEffect(function() {
+                var deadline = masterMode === 'public'
+                    ? (publicState && publicState.clueDeadline)
+                    : clueDeadline;
+                if (!deadline) return;
+                var id = setInterval(function() { setNowTick(Date.now()); }, 1000);
+                return function() { clearInterval(id); };
+            }, [masterMode, clueDeadline, publicState && publicState.clueDeadline]);
+
+            /* —— INICIAR SESSÃO —— */
+            var initSession = async function() {
+                setCodeError('');
+                var code = codeInput.trim().toUpperCase() || Math.random().toString(36).substring(2, 8).toUpperCase();
+                if (codeInput.trim()) {
+                    if (codeInput.length > 10 || !/^[A-Z0-9]+$/i.test(codeInput.trim())) {
+                        setCodeError('Código inválido (máx 10 caracteres alfanuméricos)'); return;
+                    }
+                    var existing = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: code });
+                    if (existing && existing.active !== false) {
+                        setExistingData({ code: code, data: existing });
+                        setShowExistDialog(true); return;
+                    }
+                }
+                await startNewSession(code);
+            };
+
+            var startNewSession = async function(code) {
+                setSessionId(code); setSetupDone(true);
+                setTimeout(async function() {
+                    try {
+                        await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
+                            gameType: GAME_TYPE, active: true, timestamp: Date.now(),
+                            phase: 'waiting',
+                            roundNumber: 1,
+                            guesserTableId: null,
+                            secretWordDifficulty: null,
+                            usedWords: [],
+                            wordPool: wordPool,
+                            wordPoolLang: wordPoolLang,
+                            scoringConfig: scoringConfig,
+                            timerSeconds: timerSeconds,
+                            clueDeadline: null,
+                            clueStatus: {},
+                            revealAll: false,
+                            guessResult: null,
+                            visibleClues: null,
+                            revealedWord: null,
+                            tables: [],
+                            showScores: true,
+                            tablesLocked: false,
+                            selectedLogos: selectedLogos
+                        });
+                        await fm.set(fm.ref(rtdb, 'sessions/' + code + '/secret'), { word: null });
+                        await fm.set(fm.ref(rtdb, 'sessions/' + code + '/publicState'), {
+                            phase: 'waiting', roundNumber: 1, guesserTableId: null, secretWordDifficulty: null,
+                            tables: [], cluesSubmitted: 0, cluesTotal: 0, validClueCount: 0, annulledClueCount: 0,
+                            clueDeadline: null, guessResult: null, visibleClues: null, revealedWord: null,
+                            completedLaps: 0, timestamp: Date.now()
+                        });
+                    } catch(e) { console.error('Init:', e); }
+                }, 100);
+            };
+
+            var handleExistingChoice = async function(choice) {
+                var code = existingData.code, data = existingData.data;
+                setShowExistDialog(false);
+                if (choice === 'resume') {
+                    var loadedTables = (data.tables || []).map(function(t) {
+                        return { id: t.id, name: t.name, score: t.score || 0, timesGuessed: t.timesGuessed || 0 };
+                    });
+                    setTables(loadedTables);
+                    setPhase(data.phase || 'waiting');
+                    setRoundNumber(data.roundNumber || 1);
+                    setGuesserTableId(data.guesserTableId != null ? data.guesserTableId : null);
+                    setSecretWordDifficulty(data.secretWordDifficulty || null);
+                    setUsedWords(data.usedWords || []);
+                    if (data.wordPool && (data.wordPool.easy || data.wordPool.medium || data.wordPool.hard)) {
+                        setWordPool(data.wordPool);
+                    }
+                    if (data.wordPoolLang) setWordPoolLang(data.wordPoolLang);
+                    if (data.scoringConfig) setScoringConfig(data.scoringConfig);
+                    if (typeof data.timerSeconds === 'number') setTimerSeconds(data.timerSeconds);
+                    setClueDeadline(data.clueDeadline || null);
+                    setClueStatus(data.clueStatus || {});
+                    setRevealAll(data.revealAll || false);
+                    setGuessResult(data.guessResult || null);
+                    setShowScores(data.showScores !== false);
+                    setTablesLocked(data.tablesLocked || false);
+                    setSelectedLogos(data.selectedLogos || []);
+                    // restaurar palavra secreta local (só relevante no modo Consola)
+                    try {
+                        var secretSnap = await fm.get(fm.ref(rtdb, 'sessions/' + code + '/secret'));
+                        var secretVal = secretSnap.val();
+                        setSecretWord(secretVal ? secretVal.word : null);
+                    } catch(e) { setSecretWord(null); }
+                    setSessionId(code); setSetupDone(true);
+                } else if (choice === 'new') {
+                    var existingTables = data.tables || [];
+                    if (existingTables.length > 0 && !isLapComplete(existingTables)) {
+                        alert(T('m_j_end_session_locked', { n: getCompletedLaps(existingTables) }));
+                        return;
+                    }
+                    var res = await SessionCore.archiveSession({
+                        rtdb: rtdb, fm: fm, sessionId: code, gameType: GAME_TYPE,
+                        history: {
+                            tables: existingTables,
+                            roundNumber: data.roundNumber || 1,
+                            usedWords: data.usedWords || [],
+                            completedLaps: getCompletedLaps(existingTables)
+                        },
+                        enrich: SessionCore.enrichers.mergeEmailsIntoTables
+                    });
+                    if (!res.ok) { alert('Erro ao arquivar: ' + (res.error && res.error.message || res.error)); return; }
+                    await new Promise(function(r) { setTimeout(r, 200); });
+                    await startNewSession(code);
+                }
+            };
+
+            /* —— ARQUIVAR SESSÃO ATIVA SEM ABRIR (sessões órfãs na página de histórico) —— */
+            var closeActiveSession = async function(sc) {
+                if (!confirm(T('m_h_archive_confirm', { code: sc }))) return;
+                var sd = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: sc });
+                if (!sd) { alert(T('m_h_session_not_found')); return; }
+                var res = await SessionCore.archiveSession({
+                    rtdb: rtdb, fm: fm, sessionId: sc, gameType: GAME_TYPE,
+                    history: {
+                        tables: sd.tables || [],
+                        roundNumber: sd.roundNumber || 1,
+                        usedWords: sd.usedWords || [],
+                        completedLaps: getCompletedLaps(sd.tables || [])
+                    },
+                    enrich: SessionCore.enrichers.mergeEmailsIntoTables
+                });
+                if (!res.ok) alert('Erro: ' + (res.error && res.error.message || res.error));
+            };
+
+            /* —— TERMINAR SESSÃO —— */
+            var endSessionArchive = async function() {
+                if (!sessionId || !isLapComplete(tables)) return;
+                var curId = sessionId;
+                var curTables = tables.slice();
+                var curRoundNumber = roundNumber;
+                var curUsedWords = usedWords.slice();
+                var laps = getCompletedLaps(curTables);
+                archivingRef.current = true;
+                var res = await SessionCore.archiveSession({
+                    rtdb: rtdb, fm: fm, sessionId: curId, gameType: GAME_TYPE,
+                    history: {
+                        tables: curTables.map(function(t) {
+                            return { id: t.id, name: t.name, score: t.score, timesGuessed: t.timesGuessed || 0 };
+                        }),
+                        roundNumber: curRoundNumber,
+                        usedWords: curUsedWords,
+                        completedLaps: laps
+                    },
+                    enrich: SessionCore.enrichers.mergeEmailsIntoTables
+                });
+                if (!res.ok) alert('Erro: ' + (res.error && res.error.message || res.error));
+                resetToSetup();
+            };
+
+            var endSessionPause = function() { resetToSetup(); };
+
+            var resetToSetup = function() {
+                archivingRef.current = false;
+                setSetupDone(false); setSessionId(null); setTables([]);
+                setPhase('waiting'); setRoundNumber(1); setGuesserTableId(null);
+                setSecretWord(null); setSecretWordDifficulty(null); setUsedWords([]);
+                setClueStatus({}); setRevealAll(false); setGuessResult(null); setClueDeadline(null);
+                setShowScores(true); setTablesLocked(false);
+                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneStats({});
+                setConnectedClients({}); setPublicState(null);
+                setShowReview(false); setShowLeaderboard(false); setShowQR(false);
+                setShowEndModal(false); setShowManage(false); setShowStats(false);
+                setCodeInput(''); setCodeError(''); setHistInfoClients({});
+                processedDifficultyChoiceRef.current = null;
+            };
+
+            /* —— REMOVER MESA —— */
+            var removeTable = async function(tableId) {
+                var msg = T('m_h_remove_table_confirm', { n: tableId });
+                if (tableId === guesserTableId && phase !== 'waiting') {
+                    msg = T('m_j_remove_table_guesser_warning') + '\n\n' + msg;
+                }
+                if (!confirm(msg)) return;
+                try {
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/clients/' + tableId));
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues/' + tableId));
+                    if (tableId === guesserTableId && phase === 'choosing_difficulty') {
+                        await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneDifficultyChoice'));
+                        setJustoneDifficultyChoice(null);
+                        processedDifficultyChoiceRef.current = null;
+                    }
+                    var remaining = tables.filter(function(t) { return t.id !== tableId; });
+                    setTables(remaining);
+                    if (tableId === guesserTableId) {
+                        setGuesserTableId(remaining.length ? getNextGuesser(remaining, tableId) : null);
+                    }
+                } catch(e) { alert('Erro ao remover mesa.'); }
+            };
+
+            var qrUrl = sessionId
+                ? 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId)
+                : '';
+            var qrPublicUrl = sessionId
+                ? 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(window.location.origin + window.location.pathname + '?mode=public&session=' + sessionId)
+                : '';
+
+            /* —— RONDA: INICIAR (waiting -> choosing_difficulty) —— */
+            var startRound = function() {
+                if (tables.length < 2) { alert(T('m_j_need_2_teams')); return; }
+                setGuesserTableId(tables[0].id);
+                setSecretWord(null);
+                fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/secret'), { word: null }).catch(function(){});
+                setSecretWordDifficulty(null);
+                setClueDeadline(null);
+                setClueStatus({}); setRevealAll(false); setGuessResult(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null);
+                processedDifficultyChoiceRef.current = null;
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneDifficultyChoice')).catch(function(){});
+                setPhase('choosing_difficulty');
+            };
+
+            /* —— RONDA: PRÓXIMA (reveal -> choosing_difficulty) —— */
+            var nextRound = function() {
+                var next = getNextGuesser(tables, guesserTableId);
+                setRoundNumber(function(n) { return n + 1; });
+                setGuesserTableId(next);
+                setSecretWord(null);
+                fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/secret'), { word: null }).catch(function(){});
+                setSecretWordDifficulty(null);
+                setClueDeadline(null);
+                setClueStatus({}); setRevealAll(false); setGuessResult(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null);
+                processedDifficultyChoiceRef.current = null;
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneDifficultyChoice')).catch(function(){});
+                setPhase('choosing_difficulty');
+            };
+
+            /* —— DIFICULDADE ESCOLHIDA: SORTEAR PALAVRA (choosing_difficulty -> clue_giving) —— */
+            var confirmDifficultyAndDrawWord = function(difficulty) {
+                var draw = drawSecretWord(wordPool, wordPoolLang, usedWords, difficulty);
+                if (!draw) return; // nível esgotado — botão devia estar desativado
+                setSecretWord(draw.word);
+                fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/secret'), { word: draw.word }).catch(function(){});
+                setSecretWordDifficulty(difficulty);
+                setUsedWords(draw.usedWords);
+                setClueDeadline(timerSeconds > 0 ? (Date.now() + timerSeconds * 1000) : null);
+                setPhase('clue_giving');
+            };
+
+            /* —— VER PISTAS: ABRE MODAL DE VALIDAÇÃO (clue_giving -> reviewing) —— */
+            var openClueReview = function() {
+                if (Object.keys(justoneClues).length === 0 && !confirm(T('m_j_no_clues_confirm'))) return;
+                var dupSet = detectDuplicateClues(justoneClues);
+                var initial = {};
+                tables.forEach(function(t) {
+                    if (t.id === guesserTableId) return;
+                    var hasClue = !!(justoneClues[t.id] && justoneClues[t.id].text);
+                    initial[t.id] = (!hasClue || dupSet[t.id]) ? 'annulled' : 'valid';
+                });
+                setClueStatus(initial);
+                setPhase('reviewing');
+                setShowReview(true);
+            };
+
+            /* —— TOGGLE VÁLIDA/ANULADA NO MODAL DE VALIDAÇÃO —— */
+            var toggleClueStatus = function(tableId) {
+                var hasClue = !!(justoneClues[tableId] && justoneClues[tableId].text);
+                if (!hasClue) return; // sem pista -> bloqueado em 'annulled'
+                setClueStatus(function(prev) {
+                    var next = Object.assign({}, prev);
+                    next[tableId] = prev[tableId] === 'valid' ? 'annulled' : 'valid';
+                    return next;
+                });
+            };
+
+            /* —— CONFIRMAR VALIDAÇÃO (reviewing -> guessing) —— */
+            var confirmClueValidation = function() {
+                setShowReview(false);
+                setPhase('guessing');
+            };
+
+            /* —— CONTADOR DE VOLTAS —— */
+            var incrementTimesGuessed = function(tableId) {
+                setTables(function(prev) {
+                    return prev.map(function(t) {
+                        return t.id === tableId ? Object.assign({}, t, { timesGuessed: (t.timesGuessed || 0) + 1 }) : t;
+                    });
+                });
+            };
+
+            /* —— ESTATÍSTICAS: REGISTAR RONDA —— */
+            var logRoundStats = function(result, validClueCount, annulledClueCount) {
+                fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneStats/' + roundNumber), {
+                    round: roundNumber,
+                    difficulty: secretWordDifficulty,
+                    result: result,
+                    activeTables: tables.length,
+                    validClues: validClueCount,
+                    annulledClues: annulledClueCount,
+                    timestamp: Date.now()
+                }).catch(function(){});
+            };
+
+            /* —— RESULTADO: ACERTOU / ERROU (guessing -> reveal) —— */
+            var resolveGuess = function(correct) {
+                var cfg = scoringConfig[secretWordDifficulty];
+                var validIds = Object.keys(clueStatus)
+                    .filter(function(tid) { return clueStatus[tid] === 'valid'; })
+                    .map(Number);
+                var annulledCount = Object.keys(clueStatus)
+                    .filter(function(tid) { return clueStatus[tid] === 'annulled'; }).length;
+                setTables(function(prev) {
+                    return prev.map(function(t) {
+                        var next = t;
+                        if (correct) {
+                            if (t.id === guesserTableId) next = Object.assign({}, t, { score: t.score + cfg.guesser });
+                            else if (validIds.indexOf(t.id) >= 0) next = Object.assign({}, t, { score: t.score + cfg.clueGiver });
+                        } else if (t.id === guesserTableId) {
+                            next = Object.assign({}, t, { score: Math.max(0, t.score - cfg.penalty) });
+                        }
+                        if (t.id === guesserTableId) next = Object.assign({}, next, { timesGuessed: (next.timesGuessed || 0) + 1 });
+                        return next;
+                    });
+                });
+                setGuessResult(correct ? 'correct' : 'incorrect');
+                setRevealAll(true);
+                logRoundStats(correct ? 'correct' : 'incorrect', validIds.length, annulledCount);
+                setPhase('reveal');
+            };
+
+            /* —— RESULTADO: PASSAR (guessing -> reveal) —— */
+            var passGuess = function() {
+                var validCount = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'valid'; }).length;
+                var annulledCount = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'annulled'; }).length;
+                incrementTimesGuessed(guesserTableId);
+                setGuessResult('passed');
+                setRevealAll(true);
+                logRoundStats('passed', validCount, annulledCount);
+                setPhase('reveal');
+            };
+
+            /* —— RECOMEÇAR RONDA (mantém palavra/dificuldade, limpa pistas) —— */
+            var restartRound = function() {
+                if (!confirm(T('m_j_restart_round_confirm'))) return;
+                setClueStatus({});
+                setJustoneClues({});
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
+                setClueDeadline(timerSeconds > 0 ? (Date.now() + timerSeconds * 1000) : null);
+                setPhase('clue_giving');
+            };
+
+            /* —— AJUSTE MANUAL DE PONTUAÇÃO (±1, floor em 0) —— */
+            var adjustScore = function(tableId, delta) {
+                setTables(function(prev) {
+                    return prev.map(function(t) {
+                        return t.id === tableId ? Object.assign({}, t, { score: Math.max(0, t.score + delta) }) : t;
+                    });
+                });
+            };
+
+            /* —— publicState: síntese (escrita pela sync debounced) —— */
+            var buildPublicState = function() {
+                var validIds = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'valid'; });
+                var annulledIds = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'annulled'; });
+                return {
+                    phase: phase,
+                    roundNumber: roundNumber,
+                    guesserTableId: guesserTableId,
+                    secretWordDifficulty: secretWordDifficulty,
+                    tables: tables.map(function(t) { return { id: t.id, name: t.name, score: t.score }; }),
+                    cluesSubmitted: Object.keys(justoneClues).length,
+                    cluesTotal: Math.max(0, tables.length - 1),
+                    validClueCount: validIds.length,
+                    annulledClueCount: annulledIds.length,
+                    clueDeadline: clueDeadline,
+                    guessResult: guessResult,
+                    visibleClues: buildVisibleClues(phase, justoneClues, clueStatus),
+                    revealedWord: revealAll ? secretWord : null,
+                    completedLaps: getCompletedLaps(tables),
+                    timestamp: Date.now()
+                };
+            };
+
+            /* —— SETUP: LISTA DE PALAVRAS — guardar/repor —— */
+            var saveWordPool = function() {
+                var parsed = parseWordPoolText(wordPoolText);
+                var allEmpty = !parsed.easy.length && !parsed.medium.length && !parsed.hard.length;
+                if (allEmpty) {
+                    setWordPoolWarning(T('m_j_word_pool_low_warning'));
+                    return;
+                }
+                try { localStorage.setItem('justoneWordPool_' + wordPoolLang, wordPoolText); } catch(e) {}
+                setWordPool(parsed);
+                var low = parsed.easy.length < 5 || parsed.medium.length < 5 || parsed.hard.length < 5;
+                setWordPoolWarning(low ? T('m_j_word_pool_low_warning') : '');
+                setWordPoolSaved(true);
+                setTimeout(function() { setWordPoolSaved(false); }, 2000);
+            };
+
+            var resetWordPool = function() {
+                var lang2 = wordPoolLang;
+                fetch('games/justone-words-' + lang2 + '.txt')
+                    .then(function(r) { return r.ok ? r.text() : ''; })
+                    .then(function(text) {
+                        var parsed = parseWordPoolText(text);
+                        var hasWords = parsed.easy.length || parsed.medium.length || parsed.hard.length;
+                        var finalText = hasWords ? text : '';
+                        setWordPoolText(finalText);
+                        setWordPool(hasWords ? parsed : { easy: [], medium: [], hard: [] });
+                        try { localStorage.setItem('justoneWordPool_' + lang2, finalText); } catch(e) {}
+                        setWordPoolWarning('');
+                    })
+                    .catch(function() {});
+            };
+
+            /* —— SETUP: PONTUAÇÃO — editar/guardar/repor —— */
+            var updateScoringField = function(tier, field, value) {
+                var n = Math.max(0, Math.round(Number(value) || 0));
+                setScoringConfig(function(prev) {
+                    var next = JSON.parse(JSON.stringify(prev));
+                    next[tier][field] = n;
+                    return next;
+                });
+            };
+
+            var saveScoringConfigHandler = function() {
+                if (saveScoringConfig(scoringConfig)) {
+                    setScoringSaved(true);
+                    setTimeout(function() { setScoringSaved(false); }, 2000);
+                }
+            };
+
+            var resetScoringConfig = function() {
+                var def = getDefaultScoringConfig();
+                setScoringConfig(def);
+                saveScoringConfig(def);
+            };
+
+            /* —— SETUP: TIMER DE PISTAS — guardar/repor —— */
+            var saveTimerSecondsHandler = function() {
+                if (saveTimerSeconds(timerSeconds)) {
+                    setTimerSaved(true);
+                    setTimeout(function() { setTimerSaved(false); }, 2000);
+                }
+            };
+
+            var resetTimerSeconds = function() {
+                setTimerSeconds(0);
+                saveTimerSeconds(0);
+            };
+
+            /* —— ESTATÍSTICAS: EXPORT CSV/JSON —— */
+            var exportStatsCsv = function() {
+                downloadBlob(statsToCsv(justoneStats), 'justone-stats-' + sessionId + '-' + Date.now() + '.csv', 'text/csv');
+            };
+
+            var exportStatsJson = function() {
+                downloadBlob(JSON.stringify(justoneStats, null, 2), 'justone-stats-' + sessionId + '-' + Date.now() + '.json', 'application/json');
+            };
+
+            /* ====================== RENDER ====================== */
+
+            var phaseLabel = {
+                'waiting':             T('m_j_phase_waiting'),
+                'choosing_difficulty': T('m_j_phase_choosing_difficulty'),
+                'clue_giving':         T('m_j_phase_clue_giving'),
+                'reviewing':           T('m_j_phase_reviewing'),
+                'guessing':            T('m_j_phase_guessing'),
+                'reveal':              T('m_j_phase_reveal')
+            }[phase] || phase;
+
+            var phaseColor = {
+                'waiting':             'bg-slate-700 text-slate-300',
+                'choosing_difficulty': 'bg-amber-500 text-amber-900',
+                'clue_giving':         'bg-blue-600 text-white',
+                'reviewing':           'bg-purple-600 text-white',
+                'guessing':            'bg-teal-600 text-white',
+                'reveal':              'bg-green-600 text-white'
+            }[phase] || 'bg-slate-700 text-slate-300';
+
+            var guesserTable = tables.find(function(t) { return t.id === guesserTableId; });
+            var completedLaps = getCompletedLaps(tables);
+            var lapComplete = isLapComplete(tables);
+            var tableCount = tables.length;
+
+            /* —— LANG SELECTOR (tema teal) —— */
+            function LangSelector() {
+                var cc = I18n.getCountryCode();
+                var cn = I18n.getName();
+                return h('div', { className: 'relative' },
+                    h('button', {
+                        onClick: function() { setShowLangDrop(function(v) { return !v; }); },
+                        className: 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border-2 border-gray-200 text-gray-600 text-sm font-semibold hover:border-teal-300 hover:text-teal-700 transition-all active:scale-95'
+                    },
+                        h('span', { className: 'fi fi-' + cc + ' fi-circle lang-flag' }),
+                        h('span', null, cn),
+                        h('span', { className: 'text-gray-400 text-xs ml-0.5' }, showLangDrop ? '▲' : '▼')
+                    ),
+                    showLangDrop && h('div', {
+                        className: 'absolute top-full right-0 mt-1 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden min-w-max'
+                    },
+                        I18n.getLanguages().map(function(l) {
+                            var isActive = l === lang;
+                            return h('button', {
+                                key: l,
+                                onClick: function() { I18n.setLang(l); setShowLangDrop(false); },
+                                className: 'flex items-center gap-2 px-4 py-2.5 w-full text-left text-sm font-semibold transition-colors ' + (
+                                    isActive ? 'bg-teal-50 text-teal-700' : 'text-gray-700 hover:bg-gray-50'
+                                )
+                            },
+                                h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
+                                h('span', null, I18n.getName(l))
+                            );
+                        })
+                    )
+                );
+            }
+
+            /* —— MODAL: VALIDAR PISTAS —— */
+            var ClueReviewModal = function() {
+                var dupSet = detectDuplicateClues(justoneClues);
+                return h('div', { className: 'fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4' },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 w-full max-w-2xl max-h-[90vh] flex flex-col slide-in' },
+                        h('div', { className: 'flex items-center justify-between mb-3 flex-shrink-0' },
+                            h('div', null,
+                                h('h2', { className: 'text-lg font-black text-gray-800' }, T('m_j_validate_clues_title')),
+                                h('div', { className: 'text-sm text-gray-500' },
+                                    T('m_j_secret_word_label') + ' ' + secretWord + ' · ' + T('m_j_guesser_label') + ' ' + (guesserTable ? (guesserTable.name || T('table_n', { n: guesserTable.id })) : '')
+                                )
+                            ),
+                            secretWordDifficulty && h('span', { className: 'px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ' + DIFFICULTY_BADGE_COLORS[secretWordDifficulty] },
+                                T('m_j_difficulty_badge', { name: T('m_j_difficulty_' + secretWordDifficulty) })
+                            )
+                        ),
+                        h('div', { className: 'overflow-y-auto flex-1 space-y-2 mb-4' },
+                            tables.filter(function(t) { return t.id !== guesserTableId; }).map(function(t) {
+                                var clue = justoneClues[t.id];
+                                var hasClue = !!(clue && clue.text);
+                                var status = clueStatus[t.id] || 'annulled';
+                                var isDup = !!dupSet[t.id];
+                                return h('div', {
+                                    key: t.id,
+                                    onClick: function() { toggleClueStatus(t.id); },
+                                    className: 'flex items-center gap-3 p-3 rounded-xl border-2 transition-all ' + (
+                                        !hasClue ? 'border-gray-100 bg-gray-50 opacity-60' :
+                                        status === 'valid' ? 'border-green-400 bg-green-50 cursor-pointer' : 'border-red-300 bg-red-50 cursor-pointer'
+                                    )
+                                },
+                                    h('div', { className: 'w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ' + (status === 'valid' ? 'bg-green-500 border-green-500' : 'border-red-300') },
+                                        status === 'valid' && h('span', { className: 'text-white text-xs font-bold' }, '✓')
+                                    ),
+                                    h('div', { className: 'flex-1 min-w-0' },
+                                        h('div', { className: 'font-bold text-gray-800 text-sm' }, t.name || T('table_n', { n: t.id })),
+                                        hasClue
+                                            ? h('div', { className: 'text-gray-600 text-sm truncate' }, '"' + clue.text + '"')
+                                            : h('div', { className: 'text-gray-400 text-xs italic' }, T('m_j_clue_no_submission')),
+                                        isDup && h('div', { className: 'text-xs text-amber-600 font-semibold mt-0.5' },
+                                            T('m_j_duplicate_warning', {
+                                                names: tables.filter(function(t2) { return dupSet[t2.id] && t2.id !== t.id; })
+                                                    .map(function(t2) { return t2.name || T('table_n', { n: t2.id }); }).join(', ')
+                                            })
+                                        )
+                                    ),
+                                    h('div', { className: 'text-xs font-bold flex-shrink-0 ' + (status === 'valid' ? 'text-green-600' : 'text-red-500') },
+                                        status === 'valid' ? T('m_j_status_valid') : T('m_j_status_annulled')
+                                    )
+                                );
+                            })
+                        ),
+                        h('button', {
+                            onClick: confirmClueValidation,
+                            className: 'w-full py-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-black text-lg shadow-lg active:scale-95 transition-transform flex-shrink-0'
+                        }, T('m_j_confirm_and_advance'))
+                    )
+                );
+            };
+
+            /* —— MODAL: ESTATÍSTICAS —— */
+            var StatsModal = function() {
+                var agg = aggregateStats(justoneStats);
+                return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowStats(false); } },
+                    h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 w-full max-w-lg slide-in max-h-[90vh] overflow-y-auto', onClick: function(e) { e.stopPropagation(); } },
+                        h('h3', { className: 'text-lg font-black text-white mb-1' }, T('m_j_stats_title')),
+                        h('div', { className: 'text-sm text-slate-400 mb-3' }, T('m_j_stats_active_tables', { n: tables.length })),
+                        h('table', { className: 'w-full text-sm text-left mb-4' },
+                            h('thead', null,
+                                h('tr', { className: 'text-slate-400 border-b border-slate-600' },
+                                    h('th', { className: 'py-1 pr-2' }, T('m_j_stats_col_difficulty')),
+                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_chosen')),
+                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_correct')),
+                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_incorrect')),
+                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_passed')),
+                                    h('th', { className: 'py-1 text-center' }, T('m_j_stats_col_pct'))
+                                )
+                            ),
+                            h('tbody', null,
+                                ['easy', 'medium', 'hard'].map(function(tier) {
+                                    var d = agg[tier];
+                                    var pct = d.chosen > 0 ? Math.round((d.correct / d.chosen) * 100) : 0;
+                                    return h('tr', { key: tier, className: 'border-b border-slate-700 text-white' },
+                                        h('td', { className: 'py-1.5 pr-2 font-semibold' }, T('m_j_difficulty_' + tier)),
+                                        h('td', { className: 'py-1.5 pr-2 text-center' }, d.chosen),
+                                        h('td', { className: 'py-1.5 pr-2 text-center text-green-400' }, d.correct),
+                                        h('td', { className: 'py-1.5 pr-2 text-center text-red-400' }, d.incorrect),
+                                        h('td', { className: 'py-1.5 pr-2 text-center text-slate-400' }, d.passed),
+                                        h('td', { className: 'py-1.5 text-center font-bold' }, pct + '%')
+                                    );
+                                })
+                            )
+                        ),
+                        h('div', { className: 'flex gap-2 mb-4' },
+                            h('button', { onClick: exportStatsCsv, className: 'flex-1 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-lg font-bold text-sm' }, T('m_j_stats_export_csv')),
+                            h('button', { onClick: exportStatsJson, className: 'flex-1 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-lg font-bold text-sm' }, T('m_j_stats_export_json'))
+                        ),
+                        h('button', { onClick: function() { setShowStats(false); }, className: 'w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, T('m_j_stats_close'))
+                    )
+                );
+            };
+
+            /* —— ECRÃ DE HISTÓRICO —— */
+            if (showHistory) {
+                var infoSession = histInfoId
+                    ? (activeSessions.find(function(s) { return s.sessionId === histInfoId; }) ||
+                       sessionHistory.find(function(s) { return s.sessionId === histInfoId || s.id === histInfoId; }))
+                    : null;
+
+                return h('div', { className: 'min-h-screen bg-slate-900 text-white' },
+                    h('div', { className: 'bg-teal-900 px-6 py-4 flex items-center justify-between shadow-xl' },
+                        h('div', { className: 'flex items-center gap-3' },
+                            h('div', { className: 'text-2xl' }, '🤫'),
+                            h('div', null,
+                                h('div', { className: 'text-lg font-black' }, 'Mega Just One'),
+                                h('div', { className: 'text-xs text-teal-300' }, T('m_session_mgmt'))
+                            )
+                        ),
+                        h('button', {
+                            onClick: function() { setShowHistory(false); },
+                            className: 'px-4 py-2 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-xl font-bold text-sm'
+                        }, '✕ ' + T('close'))
+                    ),
+                    h('div', { className: 'max-w-3xl mx-auto p-6 space-y-8' },
+                        h('div', null,
+                            h('h2', { className: 'text-xs font-black uppercase tracking-widest text-green-400 mb-3' }, T('m_active_sessions')),
+                            activeSessions.length === 0
+                                ? h('div', { className: 'bg-slate-800 rounded-xl p-4 text-slate-500 text-sm text-center italic' }, T('m_no_active_sessions'))
+                                : h('div', { className: 'space-y-2' },
+                                    activeSessions.map(function(s) {
+                                        return h('div', { key: s.sessionId, className: 'bg-slate-800 border border-green-800/50 rounded-xl p-4 flex items-center gap-3' },
+                                            h('div', { className: 'w-2 h-2 bg-green-400 rounded-full flex-shrink-0 mt-0.5' }),
+                                            h('div', { className: 'flex-1 min-w-0' },
+                                                h('div', { className: 'font-mono font-black text-lg' }, s.sessionId),
+                                                h('div', { className: 'text-xs text-slate-400 mt-0.5' },
+                                                    (s.tables ? s.tables.length : 0) + ' ' + T('m_tables_label') + ' • ' + T('m_round_label') + ' ' + (s.roundNumber || 1) +
+                                                    ' • ' + new Date(s.timestamp || Date.now()).toLocaleString('pt-PT', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+                                                )
+                                            ),
+                                            h('button', {
+                                                onClick: function(sid) { return function() { setHistInfoId(histInfoId === sid ? null : sid); }; }(s.sessionId),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-slate-700 hover:bg-slate-600 flex-shrink-0 text-sm'
+                                            }, 'ℹ️'),
+                                            h('button', {
+                                                onClick: function(sid, sd) { return function() {
+                                                    setExistingData({ code: sid, data: sd });
+                                                    setShowExistDialog(true);
+                                                    setShowHistory(false);
+                                                }; }(s.sessionId, s),
+                                                className: 'px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-bold flex-shrink-0'
+                                            }, T('m_h_open')),
+                                            h('button', {
+                                                onClick: function(sid) { return function() { closeActiveSession(sid); }; }(s.sessionId),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-slate-700 hover:bg-amber-700 flex-shrink-0 text-sm',
+                                                title: 'Arquivar sem abrir'
+                                            }, '📦')
+                                        );
+                                    })
+                                  )
+                        ),
+                        h('div', null,
+                            h('h2', { className: 'text-xs font-black uppercase tracking-widest text-slate-500 mb-3' }, '📦 Histórico Arquivado'),
+                            sessionHistory.length === 0
+                                ? h('div', { className: 'bg-slate-800 rounded-xl p-4 text-slate-500 text-sm text-center italic' }, 'Nenhum histórico arquivado')
+                                : h('div', { className: 'space-y-2' },
+                                    sessionHistory.map(function(s) {
+                                        return h('div', { key: s.id, className: 'bg-slate-800 rounded-xl p-4 flex items-center gap-3' },
+                                            h('div', { className: 'flex-1 min-w-0' },
+                                                h('div', { className: 'font-mono font-bold text-slate-300' }, s.sessionId || s.id),
+                                                h('div', { className: 'text-xs text-slate-500 mt-0.5' },
+                                                    (s.tables ? s.tables.length : 0) + ' ' + T('m_tables_label') + ' • ' +
+                                                    new Date(s.timestamp || 0).toLocaleString('pt-PT', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+                                                )
+                                            ),
+                                            h('button', {
+                                                onClick: function(sid) { return function() { setHistInfoId(histInfoId === sid ? null : sid); }; }(s.sessionId || s.id),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-slate-700 hover:bg-slate-600 flex-shrink-0 text-sm'
+                                            }, 'ℹ️'),
+                                            h('button', {
+                                                onClick: function(sid) { return async function() {
+                                                    if (!confirm('Eliminar este registo do histórico?')) return;
+                                                    try { await fm.remove(fm.ref(rtdb, 'sessionHistory/' + sid)); } catch(e) {}
+                                                }; }(s.id),
+                                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-red-900/60 hover:bg-red-800 flex-shrink-0 text-sm'
+                                            }, '🗑️')
+                                        );
+                                    })
+                                  )
+                        )
+                    ),
+                    infoSession && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4', onClick: function() { setHistInfoId(null); } },
+                        h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col slide-in', onClick: function(e) { e.stopPropagation(); } },
+                            h('div', { className: 'flex items-center justify-between p-5 pb-3 flex-shrink-0' },
+                                h('div', null,
+                                    h('div', { className: 'font-mono font-black text-xl text-white' }, infoSession.sessionId || infoSession.id),
+                                    h('div', { className: 'text-xs text-slate-400' }, T('m_round_label') + ' ' + (infoSession.roundNumber || '?'))
+                                ),
+                                h('button', { onClick: function() { setHistInfoId(null); }, className: 'text-slate-400 hover:text-white text-xl font-bold' }, '✕')
+                            ),
+                            (infoSession.tables || []).length === 0
+                                ? h('p', { className: 'text-slate-400 text-sm text-center italic px-5 pb-5' }, T('m_h_no_teams'))
+                                : h('div', { className: 'space-y-1.5 px-5 pb-5 overflow-y-auto flex-1' },
+                                    (infoSession.tables || []).slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
+                                        var medal = ['🥇','🥈','🥉'][idx] || '';
+                                        var clientData = histInfoClients[t.id];
+                                        var emails = (clientData && clientData.emails) || t.emails || [];
+                                        return h('div', { key: t.id, className: 'py-2 px-3 rounded-lg bg-slate-700' },
+                                            h('div', { className: 'flex items-center justify-between' },
+                                                h('div', { className: 'flex items-center gap-2' },
+                                                    medal && h('span', null, medal),
+                                                    h('span', { className: 'font-semibold text-sm text-white' }, t.name || T('table_n', { n: t.id }))
+                                                ),
+                                                h('span', { className: 'font-black text-teal-400' }, t.score + ' pts')
+                                            ),
+                                            emails.length > 0 && h('div', { className: 'text-xs text-slate-400 mt-0.5 truncate' }, emails.join(', '))
+                                        );
+                                    })
+                                  )
+                        )
+                    )
+                );
+            }
+
+            /* —— ECRÃ DE SETUP —— */
+            if (!setupDone) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 p-4' },
+                    h('div', { className: 'max-w-3xl mx-auto' },
+                        h('div', { className: 'flex items-center justify-between px-4 pt-4' },
+                            h('div', { className: 'bg-gray-700 rounded-xl p-1.5' },
+                                h('img', { src: 'logo2.png', className: 'h-8 w-auto', alt: 'Ludonautas' })
+                            ),
+                            LangSelector()
+                        ),
+                        h('div', { className: 'text-center py-6' },
+                            h('div', { className: 'text-5xl mb-2' }, '🤫'),
+                            h('h1', { className: 'text-3xl font-black text-white' }, 'Mega Just One'),
+                            h('p', { className: 'text-teal-300 mt-1' }, T('m_session_config'))
+                        ),
+                        activeSessions.length > 0 && h('div', { className: 'bg-white bg-opacity-10 rounded-2xl p-4 mb-4' },
+                            h('div', { className: 'flex items-center justify-between mb-3' },
+                                h('h3', { className: 'text-white font-bold' }, T('m_active_sessions')),
+                                h('button', {
+                                    onClick: function() { setShowHistory(true); },
+                                    className: 'text-teal-300 hover:text-white text-xs font-semibold'
+                                }, T('m_view_all'))
+                            ),
+                            activeSessions.map(function(s) {
+                                return h('div', { key: s.sessionId, className: 'flex items-center justify-between bg-white bg-opacity-10 rounded-xl p-3 mb-2' },
+                                    h('div', { className: 'text-white' },
+                                        h('div', { className: 'font-bold font-mono' }, s.sessionId),
+                                        h('div', { className: 'text-xs text-teal-300' }, (s.tables ? s.tables.length : 0) + ' ' + T('m_tables_label') + ' • ' + T('m_round_label') + ' ' + (s.roundNumber || 1))
+                                    ),
+                                    h('button', {
+                                        onClick: function() { setExistingData({ code: s.sessionId, data: s }); setShowExistDialog(true); },
+                                        className: 'px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-sm'
+                                    }, T('m_resume'))
+                                );
+                            })
+                        ),
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 space-y-6' },
+                            h('div', null,
+                                h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_session_code_opt')),
+                                h('input', {
+                                    type: 'text', value: codeInput, maxLength: 10,
+                                    onChange: function(e) { setCodeInput(e.target.value.toUpperCase()); },
+                                    placeholder: T('m_code_placeholder'),
+                                    className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-teal-500 outline-none font-mono uppercase'
+                                }),
+                                codeError && h('p', { className: 'text-red-600 text-sm mt-1' }, codeError)
+                            ),
+
+                            /* —— LISTA DE PALAVRAS —— */
+                            h('div', null,
+                                h('div', { className: 'flex items-center justify-between mb-2' },
+                                    h('label', { className: 'block text-sm font-bold text-gray-700' }, T('m_j_word_pool_label')),
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('select', {
+                                            value: wordPoolLang,
+                                            onChange: function(e) { setWordPoolLang(e.target.value); },
+                                            className: 'text-xs px-2 py-1 border border-gray-300 rounded-lg font-semibold'
+                                        },
+                                            h('option', { value: 'pt' }, 'PT'),
+                                            h('option', { value: 'en' }, 'EN')
+                                        ),
+                                        h('button', {
+                                            onClick: function() { setShowWordPoolEdit(function(v) { return !v; }); },
+                                            className: 'text-xs px-3 py-1 rounded-lg font-bold bg-teal-100 text-teal-700 hover:bg-teal-200'
+                                        }, showWordPoolEdit ? T('m_j_word_pool_edit_close') : T('m_j_word_pool_edit_open'))
+                                    )
+                                ),
+                                h('div', { className: 'text-xs text-gray-500 mb-2' },
+                                    T('m_j_word_pool_lang_label') + ': ' + (wordPoolLang === 'en' ? 'English' : 'Português') + ' — ' +
+                                    T('m_j_word_pool_count', { n: (wordPool.easy.length + wordPool.medium.length + wordPool.hard.length) })
+                                ),
+                                wordPoolWarning && h('div', { className: 'text-xs text-amber-600 font-semibold mb-2' }, wordPoolWarning),
+                                showWordPoolEdit && h('div', { className: 'space-y-2 border border-gray-200 rounded-xl p-3 bg-gray-50' },
+                                    h('textarea', {
+                                        value: wordPoolText,
+                                        onChange: function(e) { setWordPoolText(e.target.value); },
+                                        rows: 8,
+                                        placeholder: T('m_j_word_pool_placeholder'),
+                                        className: 'w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:border-teal-500 outline-none resize-none'
+                                    }),
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('button', {
+                                            onClick: resetWordPool,
+                                            className: 'text-xs text-teal-600 hover:text-teal-800 font-semibold'
+                                        }, T('m_j_word_pool_reset')),
+                                        h('button', {
+                                            onClick: saveWordPool,
+                                            className: 'text-xs px-3 py-1 rounded-lg font-bold transition-colors ml-auto ' + (wordPoolSaved ? 'bg-green-100 text-green-700' : 'bg-teal-600 text-white hover:bg-teal-700')
+                                        }, wordPoolSaved ? T('m_j_word_pool_saved') : T('m_j_word_pool_save'))
+                                    )
+                                )
+                            ),
+
+                            /* —— PONTUAÇÃO POR DIFICULDADE —— */
+                            h('div', null,
+                                h('div', { className: 'flex items-center justify-between mb-2' },
+                                    h('label', { className: 'block text-sm font-bold text-gray-700' }, T('m_j_scoring_config_title')),
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('button', {
+                                            onClick: resetScoringConfig,
+                                            className: 'text-xs text-teal-600 hover:text-teal-800 font-semibold'
+                                        }, T('m_j_scoring_reset')),
+                                        h('button', {
+                                            onClick: saveScoringConfigHandler,
+                                            className: 'text-xs px-3 py-1 rounded-lg font-bold transition-colors ' + (scoringSaved ? 'bg-green-100 text-green-700' : 'bg-teal-600 text-white hover:bg-teal-700')
+                                        }, scoringSaved ? T('m_j_scoring_saved') : T('m_j_scoring_save'))
+                                    )
+                                ),
+                                h('div', { className: 'overflow-x-auto' },
+                                    h('table', { className: 'w-full text-xs text-center border-collapse' },
+                                        h('thead', null,
+                                            h('tr', { className: 'text-gray-500' },
+                                                h('th', { className: 'py-1 text-left' }, ''),
+                                                h('th', { className: 'py-1 px-1' }, T('m_j_scoring_col_guesser')),
+                                                h('th', { className: 'py-1 px-1' }, T('m_j_scoring_col_cluegiver')),
+                                                h('th', { className: 'py-1 px-1' }, T('m_j_scoring_col_penalty'))
+                                            )
+                                        ),
+                                        h('tbody', null,
+                                            ['easy', 'medium', 'hard'].map(function(tier) {
+                                                return h('tr', { key: tier },
+                                                    h('td', { className: 'py-1 text-left font-bold text-gray-700' }, T('m_j_difficulty_' + tier)),
+                                                    ['guesser', 'clueGiver', 'penalty'].map(function(field) {
+                                                        return h('td', { key: field, className: 'py-1 px-1' },
+                                                            h('input', {
+                                                                type: 'number', min: 0, step: 1,
+                                                                value: scoringConfig[tier][field],
+                                                                onChange: function(e) { updateScoringField(tier, field, e.target.value); },
+                                                                className: 'w-14 px-1 py-1 border border-gray-300 rounded text-center font-bold focus:border-teal-500 outline-none'
+                                                            })
+                                                        );
+                                                    })
+                                                );
+                                            })
+                                        )
+                                    )
+                                ),
+                                h('p', { className: 'text-xs text-gray-400 mt-1' }, T('m_j_scoring_penalty_note'))
+                            ),
+
+                            /* —— TIMER DE PISTAS —— */
+                            h('div', null,
+                                h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_j_timer_label')),
+                                h('div', { className: 'flex items-center gap-2' },
+                                    h('input', {
+                                        type: 'number', min: 0, step: 5,
+                                        value: timerSeconds,
+                                        onChange: function(e) { setTimerSeconds(Math.max(0, parseInt(e.target.value) || 0)); },
+                                        className: 'w-24 px-3 py-2 border-2 border-gray-300 rounded-lg text-center font-bold focus:border-teal-500 outline-none'
+                                    }),
+                                    h('span', { className: 'text-xs text-gray-500' }, timerSeconds === 0 ? T('m_j_timer_off') : 's'),
+                                    h('button', {
+                                        onClick: resetTimerSeconds,
+                                        className: 'text-xs text-teal-600 hover:text-teal-800 font-semibold ml-auto'
+                                    }, T('m_j_timer_reset')),
+                                    h('button', {
+                                        onClick: saveTimerSecondsHandler,
+                                        className: 'text-xs px-3 py-1 rounded-lg font-bold transition-colors ' + (timerSaved ? 'bg-green-100 text-green-700' : 'bg-teal-600 text-white hover:bg-teal-700')
+                                    }, timerSaved ? T('m_j_timer_saved') : T('m_j_timer_save'))
+                                ),
+                                h('p', { className: 'text-xs text-gray-400 mt-1' }, T('m_j_timer_hint'))
+                            ),
+
+                            availableLogos.length > 0 && h('div', null,
+                                h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_logos')),
+                                h('div', { className: 'bg-gray-800 p-3 rounded-xl flex gap-3 flex-wrap' },
+                                    availableLogos.map(function(logo) {
+                                        var sel = selectedLogos.indexOf(logo) >= 0;
+                                        return h('div', {
+                                            key: logo,
+                                            onClick: function() {
+                                                setSelectedLogos(function(prev) {
+                                                    return sel ? prev.filter(function(l) { return l !== logo; }) : prev.concat([logo]);
+                                                });
+                                            },
+                                            className: 'cursor-pointer rounded-xl border-2 p-1.5 bg-gray-700 transition-all ' + (sel ? 'border-teal-400 ring-2 ring-teal-400' : 'border-gray-600 hover:border-gray-400')
+                                        },
+                                            h('img', { src: logo, alt: logo, className: 'h-10 w-16 object-contain', onError: function(e) { e.target.parentElement.style.display='none'; } })
+                                        );
+                                    })
+                                )
+                            ),
+                            h('button', {
+                                onClick: initSession,
+                                className: 'w-full py-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-black text-xl shadow-lg active:scale-95 transition-transform'
+                            }, T('m_j_start_session'))
+                        ),
+                        h('div', { className: 'mt-4 text-center' },
+                            h('button', {
+                                onClick: function() { setShowHistory(true); },
+                                className: 'text-teal-300 hover:text-white text-sm font-semibold'
+                            }, T('m_view_history'))
+                        )
+                    ),
+                    showExistDialog && existingData && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full' },
+                            h('div', { className: 'text-3xl text-center mb-3' }, '⚠️'),
+                            h('h3', { className: 'text-lg font-black text-gray-800 text-center mb-2' }, T('m_active_session_found')),
+                            h('p', { className: 'text-gray-600 text-sm text-center mb-5' },
+                                T('m_j_session_active_msg', { code: existingData.code, n: existingData.data.tables ? existingData.data.tables.length : 0 })
+                            ),
+                            h('div', { className: 'space-y-3' },
+                                h('button', { onClick: function() { handleExistingChoice('resume'); }, className: 'w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold' }, T('m_resume_session')),
+                                h('button', { onClick: function() { handleExistingChoice('new'); }, className: 'w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold' }, T('m_archive_create_new')),
+                                h('button', { onClick: function() { setShowExistDialog(false); }, className: 'w-full py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold' }, T('m_cancel'))
+                            )
+                        )
+                    )
+                );
+            }
+
+            /* —— ESCOLHA DE MODO —— */
+            if (setupDone && !modeChosen) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex items-center justify-center p-4' },
+                    h('div', { className: 'max-w-md w-full text-center' },
+                        h('div', { className: 'text-5xl mb-2' }, '🤫'),
+                        h('h1', { className: 'text-3xl font-black text-white mb-1' }, 'Mega Just One'),
+                        h('p', { className: 'text-teal-300 mb-8 font-mono text-lg' }, sessionId),
+                        h('div', { className: 'space-y-4' },
+                            h('button', {
+                                onClick: function() { chooseMode('console'); },
+                                className: 'w-full bg-white rounded-2xl p-5 text-left shadow-xl hover:scale-[1.02] transition-transform active:scale-95'
+                            },
+                                h('div', { className: 'text-3xl mb-1' }, '🎮'),
+                                h('div', { className: 'font-black text-lg text-gray-800' }, T('m_j_mode_console_label')),
+                                h('div', { className: 'text-sm text-gray-500 mt-1' }, T('m_j_mode_console_hint'))
+                            ),
+                            h('button', {
+                                onClick: function() { chooseMode('public'); },
+                                className: 'w-full bg-white rounded-2xl p-5 text-left shadow-xl hover:scale-[1.02] transition-transform active:scale-95'
+                            },
+                                h('div', { className: 'text-3xl mb-1' }, '📺'),
+                                h('div', { className: 'font-black text-lg text-gray-800' }, T('m_j_mode_public_label')),
+                                h('div', { className: 'text-sm text-gray-500 mt-1' }, T('m_j_mode_public_hint'))
+                            )
+                        )
+                    )
+                );
+            }
+
+            /* —— RENDER: MODO PÚBLICO —— */
+            if (masterMode === 'public') {
+                if (!publicState) {
+                    return h('div', { className: 'min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-4 text-center' },
+                        h('div', { className: 'text-5xl mb-4' }, '🤫'),
+                        h('div', { className: 'text-xl font-bold' }, T('m_j_public_waiting_data')),
+                        h('div', { className: 'font-mono text-teal-400 mt-2 text-lg' }, sessionId),
+                        h('button', { onClick: switchMode, className: 'mt-8 text-teal-300 hover:text-white text-sm font-semibold' }, T('m_j_mode_switch'))
+                    );
+                }
+
+                var ps = publicState;
+                var psGuesser = (ps.tables || []).find(function(t) { return t.id === ps.guesserTableId; });
+                var psSorted = (ps.tables || []).slice().sort(function(a, b) { return b.score - a.score; });
+
+                var psPhaseLabel = {
+                    'waiting':             T('m_j_phase_waiting'),
+                    'choosing_difficulty': T('m_j_phase_choosing_difficulty'),
+                    'clue_giving':         T('m_j_phase_clue_giving'),
+                    'reviewing':           T('m_j_phase_reviewing'),
+                    'guessing':            T('m_j_phase_guessing'),
+                    'reveal':              T('m_j_phase_reveal')
+                }[ps.phase] || ps.phase;
+
+                var psPhaseColor = {
+                    'waiting':             'bg-slate-700 text-slate-300',
+                    'choosing_difficulty': 'bg-amber-500 text-amber-900',
+                    'clue_giving':         'bg-blue-600 text-white',
+                    'reviewing':           'bg-purple-600 text-white',
+                    'guessing':            'bg-teal-600 text-white',
+                    'reveal':              'bg-green-600 text-white'
+                }[ps.phase] || 'bg-slate-700 text-slate-300';
+
+                var psTimerRemaining = ps.clueDeadline ? Math.max(0, Math.ceil((ps.clueDeadline - nowTick) / 1000)) : null;
+
+                var psDifficultyBadge = ps.secretWordDifficulty && h('span', {
+                    className: 'inline-block px-3 py-1 rounded-full text-sm font-bold ' + (DIFFICULTY_BADGE_COLORS[ps.secretWordDifficulty] || '')
+                }, T('m_j_difficulty_badge', { name: T('m_j_difficulty_' + ps.secretWordDifficulty) }));
+
+                var psBody = null;
+                if (ps.phase === 'waiting') {
+                    psBody = h('div', { className: 'text-teal-300 text-lg font-bold' }, T('m_j_phase_waiting'));
+                } else if (ps.phase === 'choosing_difficulty') {
+                    psBody = h('div', { className: 'text-center' },
+                        h('div', { className: 'text-2xl font-black' }, T('m_j_pub_choosing_difficulty', { name: psGuesser ? psGuesser.name : '' }))
+                    );
+                } else if (ps.phase === 'clue_giving') {
+                    psBody = h('div', { className: 'text-center space-y-3' },
+                        psDifficultyBadge,
+                        h('div', { className: 'text-2xl font-black' }, T('m_j_pub_collecting_clues')),
+                        h('div', { className: 'text-lg text-teal-300 font-bold' }, ps.cluesSubmitted + ' / ' + ps.cluesTotal),
+                        psTimerRemaining !== null && h('div', { className: 'text-5xl font-black ' + (psTimerRemaining <= 5 ? 'text-red-400' : 'text-white') }, psTimerRemaining + 's')
+                    );
+                } else if (ps.phase === 'reviewing') {
+                    psBody = h('div', { className: 'text-center space-y-3' },
+                        psDifficultyBadge,
+                        h('div', { className: 'text-2xl font-black' }, T('m_j_pub_validating'))
+                    );
+                } else if (ps.phase === 'guessing') {
+                    var psVisibleClues = ps.visibleClues || {};
+                    psBody = h('div', { className: 'text-center space-y-3 max-w-2xl' },
+                        psDifficultyBadge,
+                        h('div', { className: 'flex flex-wrap gap-2 justify-center' },
+                            Object.keys(psVisibleClues).map(function(tid) {
+                                return h('div', { key: tid, className: 'bg-slate-800 border border-teal-700 rounded-xl px-4 py-2 text-xl font-black' }, psVisibleClues[tid].text);
+                            })
+                        ),
+                        h('div', { className: 'text-sm text-slate-400' }, T('m_j_annulled_count', { n: ps.annulledClueCount || 0 }))
+                    );
+                } else if (ps.phase === 'reveal') {
+                    var psVisibleAll = ps.visibleClues || {};
+                    var psResultBadge = {
+                        correct:   { emoji: '✅', cls: 'bg-green-600' },
+                        incorrect: { emoji: '❌', cls: 'bg-red-600' },
+                        passed:    { emoji: '⏭️', cls: 'bg-slate-600' }
+                    }[ps.guessResult] || null;
+                    psBody = h('div', { className: 'text-center space-y-3 max-w-2xl' },
+                        psDifficultyBadge,
+                        h('div', { className: 'text-3xl font-black text-amber-300 tracking-wide' }, ps.revealedWord || ''),
+                        h('div', { className: 'flex flex-wrap gap-2 justify-center' },
+                            Object.keys(psVisibleAll).map(function(tid) {
+                                var c = psVisibleAll[tid];
+                                return h('div', {
+                                    key: tid,
+                                    className: 'rounded-xl px-4 py-2 text-lg font-bold ' + (c.status === 'valid' ? 'bg-green-700' : 'bg-slate-700 line-through opacity-60')
+                                }, c.text);
+                            })
+                        ),
+                        psResultBadge && psGuesser && h('div', { className: 'inline-block px-4 py-2 rounded-xl font-black text-lg ' + psResultBadge.cls },
+                            psResultBadge.emoji + ' ' + psGuesser.name
+                        ),
+                        h('div', { className: 'text-xs text-slate-400' }, T('m_j_completed_laps', { n: ps.completedLaps || 0 }))
+                    );
+                }
+
+                return h('div', { className: 'min-h-screen bg-slate-900 text-white flex flex-col' },
+                    h('div', { className: 'bg-teal-900 px-6 py-3 flex items-center justify-between flex-shrink-0' },
+                        h('div', { className: 'flex items-center gap-3' },
+                            h('div', { className: 'text-3xl' }, '🤫'),
+                            h('div', null,
+                                h('div', { className: 'text-xl font-black' }, 'Mega Just One'),
+                                h('div', { className: 'text-xs text-teal-300 font-mono' }, sessionId + ' • 📺 ' + T('m_j_mode_public_label'))
+                            )
+                        ),
+                        h('button', { onClick: switchMode, className: 'px-3 py-1.5 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-lg text-xs font-bold' }, T('m_j_mode_switch'))
+                    ),
+                    h('div', { className: 'px-6 py-3 text-center flex-shrink-0 ' + psPhaseColor },
+                        h('div', { className: 'text-xl font-black' }, psPhaseLabel + ' • ' + T('j_round_label', { n: ps.roundNumber || 1 })),
+                        psGuesser && ps.phase !== 'waiting' && h('div', { className: 'text-sm mt-0.5 opacity-90' }, '🎯 ' + psGuesser.name)
+                    ),
+                    h('div', { className: 'flex-1 flex flex-col items-center justify-center p-6 gap-6' },
+                        h('div', { className: 'w-full max-w-xl space-y-2' },
+                            psSorted.map(function(t, idx) {
+                                var medal = ['🥇', '🥈', '🥉'][idx] || '';
+                                var isGuesser = t.id === ps.guesserTableId;
+                                return h('div', {
+                                    key: t.id,
+                                    className: 'flex items-center justify-between rounded-2xl px-6 py-3 ' + (isGuesser ? 'bg-teal-700 ring-4 ring-teal-400' : 'bg-slate-800')
+                                },
+                                    h('div', { className: 'flex items-center gap-3' },
+                                        medal && h('span', { className: 'text-2xl' }, medal),
+                                        h('span', { className: 'font-black text-xl' }, t.name)
+                                    ),
+                                    h('span', { className: 'font-black text-2xl text-teal-400' }, t.score)
+                                );
+                            })
+                        ),
+                        psBody
+                    )
+                );
+            }
+
+            /* —— RENDER: MODO CONSOLA —— */
+            var clueCount = Object.keys(justoneClues).length;
+            var clueTimerRemaining = clueDeadline ? Math.max(0, Math.ceil((clueDeadline - nowTick) / 1000)) : null;
+            var allTiersExhausted = ['easy', 'medium', 'hard'].every(function(level) {
+                return isTierExhausted(wordPool, wordPoolLang, usedWords, level);
+            });
+
+            return h('div', { className: 'min-h-screen bg-slate-900 flex flex-col text-white' },
+
+                /* —— HEADER —— */
+                h('div', { className: 'bg-teal-900 px-4 py-2 flex items-center gap-3 flex-shrink-0 shadow-xl relative' },
+                    h('div', { className: 'text-lg font-black' }, '🤫 Mega Just One'),
+                    h('div', { className: 'flex items-center gap-2 bg-teal-800 rounded-lg px-3 py-1' },
+                        h('span', { className: 'text-xs opacity-60' }, T('m_h_session_label')),
+                        h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId),
+                        h('button', {
+                            onClick: function() {
+                                navigator.clipboard.writeText(CLIENT_URL + '?session=' + sessionId);
+                                setCodeCopied(true);
+                                setTimeout(function() { setCodeCopied(false); }, 2000);
+                            },
+                            className: 'text-xs bg-teal-700 hover:bg-teal-600 px-2 py-0.5 rounded'
+                        }, codeCopied ? '✓' : '📋')
+                    ),
+                    h('button', {
+                        onClick: function() { setShowQR(true); },
+                        className: 'bg-white text-teal-900 hover:bg-teal-100 px-3 py-1.5 rounded-lg font-bold text-sm'
+                    }, '📱 QR'),
+                    selectedLogos.length > 0 && h('img', {
+                        src: selectedLogos[0], alt: 'logo',
+                        className: 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 object-contain pointer-events-none',
+                        onError: function(e) { e.target.style.display = 'none'; }
+                    }),
+                    h('div', { className: 'flex items-center gap-2 ml-auto' },
+                        h('div', { className: 'text-xs opacity-70' }, T('m_h_tables_online', { tables: tableCount, online: Object.keys(connectedClients).length })),
+                        h('button', {
+                            onClick: function() { setShowScores(!showScores); },
+                            className: 'bg-teal-800 hover:bg-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                        }, showScores ? T('m_h_hide_pts') : T('m_h_show_pts')),
+                        h('button', {
+                            onClick: switchMode,
+                            className: 'bg-teal-800 hover:bg-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                        }, T('m_j_mode_switch')),
+                        h('button', {
+                            onClick: function() { setShowEndModal(true); },
+                            className: 'bg-red-700 hover:bg-red-600 px-3 py-1.5 rounded-lg text-sm font-bold'
+                        }, T('m_h_exit'))
+                    )
+                ),
+
+                /* —— BARRA DE FASE —— */
+                h('div', { className: 'px-4 py-2 flex items-center gap-2 flex-wrap bg-slate-800 border-b border-slate-700 flex-shrink-0' },
+                    h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm ' + phaseColor + ((phase === 'clue_giving' || phase === 'guessing') ? ' blink' : '') }, phaseLabel),
+                    guesserTable && phase !== 'waiting' && h('div', { className: 'bg-teal-700 text-teal-100 px-3 py-1 rounded-full text-sm font-bold' },
+                        T('m_j_guesser_label') + ' ' + (guesserTable.name || T('table_n', { n: guesserTable.id }))
+                    ),
+                    secretWordDifficulty && h('span', {
+                        className: 'px-3 py-1 rounded-full text-sm font-bold ' + (DIFFICULTY_BADGE_COLORS[secretWordDifficulty] || '')
+                    }, T('m_j_difficulty_badge', { name: T('m_j_difficulty_' + secretWordDifficulty) })),
+                    secretWord && (phase === 'clue_giving' || phase === 'reviewing') && h('div', { className: 'bg-amber-500 text-amber-900 px-3 py-1 rounded-full text-sm font-black' },
+                        T('m_j_secret_word_label') + ' ' + secretWord
+                    ),
+                    phase === 'clue_giving' && h('div', { className: 'bg-blue-700 text-blue-100 px-3 py-1 rounded-full text-sm font-bold' },
+                        T('m_j_clues_received', { n: clueCount, total: Math.max(0, tableCount - 1) })
+                    ),
+                    clueTimerRemaining !== null && phase === 'clue_giving' && h('div', {
+                        className: 'px-3 py-1 rounded-full text-sm font-black ' + (clueTimerRemaining <= 5 ? 'bg-red-600 text-white' : 'bg-slate-700 text-white')
+                    }, '⏱️ ' + clueTimerRemaining + 's')
+                ),
+
+                /* —— CONTEÚDO PRINCIPAL —— */
+                h('div', { className: 'flex-1 flex overflow-hidden' },
+
+                    /* —— GRELHA DE MESAS —— */
+                    h('div', { className: 'flex-1 overflow-y-auto p-4' },
+                        tables.length === 0
+                            ? h('div', { className: 'text-center text-slate-500 mt-16' },
+                                h('div', { className: 'text-5xl mb-3' }, '⏳'),
+                                h('div', { className: 'text-lg font-semibold' }, T('m_h_waiting_tables')),
+                                h('div', { className: 'text-sm mt-1' }, T('m_h_share_qr'))
+                              )
+                            : h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3' },
+                                tables.map(function(table) {
+                                    var client = connectedClients[table.id];
+                                    var isGuesserCard = guesserTableId === table.id;
+                                    var hasClue = !!(justoneClues[table.id] && justoneClues[table.id].text);
+                                    var cStatus = clueStatus[table.id];
+                                    var lastSeen = lastSeenMapRef.current[table.id] || 0;
+                                    var sinceSeen = lastSeen ? (Date.now() - lastSeen) : Infinity;
+                                    var connState = !client ? 'gone' : (sinceSeen < 30000 ? 'online' : (sinceSeen < 60000 ? 'idle' : 'offline'));
+                                    return h('div', {
+                                        key: table.id,
+                                        className: 'bg-slate-800 rounded-xl border p-3 transition-all ' + (
+                                            isGuesserCard ? 'border-teal-500 bg-teal-900/30' :
+                                            hasClue ? 'border-blue-600' :
+                                            connState === 'offline' ? 'border-red-700/60 opacity-70' :
+                                            'border-slate-700'
+                                        )
+                                    },
+                                        h('div', { className: 'flex justify-between items-start mb-1' },
+                                            h('div', null,
+                                                h('div', { className: 'text-xs text-slate-500' }, T('table_n', { n: table.id })),
+                                                connState === 'online'  && h('span', { className: 'text-xs text-green-400', title: 'Ativo' }, T('m_h_conn_online')),
+                                                connState === 'idle'    && h('span', { className: 'text-xs text-amber-400', title: 'Sem heartbeat há ' + Math.round(sinceSeen/1000) + 's' }, T('m_h_conn_idle')),
+                                                connState === 'offline' && h('span', { className: 'text-xs text-red-400 font-bold', title: 'Sem heartbeat há ' + Math.round(sinceSeen/1000) + 's — pode ter perdido o jogo' }, T('m_h_conn_offline')),
+                                                connState === 'gone'    && h('span', { className: 'text-xs text-slate-600' }, T('m_h_conn_gone'))
+                                            ),
+                                            h('div', { className: 'flex gap-1 items-center' },
+                                                h('span', { className: 'text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded-full font-bold' }, (table.timesGuessed || 0) + 'x'),
+                                                isGuesserCard && h('span', { className: 'text-sm' }, '🎯'),
+                                                hasClue && (phase === 'clue_giving') && h('span', { className: 'text-sm' }, '✍️'),
+                                                cStatus === 'valid' && (phase === 'guessing' || phase === 'reveal') && h('span', { className: 'text-sm' }, '✅'),
+                                                cStatus === 'annulled' && (phase === 'guessing' || phase === 'reveal') && h('span', { className: 'text-sm' }, '🚫')
+                                            )
+                                        ),
+                                        h('div', { className: 'font-bold text-white text-sm truncate mb-2' }, table.name || T('table_n', { n: table.id })),
+                                        showScores && h('div', { className: 'text-3xl font-black text-teal-400 text-center mb-2' }, table.score),
+                                        !showScores && h('div', { className: 'text-3xl font-black text-slate-600 text-center mb-2' }, '—'),
+                                        h('div', { className: 'flex gap-1 justify-center' },
+                                            h('button', {
+                                                onClick: function(id) { return function() { adjustScore(id, -1); }; }(table.id),
+                                                className: 'px-2 py-1 bg-red-900/50 hover:bg-red-800 text-red-300 rounded font-bold text-xs'
+                                            }, '-1'),
+                                            h('button', {
+                                                onClick: function(id) { return function() { adjustScore(id, 1); }; }(table.id),
+                                                className: 'px-2 py-1 bg-green-900/50 hover:bg-green-800 text-green-300 rounded font-bold text-xs'
+                                            }, '+1')
+                                        )
+                                    );
+                                })
+                              )
+                    ),
+
+                    /* —— PAINEL LATERAL —— */
+                    h('div', { className: 'w-60 bg-slate-800 border-l border-slate-700 flex flex-col overflow-hidden flex-shrink-0' },
+                        h('div', { className: 'p-3 border-b border-slate-700 flex-shrink-0' },
+                            h('button', {
+                                onClick: function() { setShowStats(true); },
+                                className: 'w-full py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-lg font-bold text-sm'
+                            }, T('m_j_stats_button'))
+                        ),
+                        showScores && h('div', { className: 'flex-1 overflow-y-auto p-3' },
+                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, T('m_h_ranking')),
+                            h('div', { className: 'space-y-1' },
+                                tables.slice().sort(function(a, b) { return b.score - a.score; }).map(function(t, idx) {
+                                    var medal = ['🥇', '🥈', '🥉'][idx] || '';
+                                    return h('div', { key: t.id, className: 'flex items-center justify-between text-sm' },
+                                        h('div', { className: 'flex items-center gap-1' },
+                                            h('span', null, medal || (idx + 1) + '.'),
+                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, t.name || T('table_n', { n: t.id }))
+                                        ),
+                                        h('span', { className: 'font-black text-teal-400' }, t.score)
+                                    );
+                                })
+                            )
+                        )
+                    )
+                ),
+
+                /* —— BARRA INFERIOR —— */
+                h('div', { className: 'bg-slate-800 border-t border-slate-700 px-4 py-3 flex items-center gap-3 flex-shrink-0 flex-wrap' },
+
+                    phase === 'waiting' && h('button', {
+                        onClick: startRound,
+                        disabled: tables.length < 2,
+                        className: 'px-6 py-2.5 rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform ' + (tables.length < 2 ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-500 text-white')
+                    }, T('m_j_start_round_1')),
+
+                    phase === 'choosing_difficulty' && h('div', { className: 'flex-1 flex flex-col gap-2' },
+                        h('div', { className: 'text-sm text-slate-300 font-semibold' },
+                            T('m_j_choose_difficulty_for_team', { name: guesserTable ? (guesserTable.name || T('table_n', { n: guesserTable.id })) : '' })
+                        ),
+                        h('div', { className: 'text-xs text-slate-500' }, T('m_j_waiting_difficulty_choice')),
+                        h('div', { className: 'flex gap-2 flex-wrap' },
+                            ['easy', 'medium', 'hard'].map(function(level) {
+                                var exhausted = isTierExhausted(wordPool, wordPoolLang, usedWords, level);
+                                return h('button', {
+                                    key: level,
+                                    disabled: exhausted,
+                                    onClick: function() { confirmDifficultyAndDrawWord(level); },
+                                    title: exhausted ? T('m_j_tier_exhausted') : '',
+                                    className: 'px-4 py-2 rounded-xl font-bold text-sm transition-transform active:scale-95 ' + (exhausted ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : (DIFFICULTY_BUTTON_COLORS[level] || 'bg-slate-600 text-white'))
+                                }, T('m_j_difficulty_button_label', { name: T('m_j_difficulty_' + level), points: scoringConfig[level].guesser }));
+                            })
+                        ),
+                        allTiersExhausted && h('div', { className: 'text-xs text-amber-400 font-semibold' }, T('m_j_all_tiers_exhausted'))
+                    ),
+
+                    phase === 'clue_giving' && h('div', { className: 'flex items-center gap-3' },
+                        h('button', {
+                            onClick: function() {
+                                if (clueCount === 0 && !confirm(T('m_j_no_clues_confirm'))) return;
+                                openClueReview();
+                            },
+                            className: 'px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform' + (clueCount > 0 ? ' blink' : '')
+                        }, T('m_j_view_clues') + ' (' + clueCount + ')'),
+                        h('button', {
+                            onClick: function() {
+                                if (!confirm(T('m_j_restart_round_confirm'))) return;
+                                restartRound();
+                            },
+                            className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
+                        }, T('m_j_restart_round'))
+                    ),
+
+                    phase === 'reviewing' && h('div', { className: 'flex items-center gap-3' },
+                        h('button', {
+                            onClick: function() { setShowReview(true); },
+                            className: 'px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-black text-base shadow-lg blink active:scale-95 transition-transform'
+                        }, T('m_j_validate_clues_title')),
+                        h('button', {
+                            onClick: function() {
+                                if (!confirm(T('m_j_restart_round_confirm'))) return;
+                                restartRound();
+                            },
+                            className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
+                        }, T('m_j_restart_round'))
+                    ),
+
+                    phase === 'guessing' && secretWordDifficulty && h('div', { className: 'flex-1 flex gap-2' },
+                        h('button', {
+                            onClick: function() { resolveGuess(true); },
+                            className: 'flex-1 py-3 bg-green-600 hover:bg-green-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
+                        }, T('m_j_guess_correct', { points: scoringConfig[secretWordDifficulty].guesser })),
+                        h('button', {
+                            onClick: function() { resolveGuess(false); },
+                            className: 'flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
+                        }, T('m_j_guess_incorrect', { points: scoringConfig[secretWordDifficulty].penalty })),
+                        h('button', {
+                            onClick: passGuess,
+                            className: 'px-6 py-3 bg-slate-600 hover:bg-slate-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
+                        }, T('m_j_guess_pass'))
+                    ),
+
+                    phase === 'reveal' && h('div', { className: 'flex items-center gap-3' },
+                        h('button', {
+                            onClick: nextRound,
+                            className: 'px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
+                        }, T('m_j_next_round', { n: roundNumber + 1 })),
+                        h('div', { className: 'text-xs text-slate-400' }, T('m_j_completed_laps', { n: completedLaps }))
+                    ),
+
+                    h('div', { className: 'flex-1' }),
+
+                    h('div', { className: 'flex items-center gap-2' },
+                        h('button', {
+                            onClick: function() { setTablesLocked(!tablesLocked); },
+                            className: 'px-3 py-2 rounded-lg font-bold text-sm ' + (tablesLocked ? 'bg-red-800 text-red-200' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')
+                        }, tablesLocked ? T('m_h_tables_locked') : T('m_h_tables_open')),
+                        h('button', {
+                            onClick: function() { setShowManage(!showManage); },
+                            className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
+                        }, T('m_h_manage_tables')),
+                        h('button', {
+                            onClick: function() { setShowLeaderboard(true); },
+                            className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
+                        }, T('m_h_ranking'))
+                    )
+                ),
+
+                /* —— MODAIS —— */
+
+                // QR full-screen (jogadores + projetor)
+                showQR && h('div', {
+                    className: 'fixed inset-0 bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex flex-col items-center justify-center z-50 cursor-pointer overflow-y-auto py-8',
+                    onClick: function() { setShowQR(false); }
+                },
+                    h('img', {
+                        src: qrUrl, alt: 'QR Code',
+                        className: 'w-[min(70vw,50vh)] h-[min(70vw,50vh)] bg-white p-4 rounded-2xl shadow-2xl',
+                        onClick: function(e) { e.stopPropagation(); }
+                    }),
+                    h('div', { className: 'text-5xl font-black text-white mt-4 tracking-widest' }, sessionId),
+                    h('div', { className: 'text-teal-300 mt-2 text-sm' }, T('m_tap_to_go_back')),
+                    h('div', { className: 'mt-8 flex flex-col items-center' },
+                        h('img', {
+                            src: qrPublicUrl, alt: 'QR Público',
+                            className: 'w-[min(50vw,35vh)] h-[min(50vw,35vh)] bg-white p-3 rounded-2xl shadow-2xl',
+                            onClick: function(e) { e.stopPropagation(); }
+                        }),
+                        h('div', { className: 'text-teal-300 mt-2 text-xs' }, T('m_j_qr_public_link'))
+                    )
+                ),
+
+                // Leaderboard
+                showLeaderboard && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowLeaderboard(false); } },
+                    h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
+                        h('h3', { className: 'text-xl font-black text-white mb-4 text-center' }, T('m_leaderboard')),
+                        h('div', { className: 'space-y-2' },
+                            tables.slice().sort(function(a, b) { return b.score - a.score; }).map(function(t, idx) {
+                                var medal = ['🥇', '🥈', '🥉'][idx] || (idx + 1) + '.';
+                                return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl bg-slate-700' },
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('span', { className: 'text-xl' }, medal),
+                                        h('div', { className: 'font-bold text-white' }, t.name || T('table_n', { n: t.id }))
+                                    ),
+                                    h('div', { className: 'text-2xl font-black text-teal-400' }, t.score)
+                                );
+                            })
+                        ),
+                        h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, T('close'))
+                    )
+                ),
+
+                // Gerir Mesas
+                showManage && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowManage(false); } },
+                    h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
+                        h('h3', { className: 'text-lg font-black text-white mb-4' }, T('m_h_manage_title')),
+                        tables.length === 0
+                            ? h('p', { className: 'text-slate-400 text-center italic' }, T('m_h_no_tables_conn'))
+                            : h('div', { className: 'space-y-2 max-h-80 overflow-y-auto' },
+                                tables.map(function(table) {
+                                    var online = !!connectedClients[table.id];
+                                    return h('div', { key: table.id, className: 'flex items-center justify-between p-2 rounded-lg border border-slate-600' },
+                                        h('div', null,
+                                            h('div', { className: 'font-bold text-sm text-white' }, table.name || T('table_n', { n: table.id })),
+                                            h('div', { className: 'text-xs ' + (online ? 'text-green-400' : 'text-slate-500') }, online ? '● Online' : '○ Offline')
+                                        ),
+                                        h('button', {
+                                            onClick: function(id) { return function() { removeTable(id); }; }(table.id),
+                                            className: 'px-3 py-1 bg-red-900/50 hover:bg-red-800 text-red-300 rounded-lg text-xs font-bold'
+                                        }, T('m_h_remove'))
+                                    );
+                                })
+                              ),
+                        h('button', { onClick: function() { setShowManage(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, T('close'))
+                    )
+                ),
+
+                // Terminar sessão
+                showEndModal && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4' },
+                    h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in' },
+                        h('div', { className: 'text-4xl text-center mb-3' }, '🤫'),
+                        h('h3', { className: 'text-xl font-black text-white text-center mb-2' }, T('m_h_end_session_title')),
+                        h('p', { className: 'text-slate-400 text-sm text-center mb-5' }, T('m_h_end_session_msg', { code: sessionId })),
+                        !lapComplete && h('p', { className: 'text-amber-400 text-xs text-center mb-3' }, T('m_j_end_session_locked', { n: completedLaps })),
+                        h('div', { className: 'space-y-3' },
+                            h('button', {
+                                onClick: endSessionArchive,
+                                disabled: !lapComplete,
+                                className: 'w-full py-3 rounded-xl font-bold ' + (lapComplete ? 'bg-teal-600 hover:bg-teal-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')
+                            }, T('m_archive_close')),
+                            h('button', { onClick: endSessionPause, className: 'w-full py-3 bg-amber-700 hover:bg-amber-600 text-white rounded-xl font-bold' }, T('m_h_pause_session')),
+                            h('button', { onClick: function() { setShowEndModal(false); }, className: 'w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold' }, T('m_cancel'))
+                        )
+                    )
+                ),
+
+                showReview && ClueReviewModal(),
+                showStats && StatsModal()
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+    });
+    </script>
+</body>
+</html>

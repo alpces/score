@@ -4,6 +4,34 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Mega Just One] - 2026-06
+
+### Adicionado
+- **Novo jogo standalone "Mega Just One"** (`master-justone.html` +
+  `client-justone.html`): adaptação competitiva mesa-vs-mesa do jogo de tabuleiro
+  "Just One" — fases `waiting → choosing_difficulty → clue_giving → reviewing →
+  guessing → reveal → choosing_difficulty → ...`.
+- **Dois modos de master por dispositivo** (Consola/Público), com subscrições
+  Firebase separadas por desenho de segurança: o modo Público e o cliente
+  adivinhador nunca subscrevem o nó `secret` da palavra, `justoneClues`,
+  `justoneDifficultyChoice` ou `justoneStats`.
+- **Pools de palavras PT/EN** (`games/justone-words-pt.txt`/`-en.txt`), por
+  dificuldade (Fácil/Médio/Difícil), com seletor de idioma independente da
+  interface, fallback embutido e sem reciclagem de palavras já usadas.
+- **Pontuação "Risco Proporcional" configurável por dificuldade**: pontos por
+  acerto (defeito +2/+3/+5), bónus por pista válida (+1) e penalização por erro
+  (defeito -1 em todos os níveis, configurável), com floor em 0.
+- **Timer opcional para submissão de pistas** (`timerSeconds`/`clueDeadline`):
+  bloqueia o input dos clientes ao esgotar, sem alterar a fase automaticamente.
+- **Contador de voltas (`timesGuessed`)**: arquivar/encerrar sessão só disponível
+  no fim de uma volta completa ("Pausar Sessão" continua sempre disponível).
+- **Painel de Estatísticas** (modo Consola): agregação ao vivo por dificuldade +
+  export CSV/JSON.
+- Novo cartão "Mega Just One" (teal) em `masters.html`/`jogar.html`.
+- `RULES-JUSTONE.md` — regras completas em PT-PT.
+
+---
+
 ## [Refactor — Shared Cores] - 2026-05
 
 Extração da infraestrutura partilhada para dois ficheiros em `shared/`, validada migrando Hitster e Diamant. Mais detalhe técnico em `DEVELOPMENT_LOG.md`.
