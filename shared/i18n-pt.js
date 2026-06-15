@@ -386,13 +386,17 @@ I18n.registerStrings('pt', {
     j_rule_clues_title       : 'As Pistas',
     j_rule_clues_content     : 'Cada equipa escreve UMA pista de UMA SÓ PALAVRA. Pistas iguais a outra, ou que contenham a palavra secreta, são anuladas pelo anfitrião. Sem pista enviada a tempo = pista anulada.',
     j_rule_scoring_title     : 'Pontuação',
-    j_rule_scoring_content   : 'Fácil/Médio/Difícil: +2/+3/+5 para a equipa que acerta (valores configuráveis), +1 por cada pista válida. Errar: penalização configurável por dificuldade (mínimo 0, por defeito -1). Passar: 0 para todos.',
+    j_rule_scoring_correct   : '✅ Acerto: a equipa que adivinha ganha +2 (fácil), +3 (médio) ou +5 (difícil) pontos — valores ajustáveis pelo anfitrião.',
+    j_rule_scoring_cluegiver : '🤝 Pistas válidas: se a equipa acertar, cada equipa cuja pista foi válida ganha +1 ponto.',
+    j_rule_scoring_wrong     : '❌ Erro: a equipa que tentou perde pontos (penalização por defeito -1, nunca abaixo de 0); as restantes não pontuam.',
+    j_rule_scoring_pass      : '⏭️ Passar: ninguém ganha nem perde pontos nesta ronda.',
 
     // ── Master Just One — Modo Consola/Público ──────────────────────────────────
     m_j_mode_console_label   : '🎮 Consola (anfitrião)',
     m_j_mode_console_hint    : 'Vê a palavra secreta e controla o jogo. Usa num telemóvel ou ecrã não projetado.',
     m_j_mode_public_label    : '📺 Público (projetor)',
     m_j_mode_public_hint     : 'Nunca mostra a palavra secreta. Seguro para projetar.',
+    m_j_mode_projector_label : 'Projetor',
     m_j_mode_switch          : 'Trocar modo',
     m_j_pub_scores_show      : '🏆 Mostrar pontos no projetor',
     m_j_pub_scores_hide      : '🙈 Ocultar pontos no projetor',

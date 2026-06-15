@@ -386,13 +386,17 @@ I18n.registerStrings('en', {
     j_rule_clues_title       : 'The Clues',
     j_rule_clues_content     : 'Each team writes ONE clue of ONE WORD. Clues that match another, or that contain the secret word, are annulled by the host. No clue sent in time = annulled clue.',
     j_rule_scoring_title     : 'Scoring',
-    j_rule_scoring_content   : 'Easy/Medium/Hard: +2/+3/+5 for the team that guesses correctly (configurable values), +1 for each valid clue. Wrong guess: configurable penalty per difficulty (minimum 0, default -1). Pass: 0 for everyone.',
+    j_rule_scoring_correct   : '✅ Correct guess: the guessing team earns +2 (easy), +3 (medium) or +5 (hard) points — values adjustable by the host.',
+    j_rule_scoring_cluegiver : '🤝 Valid clues: if the team guesses correctly, every team whose clue was valid earns +1 point.',
+    j_rule_scoring_wrong     : '❌ Wrong guess: the guessing team loses points (penalty defaults to -1, never below 0); other teams score nothing.',
+    j_rule_scoring_pass      : '⏭️ Pass: nobody gains or loses points this round.',
 
     // ── Master Just One — Console/Public modes ──────────────────────────────────
     m_j_mode_console_label   : '🎮 Console (host)',
     m_j_mode_console_hint    : 'Sees the secret word and controls the game. Use on a phone or non-projected screen.',
     m_j_mode_public_label    : '📺 Public (projector)',
     m_j_mode_public_hint     : 'Never shows the secret word. Safe to project.',
+    m_j_mode_projector_label : 'Projector',
     m_j_mode_switch          : 'Switch mode',
     m_j_pub_scores_show      : '🏆 Show scores on projector',
     m_j_pub_scores_hide      : '🙈 Hide scores on projector',

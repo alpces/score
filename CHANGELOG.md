@@ -6,6 +6,16 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ## [Mega Just One — Ajustes] - 2026-06-15
 
+### Adicionado
+- **Modo Projetor mostra sempre as equipas conectadas**: faixa com nome + nº de
+  mesa de cada equipa (sem pontos), com a equipa em destaque na ronda atual
+  realçada visualmente.
+- **Placar do Projetor em modal**: quando `publicShowScores` está ativo, os pontos
+  aparecem num modal sobreposto (mesmo estilo do ranking da Consola), em vez de
+  inline.
+- **Contagem do temporizador também no Projetor**, quando `clueDeadline` está
+  definido.
+
 ### Corrigido
 - **Placar do modo Público não atualizava com novas mesas**: nova subscrição a
   `sessions/{id}/clients` (só `teamName`/`tableNumber`/presença) faz mesas novas
@@ -24,6 +34,15 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
   volta a ser de sentido único, masters → jogar).
 - Dica de escolha de dificuldade (`j_choose_difficulty_hint`) reformulada em
   PT/EN.
+- **Header do modo Público renomeado para "Projetor"** (`m_j_mode_projector_label`),
+  mais curto do que o rótulo do ecrã de escolha de modo ("📺 Público (projetor)").
+- **Consola com layout responsivo para telemóvel**: header reorganizado em 2
+  linhas, painel de ranking lateral oculto por defeito em ecrãs pequenos (acesso
+  via botão "🏆 Ranking" na barra inferior), botão "📊 Estatísticas" movido para a
+  barra inferior — elimina scroll horizontal.
+- **Texto de pontuação na ajuda do cliente reescrito** como lista de regras
+  (acerto / pistas válidas / erro / passar), mais fácil de ler do que o parágrafo
+  único anterior.
 
 ---
 

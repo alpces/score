@@ -263,13 +263,34 @@ Referência completa: `master-justone.html`. Ao adicionar este padrão a um novo
   promover para `shared/` só se um 3º jogo precisar) que formata "Nome (Mesa N)" /
   "Mesa N" via `T('table_n', {n: table.id})`; usar sempre que se mostra o nome de
   uma equipa, para o nº de mesa estar sempre visível.
+- **Faixa de equipas sempre visível**: no modo Público, mostrar uma faixa/grid com
+  `teamLabel(table)` de todas as mesas conectadas, sem pontos — sempre visível,
+  independentemente da fase. Destacar (cor/escala) a equipa em destaque na ronda
+  atual (ex: quem está a jogar), para quem vê o projetor saber sempre quem está em
+  ação.
 - **Visibilidade de pontos no Público**: se o jogo tiver razões para esconder
   pontuações do público (ex: suspense), um toggle `publicShowScores` na Consola
-  (persistido em `gameState`/`publicState`) controla o placar do modo Público; o
-  corpo do projetor pode usar tamanhos de texto maiores quando os pontos estão
-  ocultos.
+  (persistido em `gameState`/`publicState`) controla o placar do modo Público.
+  Quando ativo, mostrar o placar como **modal sobreposto** (mesmo padrão visual do
+  ranking da Consola — backdrop `bg-black bg-opacity-70` + card central com
+  medalhas/`teamLabel`/pontos), não inline; o corpo principal (fase, pistas,
+  palavra, etc.) mantém-se sempre visível por trás, com tamanho consistente.
+- **Temporizador partilhado**: se o jogo tiver uma contagem visível à Consola (ex:
+  prazo para submissões), sincronizar o mesmo valor em `publicState` e mostrar a
+  contagem também no modo Público.
+- **Rótulos do modo Público vs. ecrã de escolha**: o ecrã de escolha de modo pode
+  usar um rótulo descritivo (ex: "📺 Público (projetor)"), mas uma vez dentro do
+  modo Público o header pode usar um rótulo mais curto (ex: "Projetor") — quem
+  opera já sabe em que modo está.
 - **QR code**: só no modo Público (projetor), e só com link para o `client-X.html`
   — a Consola não precisa de QR próprio.
+- **Consola — layout responsivo para telemóvel**: header em 2 linhas (`flex-wrap`)
+  — 1ª linha com identidade do jogo + código de sessão + "Sair", 2ª linha com
+  contagem de mesas online + toggles/ações secundárias. Painéis laterais (ex:
+  ranking) ficam `hidden lg:flex` por defeito; acesso em ecrãs pequenos via botão na
+  barra inferior que abre o modal equivalente (ex: "🏆 Ranking"). Outras ações
+  secundárias (ex: "📊 Estatísticas") também podem viver na barra inferior com
+  `flex-wrap`, em vez de competirem por espaço no header.
 
 Este padrão é **opcional** — Hitster e Diamant não o usam (um único `master-X.html`
 sem escolha de modo). Usar apenas se o jogo tiver um ecrã de projetor partilhado
@@ -320,9 +341,10 @@ choosing_difficulty → ...`
 - **QR code só no modo Público**, com link apenas para `client-justone.html`
   (a Consola não tem QR/modal próprio — quem a usa já está dentro da sessão).
 - **`publicShowScores`**: placar oculto por defeito no modo Público; toggle na
-  Consola (persistido em `gameState`/`publicState`). Quando oculto, o corpo do
-  projetor usa tamanhos de texto maiores para a mesa adivinhadora, fase, pistas em
-  destaque, contagem de anuladas e revelação completa.
+  Consola (persistido em `gameState`/`publicState`). Quando ativo, o modo Público
+  mostra o placar como modal sobreposto (mesmo estilo do ranking da Consola); o
+  corpo principal (fase/pistas/palavra) mantém sempre os mesmos tamanhos de texto,
+  visível por trás do modal quando este está aberto.
 - **`publicClients`**: o modo Público subscreve também `sessions/{id}/clients`
   (só `teamName`/`tableNumber`/presença, nunca dados de jogo) para mesas novas
   aparecerem de imediato no placar, sem esperar pelo próximo `publicState` escrito
@@ -331,6 +353,13 @@ choosing_difficulty → ...`
   `client-justone.html`) que formata "Nome (Mesa N)" / "Mesa N" via
   `T('table_n', {n: table.id})`; usada em todo o lado em que se mostra o nome de
   uma equipa, para o nº de mesa estar sempre visível.
+- **Faixa de equipas e destaque da adivinhadora**: o modo Público mostra sempre
+  `teamLabel(table)` de todas as mesas conectadas (sem pontos), com a mesa
+  `guesserTableId` em destaque (cor/escala) fora da fase `waiting`. O header do
+  modo Público usa o rótulo curto "Projetor" (`m_j_mode_projector_label`), distinto
+  do rótulo descritivo "📺 Público (projetor)" (`m_j_mode_public_label`) usado só no
+  ecrã de escolha de modo. Quando `clueDeadline` está definido, a contagem
+  decrescente também é mostrada no modo Público.
 - Pool de palavras em `games/justone-words-pt.txt` / `-en.txt`, cada um dividido em
   3 níveis (easy/medium/hard via marcadores `# --- Fácil/Médio/Difícil ---` ou
   `Easy/Medium/Hard`); seletor "Idioma da lista de palavras" (`wordPoolLang`)
@@ -359,6 +388,12 @@ choosing_difficulty → ...`
   resultado, pistas válidas/anuladas, nº de mesas); painel "Estatísticas" (só modo
   Consola) agrega por dificuldade ao vivo e exporta CSV/JSON.
 - `revealAll` controla visibilidade pós-resolução.
+- **Consola responsiva**: header em 2 linhas (`flex-wrap`) — identidade do jogo +
+  código de sessão + "Sair" / contagem de mesas online + toggles (`showScores`,
+  `publicShowScores`, "Trocar modo"); painel de ranking lateral `hidden lg:flex`
+  (acesso completo em telemóvel via botão "🏆 Ranking" na barra inferior, que abre o
+  `LeaderboardModal`); "📊 Estatísticas" também passou para a barra inferior — evita
+  scroll horizontal em ecrãs pequenos.
 - Sem `games/justone*.js` em runtime — tudo inline, como o Diamant standalone
   (`games/diamant.js` pertence ao motor antigo `master.html`/`client.html`, não ao
   standalone).

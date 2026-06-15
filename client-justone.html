@@ -663,11 +663,22 @@
                         [
                             { id: 'goal',    title: T('j_rule_goal_title'),    content: T('j_rule_goal_content') },
                             { id: 'clues',   title: T('j_rule_clues_title'),   content: T('j_rule_clues_content') },
-                            { id: 'scoring', title: T('j_rule_scoring_title'), content: T('j_rule_scoring_content') }
+                            { id: 'scoring', title: T('j_rule_scoring_title'), items: [
+                                T('j_rule_scoring_correct'),
+                                T('j_rule_scoring_cluegiver'),
+                                T('j_rule_scoring_wrong'),
+                                T('j_rule_scoring_pass')
+                            ] }
                         ].map(function(block) {
                             return h('div', { key: block.id, className: 'bg-white bg-opacity-5 rounded-2xl p-4 mb-3' },
                                 h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-400 mb-2' }, block.title),
-                                h('div', { className: 'text-sm text-slate-300' }, block.content)
+                                block.items
+                                    ? h('ul', { className: 'text-sm text-slate-300 space-y-2' },
+                                        block.items.map(function(item, idx) {
+                                            return h('li', { key: idx, className: 'leading-snug' }, item);
+                                        })
+                                      )
+                                    : h('div', { className: 'text-sm text-slate-300' }, block.content)
                             );
                         })
                     )

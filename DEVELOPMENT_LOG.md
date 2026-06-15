@@ -51,6 +51,35 @@ Estes quatro pontos (escolha de modo, `publicState`, `publicClients`/presença,
 (Consola/Público)** em `CLAUDE_CONTEXT.md`, para reutilização por jogos futuros com
 ecrã de projetor.
 
+### Projetor reorganizado + Consola responsiva (2026-06-15)
+
+Segunda ronda de ajustes no mesmo dia, focada em usabilidade do projetor e em
+telemóveis:
+
+- **Faixa de equipas sempre visível no Projetor**: `teamLabel(table)` de todas as
+  mesas conectadas, sem pontos, com a mesa `guesserTableId` em destaque fora da
+  fase `waiting` — substitui o antigo indicador inline da equipa adivinhadora.
+- **Placar do Projetor em modal**: `publicShowScores` ativo já não aumenta os
+  tamanhos de texto do corpo (ajuste anterior) — em vez disso abre um modal
+  sobreposto com o ranking, no mesmo estilo do ranking da Consola; o corpo
+  principal mantém sempre os mesmos tamanhos.
+- **Contagem do temporizador também no Projetor**, quando `clueDeadline` está
+  definido.
+- **Header do modo Público renomeado para "Projetor"**
+  (`m_j_mode_projector_label`), mais curto do que o rótulo descritivo do ecrã de
+  escolha de modo ("📺 Público (projetor)").
+- **Consola com layout responsivo para telemóvel**: header em 2 linhas
+  (`flex-wrap`), painel de ranking lateral `hidden lg:flex` (acesso via botão
+  "🏆 Ranking" na barra inferior), "📊 Estatísticas" movido para a barra inferior —
+  elimina scroll horizontal em ecrãs pequenos.
+- **Texto de pontuação na ajuda do cliente reescrito** como lista de regras
+  (acerto / pistas válidas / erro / passar), substituindo o parágrafo único
+  anterior.
+
+Os padrões de faixa de equipas, placar em modal, temporizador partilhado e layout
+responsivo da Consola foram incorporados ao padrão **Master Dual-Mode
+(Consola/Público)** em `CLAUDE_CONTEXT.md`.
+
 ---
 
 ## 🧱 Refactor — Extracção dos Shared Cores (Maio 2026)
