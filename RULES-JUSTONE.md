@@ -13,8 +13,8 @@ divertidas do jogo fica desativada.
 ## Preparação
 
 O anfitrião prepara uma lista de palavras — por defeito já vem uma lista de cerca de
-50 palavras por idioma (`games/justone-words-pt.txt` / `-en.txt`), organizadas por
-dificuldade (Fácil/Médio/Difícil), mas pode ser editada antes de começar no ecrã de
+750 palavras por idioma (`games/justone-words-pt.txt` / `-en.txt`), 250 por nível,
+organizadas por dificuldade (Fácil/Médio/Difícil), mas pode ser editada antes de começar no ecrã de
 configuração — incluindo a escolha do idioma da lista, independente do idioma da
 interface. No mesmo ecrã, o anfitrião pode ajustar os valores de pontuação por
 dificuldade, incluindo a penalização por erro (ver Pontuação), e definir um limite de
