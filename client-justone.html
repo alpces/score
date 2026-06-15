@@ -93,6 +93,13 @@
             hard:   'bg-red-100 text-red-800'
         };
 
+        // — nome de equipa + nº de mesa, sempre juntos —
+        function teamLabel(table) {
+            if (!table) return '';
+            var tn = T('table_n', { n: table.id });
+            return table.name ? (table.name + ' (' + tn + ')') : tn;
+        }
+
         function App() {
             var _s = function(v) { return useState(v); };
 
@@ -464,7 +471,7 @@
                 // ronda + equipa a adivinhar
                 gameData && phase !== 'waiting' && h('div', { className: 'relative z-10 mx-4 mt-2 flex items-center justify-between text-white text-opacity-70 text-xs font-bold flex-shrink-0' },
                     h('span', null, T('j_round_label', { n: gameData.roundNumber })),
-                    h('span', null, T('j_guesser_team_label', { name: guesserTable ? guesserTable.name : T('table_n', { n: gameData.guesserTableId }) }))
+                    h('span', null, T('j_guesser_team_label', { name: teamLabel(guesserTable || { id: gameData.guesserTableId }) }))
                 ),
 
                 // pontuação
@@ -512,7 +519,7 @@
                               )
                             : h('div', { className: 'text-center text-white' },
                                 h('div', { className: 'text-5xl mb-3' }, '🎯'),
-                                h('div', { className: 'text-lg font-semibold' }, T('j_team_choosing_difficulty', { name: guesserTable ? guesserTable.name : T('table_n', { n: gameData.guesserTableId }) }))
+                                h('div', { className: 'text-lg font-semibold' }, T('j_team_choosing_difficulty', { name: teamLabel(guesserTable || { id: gameData.guesserTableId }) }))
                               )
                     ),
 
@@ -619,7 +626,7 @@
                                     var c = visibleClues[tid];
                                     var tbl = allTables.find(function(t) { return t.id === parseInt(tid, 10); });
                                     return h('div', { key: tid, className: 'flex items-center justify-between gap-2 text-sm' },
-                                        h('span', { className: 'font-semibold text-gray-700' }, (tbl ? tbl.name : T('table_n', { n: tid })) + ': ' + c.text),
+                                        h('span', { className: 'font-semibold text-gray-700' }, teamLabel(tbl || { id: tid }) + ': ' + c.text),
                                         h('span', { className: c.status === 'valid' ? 'text-green-600 font-bold' : 'text-gray-400 font-bold' }, c.status === 'valid' ? '✅' : '🚫')
                                     );
                                 })
@@ -627,11 +634,11 @@
                         ),
                         h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 text-center text-white' },
                             guessResult === 'correct' && h('div', null,
-                                h('div', { className: 'font-bold text-lg' }, T('j_result_correct', { name: guesserTable ? guesserTable.name : '', points: cfg ? cfg.guesser : 0 })),
+                                h('div', { className: 'font-bold text-lg' }, T('j_result_correct', { name: teamLabel(guesserTable), points: cfg ? cfg.guesser : 0 })),
                                 myClueStatus === 'valid' && h('div', { className: 'text-green-300 mt-1' }, T('j_clue_bonus_earned', { points: cfg ? cfg.clueGiver : 0 }))
                             ),
-                            guessResult === 'incorrect' && h('div', { className: 'font-bold text-lg' }, T('j_result_incorrect', { name: guesserTable ? guesserTable.name : '', points: cfg ? cfg.penalty : 0 })),
-                            guessResult === 'passed' && h('div', { className: 'font-bold text-lg' }, isGuesser ? T('j_result_passed') : T('j_team_passed', { name: guesserTable ? guesserTable.name : '' }))
+                            guessResult === 'incorrect' && h('div', { className: 'font-bold text-lg' }, T('j_result_incorrect', { name: teamLabel(guesserTable), points: cfg ? cfg.penalty : 0 })),
+                            guessResult === 'passed' && h('div', { className: 'font-bold text-lg' }, isGuesser ? T('j_result_passed') : T('j_team_passed', { name: teamLabel(guesserTable) }))
                         ),
                         h('div', { className: 'text-center text-white text-opacity-70 text-sm' }, T('j_waiting_next_round'))
                     )

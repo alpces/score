@@ -174,6 +174,13 @@
             return null;
         }
 
+        // — nome de equipa + nº de mesa, sempre juntos —
+        function teamLabel(table) {
+            if (!table) return '';
+            var tn = T('table_n', { n: table.id });
+            return table.name ? (table.name + ' (' + tn + ')') : tn;
+        }
+
         // — pontuação: configuração por defeito + persistência —
         var DEFAULT_SCORING_CONFIG = {
             easy:   { guesser: 2, clueGiver: 1, penalty: 1 },
@@ -312,10 +319,12 @@
             var g11 = _s(null);           var clueDeadline = g11[0];        var setClueDeadline = g11[1];
             var g12 = _s(true);           var showScores = g12[0];          var setShowScores = g12[1];
             var g13 = _s(false);          var tablesLocked = g13[0];        var setTablesLocked = g13[1];
+            var g14 = _s(false);          var publicShowScores = g14[0];    var setPublicShowScores = g14[1];
 
             /* —— PÚBLICO (só leitura) —— */
             var pb1 = _s(null);    var publicState = pb1[0];       var setPublicState = pb1[1];
             var pb2 = _s(Date.now()); var nowTick = pb2[0];        var setNowTick = pb2[1];
+            var pb3 = _s({});      var publicClients = pb3[0];     var setPublicClients = pb3[1];
 
             /* —— UI (CONSOLA) —— */
             var u1  = _s({});      var connectedClients = u1[0];        var setConnectedClients = u1[1];
@@ -385,6 +394,7 @@
             var switchMode = function() {
                 setMasterMode(null);
                 setModeChosen(false);
+                setShowQR(false);
                 try { localStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
             };
 
@@ -509,6 +519,7 @@
                         revealedWord: revealAll ? secretWord : null,
                         tables: tables,
                         showScores: showScores,
+                        publicShowScores: publicShowScores,
                         tablesLocked: tablesLocked,
                         selectedLogos: selectedLogos
                     }).catch(function(e) { console.error('Sync gameState:', e); });
@@ -516,7 +527,7 @@
                 return function() { clearTimeout(syncTimerRef.current); };
             }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, usedWords,
                 wordPool, wordPoolLang, scoringConfig, timerSeconds, clueDeadline, clueStatus, revealAll,
-                guessResult, tables, showScores, tablesLocked, selectedLogos, secretWord, justoneClues]);
+                guessResult, tables, showScores, publicShowScores, tablesLocked, selectedLogos, secretWord, justoneClues]);
 
             /* —— SYNC publicState (Consola → Firebase, debounced 200ms) —— */
             useEffect(function() {
@@ -528,7 +539,7 @@
                 }, 200);
                 return function() { clearTimeout(publicSyncTimerRef.current); };
             }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, tables,
-                justoneClues, clueStatus, guessResult, secretWord, revealAll, clueDeadline]);
+                justoneClues, clueStatus, guessResult, secretWord, revealAll, clueDeadline, publicShowScores]);
 
             /* —— LISTENER: CLIENTES (Consola) —— */
             useEffect(function() {
@@ -596,13 +607,24 @@
                 return function() { unsub(); };
             }, [sessionId, masterMode, showStats]);
 
-            /* —— SUBSCRIÇÃO publicState (modo Público — ÚNICA fonte de dados deste modo) —— */
+            /* —— SUBSCRIÇÃO publicState (modo Público — fonte principal de dados deste modo) —— */
             useEffect(function() {
                 if (!sessionId || masterMode !== 'public') return;
                 var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/publicState'), function(snap) {
                     setPublicState(snap.val() || null);
                 });
                 return function() { unsub(); setPublicState(null); };
+            }, [sessionId, masterMode]);
+
+            /* —— SUBSCRIÇÃO clients (modo Público — só teamName/tableNumber/lastSeen, sem
+               dados de jogo, para novas mesas aparecerem de imediato sem esperar pela
+               próxima escrita de publicState pela Consola) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'public') return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
+                    setPublicClients(snap.val() || {});
+                });
+                return function() { unsub(); setPublicClients({}); };
             }, [sessionId, masterMode]);
 
             /* —— TICK DO TIMER DE PISTAS (consola + público) —— */
@@ -655,6 +677,7 @@
                             revealedWord: null,
                             tables: [],
                             showScores: true,
+                            publicShowScores: false,
                             tablesLocked: false,
                             selectedLogos: selectedLogos
                         });
@@ -663,7 +686,7 @@
                             phase: 'waiting', roundNumber: 1, guesserTableId: null, secretWordDifficulty: null,
                             tables: [], cluesSubmitted: 0, cluesTotal: 0, validClueCount: 0, annulledClueCount: 0,
                             clueDeadline: null, guessResult: null, visibleClues: null, revealedWord: null,
-                            completedLaps: 0, timestamp: Date.now()
+                            publicShowScores: false, completedLaps: 0, timestamp: Date.now()
                         });
                     } catch(e) { console.error('Init:', e); }
                 }, 100);
@@ -693,6 +716,7 @@
                     setRevealAll(data.revealAll || false);
                     setGuessResult(data.guessResult || null);
                     setShowScores(data.showScores !== false);
+                    setPublicShowScores(data.publicShowScores === true);
                     setTablesLocked(data.tablesLocked || false);
                     setSelectedLogos(data.selectedLogos || []);
                     // restaurar palavra secreta local (só relevante no modo Consola)
@@ -775,7 +799,7 @@
                 setPhase('waiting'); setRoundNumber(1); setGuesserTableId(null);
                 setSecretWord(null); setSecretWordDifficulty(null); setUsedWords([]);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null); setClueDeadline(null);
-                setShowScores(true); setTablesLocked(false);
+                setShowScores(true); setPublicShowScores(false); setTablesLocked(false);
                 setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneStats({});
                 setConnectedClients({}); setPublicState(null);
                 setShowReview(false); setShowLeaderboard(false); setShowQR(false);
@@ -807,11 +831,9 @@
                 } catch(e) { alert('Erro ao remover mesa.'); }
             };
 
+            /* QR só para os clientes (mesas) entrarem — link do projetor não tem QR próprio */
             var qrUrl = sessionId
                 ? 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionId)
-                : '';
-            var qrPublicUrl = sessionId
-                ? 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(window.location.origin + window.location.pathname + '?mode=public&session=' + sessionId)
                 : '';
 
             /* —— RONDA: INICIAR (waiting -> choosing_difficulty) —— */
@@ -988,6 +1010,7 @@
                     guessResult: guessResult,
                     visibleClues: buildVisibleClues(phase, justoneClues, clueStatus),
                     revealedWord: revealAll ? secretWord : null,
+                    publicShowScores: publicShowScores,
                     completedLaps: getCompletedLaps(tables),
                     timestamp: Date.now()
                 };
@@ -1137,7 +1160,7 @@
                             h('div', null,
                                 h('h2', { className: 'text-lg font-black text-gray-800' }, T('m_j_validate_clues_title')),
                                 h('div', { className: 'text-sm text-gray-500' },
-                                    T('m_j_secret_word_label') + ' ' + secretWord + ' · ' + T('m_j_guesser_label') + ' ' + (guesserTable ? (guesserTable.name || T('table_n', { n: guesserTable.id })) : '')
+                                    T('m_j_secret_word_label') + ' ' + secretWord + ' · ' + T('m_j_guesser_label') + ' ' + teamLabel(guesserTable)
                                 )
                             ),
                             secretWordDifficulty && h('span', { className: 'px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ' + DIFFICULTY_BADGE_COLORS[secretWordDifficulty] },
@@ -1162,14 +1185,14 @@
                                         status === 'valid' && h('span', { className: 'text-white text-xs font-bold' }, '✓')
                                     ),
                                     h('div', { className: 'flex-1 min-w-0' },
-                                        h('div', { className: 'font-bold text-gray-800 text-sm' }, t.name || T('table_n', { n: t.id })),
+                                        h('div', { className: 'font-bold text-gray-800 text-sm' }, teamLabel(t)),
                                         hasClue
                                             ? h('div', { className: 'text-gray-600 text-sm truncate' }, '"' + clue.text + '"')
                                             : h('div', { className: 'text-gray-400 text-xs italic' }, T('m_j_clue_no_submission')),
                                         isDup && h('div', { className: 'text-xs text-amber-600 font-semibold mt-0.5' },
                                             T('m_j_duplicate_warning', {
                                                 names: tables.filter(function(t2) { return dupSet[t2.id] && t2.id !== t.id; })
-                                                    .map(function(t2) { return t2.name || T('table_n', { n: t2.id }); }).join(', ')
+                                                    .map(function(t2) { return teamLabel(t2); }).join(', ')
                                             })
                                         )
                                     ),
@@ -1337,7 +1360,7 @@
                                             h('div', { className: 'flex items-center justify-between' },
                                                 h('div', { className: 'flex items-center gap-2' },
                                                     medal && h('span', null, medal),
-                                                    h('span', { className: 'font-semibold text-sm text-white' }, t.name || T('table_n', { n: t.id }))
+                                                    h('span', { className: 'font-semibold text-sm text-white' }, teamLabel(t))
                                                 ),
                                                 h('span', { className: 'font-black text-teal-400' }, t.score + ' pts')
                                             ),
@@ -1602,8 +1625,26 @@
                 }
 
                 var ps = publicState;
-                var psGuesser = (ps.tables || []).find(function(t) { return t.id === ps.guesserTableId; });
-                var psSorted = (ps.tables || []).slice().sort(function(a, b) { return b.score - a.score; });
+                /* mesas conhecidas por publicState + qualquer mesa já em sessions/{id}/clients
+                   ainda não refletida no último publicState (entrada ao vivo, sem refresh) */
+                var psTables = (ps.tables || []).slice();
+                var psKnownIds = {};
+                psTables.forEach(function(t) { psKnownIds[t.id] = true; });
+                Object.values(publicClients).forEach(function(c) {
+                    var tid = c && c.tableNumber;
+                    if (tid && !psKnownIds[tid]) {
+                        psTables.push({ id: tid, name: c.teamName || null, score: 0 });
+                        psKnownIds[tid] = true;
+                    }
+                });
+                var psGuesser = psTables.find(function(t) { return t.id === ps.guesserTableId; });
+                var psSorted = psTables.slice().sort(function(a, b) { return b.score - a.score; });
+                var psShowScores = !!ps.publicShowScores;
+                /* sem placar visível, há mais espaço — pistas/palavra em destaque maior */
+                var psBodyWidth = psShowScores ? 'max-w-2xl' : 'max-w-4xl';
+                var psClueTextSize = psShowScores ? 'text-xl' : 'text-3xl';
+                var psRevealClueTextSize = psShowScores ? 'text-lg' : 'text-2xl';
+                var psRevealWordTextSize = psShowScores ? 'text-3xl' : 'text-5xl';
 
                 var psPhaseLabel = {
                     'waiting':             T('m_j_phase_waiting'),
@@ -1634,7 +1675,7 @@
                     psBody = h('div', { className: 'text-teal-300 text-lg font-bold' }, T('m_j_phase_waiting'));
                 } else if (ps.phase === 'choosing_difficulty') {
                     psBody = h('div', { className: 'text-center' },
-                        h('div', { className: 'text-2xl font-black' }, T('m_j_pub_choosing_difficulty', { name: psGuesser ? psGuesser.name : '' }))
+                        h('div', { className: 'text-2xl font-black' }, T('m_j_pub_choosing_difficulty', { name: teamLabel(psGuesser) }))
                     );
                 } else if (ps.phase === 'clue_giving') {
                     psBody = h('div', { className: 'text-center space-y-3' },
@@ -1650,11 +1691,11 @@
                     );
                 } else if (ps.phase === 'guessing') {
                     var psVisibleClues = ps.visibleClues || {};
-                    psBody = h('div', { className: 'text-center space-y-3 max-w-2xl' },
+                    psBody = h('div', { className: 'text-center space-y-3 ' + psBodyWidth },
                         psDifficultyBadge,
-                        h('div', { className: 'flex flex-wrap gap-2 justify-center' },
+                        h('div', { className: 'flex flex-wrap gap-3 justify-center' },
                             Object.keys(psVisibleClues).map(function(tid) {
-                                return h('div', { key: tid, className: 'bg-slate-800 border border-teal-700 rounded-xl px-4 py-2 text-xl font-black' }, psVisibleClues[tid].text);
+                                return h('div', { key: tid, className: 'bg-slate-800 border border-teal-700 rounded-xl px-4 py-2 font-black ' + psClueTextSize }, psVisibleClues[tid].text);
                             })
                         ),
                         h('div', { className: 'text-sm text-slate-400' }, T('m_j_annulled_count', { n: ps.annulledClueCount || 0 }))
@@ -1666,20 +1707,20 @@
                         incorrect: { emoji: '❌', cls: 'bg-red-600' },
                         passed:    { emoji: '⏭️', cls: 'bg-slate-600' }
                     }[ps.guessResult] || null;
-                    psBody = h('div', { className: 'text-center space-y-3 max-w-2xl' },
+                    psBody = h('div', { className: 'text-center space-y-3 ' + psBodyWidth },
                         psDifficultyBadge,
-                        h('div', { className: 'text-3xl font-black text-amber-300 tracking-wide' }, ps.revealedWord || ''),
-                        h('div', { className: 'flex flex-wrap gap-2 justify-center' },
+                        h('div', { className: 'font-black text-amber-300 tracking-wide ' + psRevealWordTextSize }, ps.revealedWord || ''),
+                        h('div', { className: 'flex flex-wrap gap-3 justify-center' },
                             Object.keys(psVisibleAll).map(function(tid) {
                                 var c = psVisibleAll[tid];
                                 return h('div', {
                                     key: tid,
-                                    className: 'rounded-xl px-4 py-2 text-lg font-bold ' + (c.status === 'valid' ? 'bg-green-700' : 'bg-slate-700 line-through opacity-60')
+                                    className: 'rounded-xl px-4 py-2 font-bold ' + psRevealClueTextSize + ' ' + (c.status === 'valid' ? 'bg-green-700' : 'bg-slate-700 line-through opacity-60')
                                 }, c.text);
                             })
                         ),
                         psResultBadge && psGuesser && h('div', { className: 'inline-block px-4 py-2 rounded-xl font-black text-lg ' + psResultBadge.cls },
-                            psResultBadge.emoji + ' ' + psGuesser.name
+                            psResultBadge.emoji + ' ' + teamLabel(psGuesser)
                         ),
                         h('div', { className: 'text-xs text-slate-400' }, T('m_j_completed_laps', { n: ps.completedLaps || 0 }))
                     );
@@ -1694,14 +1735,20 @@
                                 h('div', { className: 'text-xs text-teal-300 font-mono' }, sessionId + ' • 📺 ' + T('m_j_mode_public_label'))
                             )
                         ),
-                        h('button', { onClick: switchMode, className: 'px-3 py-1.5 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-lg text-xs font-bold' }, T('m_j_mode_switch'))
+                        h('div', { className: 'flex items-center gap-2' },
+                            h('button', {
+                                onClick: function() { setShowQR(true); },
+                                className: 'px-3 py-1.5 bg-white text-teal-900 hover:bg-teal-100 rounded-lg text-xs font-bold'
+                            }, '📱 QR'),
+                            h('button', { onClick: switchMode, className: 'px-3 py-1.5 bg-white bg-opacity-10 hover:bg-opacity-20 rounded-lg text-xs font-bold' }, T('m_j_mode_switch'))
+                        )
                     ),
                     h('div', { className: 'px-6 py-3 text-center flex-shrink-0 ' + psPhaseColor },
                         h('div', { className: 'text-xl font-black' }, psPhaseLabel + ' • ' + T('j_round_label', { n: ps.roundNumber || 1 })),
-                        psGuesser && ps.phase !== 'waiting' && h('div', { className: 'text-sm mt-0.5 opacity-90' }, '🎯 ' + psGuesser.name)
+                        psGuesser && ps.phase !== 'waiting' && h('div', { className: 'text-sm mt-0.5 opacity-90' }, '🎯 ' + teamLabel(psGuesser))
                     ),
                     h('div', { className: 'flex-1 flex flex-col items-center justify-center p-6 gap-6' },
-                        h('div', { className: 'w-full max-w-xl space-y-2' },
+                        psShowScores && h('div', { className: 'w-full max-w-xl space-y-2' },
                             psSorted.map(function(t, idx) {
                                 var medal = ['🥇', '🥈', '🥉'][idx] || '';
                                 var isGuesser = t.id === ps.guesserTableId;
@@ -1711,13 +1758,27 @@
                                 },
                                     h('div', { className: 'flex items-center gap-3' },
                                         medal && h('span', { className: 'text-2xl' }, medal),
-                                        h('span', { className: 'font-black text-xl' }, t.name)
+                                        h('span', { className: 'font-black text-xl' }, teamLabel(t))
                                     ),
                                     h('span', { className: 'font-black text-2xl text-teal-400' }, t.score)
                                 );
                             })
                         ),
                         psBody
+                    ),
+
+                    // QR full-screen para os jogadores entrarem
+                    showQR && h('div', {
+                        className: 'fixed inset-0 bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex flex-col items-center justify-center z-50 cursor-pointer overflow-y-auto py-8',
+                        onClick: function() { setShowQR(false); }
+                    },
+                        h('img', {
+                            src: qrUrl, alt: 'QR Code',
+                            className: 'w-[min(70vw,50vh)] h-[min(70vw,50vh)] bg-white p-4 rounded-2xl shadow-2xl',
+                            onClick: function(e) { e.stopPropagation(); }
+                        }),
+                        h('div', { className: 'text-5xl font-black text-white mt-4 tracking-widest' }, sessionId),
+                        h('div', { className: 'text-teal-300 mt-2 text-sm' }, T('m_tap_to_go_back'))
                     )
                 );
             }
@@ -1746,10 +1807,6 @@
                             className: 'text-xs bg-teal-700 hover:bg-teal-600 px-2 py-0.5 rounded'
                         }, codeCopied ? '✓' : '📋')
                     ),
-                    h('button', {
-                        onClick: function() { setShowQR(true); },
-                        className: 'bg-white text-teal-900 hover:bg-teal-100 px-3 py-1.5 rounded-lg font-bold text-sm'
-                    }, '📱 QR'),
                     selectedLogos.length > 0 && h('img', {
                         src: selectedLogos[0], alt: 'logo',
                         className: 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 object-contain pointer-events-none',
@@ -1761,6 +1818,10 @@
                             onClick: function() { setShowScores(!showScores); },
                             className: 'bg-teal-800 hover:bg-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
                         }, showScores ? T('m_h_hide_pts') : T('m_h_show_pts')),
+                        h('button', {
+                            onClick: function() { setPublicShowScores(!publicShowScores); },
+                            className: 'bg-teal-800 hover:bg-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                        }, publicShowScores ? T('m_j_pub_scores_hide') : T('m_j_pub_scores_show')),
                         h('button', {
                             onClick: switchMode,
                             className: 'bg-teal-800 hover:bg-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
@@ -1776,7 +1837,7 @@
                 h('div', { className: 'px-4 py-2 flex items-center gap-2 flex-wrap bg-slate-800 border-b border-slate-700 flex-shrink-0' },
                     h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm ' + phaseColor + ((phase === 'clue_giving' || phase === 'guessing') ? ' blink' : '') }, phaseLabel),
                     guesserTable && phase !== 'waiting' && h('div', { className: 'bg-teal-700 text-teal-100 px-3 py-1 rounded-full text-sm font-bold' },
-                        T('m_j_guesser_label') + ' ' + (guesserTable.name || T('table_n', { n: guesserTable.id }))
+                        T('m_j_guesser_label') + ' ' + teamLabel(guesserTable)
                     ),
                     secretWordDifficulty && h('span', {
                         className: 'px-3 py-1 rounded-full text-sm font-bold ' + (DIFFICULTY_BADGE_COLORS[secretWordDifficulty] || '')
@@ -1871,7 +1932,7 @@
                                     return h('div', { key: t.id, className: 'flex items-center justify-between text-sm' },
                                         h('div', { className: 'flex items-center gap-1' },
                                             h('span', null, medal || (idx + 1) + '.'),
-                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, t.name || T('table_n', { n: t.id }))
+                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, teamLabel(t))
                                         ),
                                         h('span', { className: 'font-black text-teal-400' }, t.score)
                                     );
@@ -1892,7 +1953,7 @@
 
                     phase === 'choosing_difficulty' && h('div', { className: 'flex-1 flex flex-col gap-2' },
                         h('div', { className: 'text-sm text-slate-300 font-semibold' },
-                            T('m_j_choose_difficulty_for_team', { name: guesserTable ? (guesserTable.name || T('table_n', { n: guesserTable.id })) : '' })
+                            T('m_j_choose_difficulty_for_team', { name: teamLabel(guesserTable) })
                         ),
                         h('div', { className: 'text-xs text-slate-500' }, T('m_j_waiting_difficulty_choice')),
                         h('div', { className: 'flex gap-2 flex-wrap' },
@@ -1917,7 +1978,7 @@
                                 openClueReview();
                             },
                             className: 'px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform' + (clueCount > 0 ? ' blink' : '')
-                        }, T('m_j_view_clues') + ' (' + clueCount + ')'),
+                        }, T('m_j_view_clues', { n: clueCount })),
                         h('button', {
                             onClick: function() {
                                 if (!confirm(T('m_j_restart_round_confirm'))) return;
@@ -1984,28 +2045,6 @@
 
                 /* —— MODAIS —— */
 
-                // QR full-screen (jogadores + projetor)
-                showQR && h('div', {
-                    className: 'fixed inset-0 bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex flex-col items-center justify-center z-50 cursor-pointer overflow-y-auto py-8',
-                    onClick: function() { setShowQR(false); }
-                },
-                    h('img', {
-                        src: qrUrl, alt: 'QR Code',
-                        className: 'w-[min(70vw,50vh)] h-[min(70vw,50vh)] bg-white p-4 rounded-2xl shadow-2xl',
-                        onClick: function(e) { e.stopPropagation(); }
-                    }),
-                    h('div', { className: 'text-5xl font-black text-white mt-4 tracking-widest' }, sessionId),
-                    h('div', { className: 'text-teal-300 mt-2 text-sm' }, T('m_tap_to_go_back')),
-                    h('div', { className: 'mt-8 flex flex-col items-center' },
-                        h('img', {
-                            src: qrPublicUrl, alt: 'QR Público',
-                            className: 'w-[min(50vw,35vh)] h-[min(50vw,35vh)] bg-white p-3 rounded-2xl shadow-2xl',
-                            onClick: function(e) { e.stopPropagation(); }
-                        }),
-                        h('div', { className: 'text-teal-300 mt-2 text-xs' }, T('m_j_qr_public_link'))
-                    )
-                ),
-
                 // Leaderboard
                 showLeaderboard && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowLeaderboard(false); } },
                     h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
@@ -2016,7 +2055,7 @@
                                 return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl bg-slate-700' },
                                     h('div', { className: 'flex items-center gap-2' },
                                         h('span', { className: 'text-xl' }, medal),
-                                        h('div', { className: 'font-bold text-white' }, t.name || T('table_n', { n: t.id }))
+                                        h('div', { className: 'font-bold text-white' }, teamLabel(t))
                                     ),
                                     h('div', { className: 'text-2xl font-black text-teal-400' }, t.score)
                                 );
@@ -2037,7 +2076,7 @@
                                     var online = !!connectedClients[table.id];
                                     return h('div', { key: table.id, className: 'flex items-center justify-between p-2 rounded-lg border border-slate-600' },
                                         h('div', null,
-                                            h('div', { className: 'font-bold text-sm text-white' }, table.name || T('table_n', { n: table.id })),
+                                            h('div', { className: 'font-bold text-sm text-white' }, teamLabel(table)),
                                             h('div', { className: 'text-xs ' + (online ? 'text-green-400' : 'text-slate-500') }, online ? '● Online' : '○ Offline')
                                         ),
                                         h('button', {
