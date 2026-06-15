@@ -240,6 +240,43 @@ h('div', { className: '...' },
 
 ---
 
+## 🖥️ Padrão Opcional: Master Dual-Mode (Consola/Público)
+
+Para jogos com um ecrã de projetor/placar partilhado (ex: Mega Just One), o
+`master-X.html` pode oferecer dois modos por dispositivo em vez de uma única UI.
+Referência completa: `master-justone.html`. Ao adicionar este padrão a um novo jogo:
+
+- **`masterMode`** (`null|'console'|'public'`), persistido em
+  `localStorage['<jogo>MasterMode']`. Override via `?mode=console|public`; entrada
+  direta `?mode=public&session=CODE` salta o ecrã de setup. Botão "Trocar modo" no
+  header de ambos os modos limpa o estado e volta ao ecrã de escolha. `masterMode`
+  é local ao dispositivo — NUNCA sincronizado via Firebase.
+- **`publicState`**: nó Firebase próprio, projeção sanitizada escrita SÓ pela
+  Consola (mesmo `useEffect` debounced 200ms que o `gameState`). É o nó principal
+  que o modo Público subscreve — nunca subscreve nós com dados sensíveis (no Just
+  One: `secret`, `justoneClues`, `justoneDifficultyChoice`, `justoneStats`).
+- **`clients` (presença)**: o modo Público pode também subscrever
+  `sessions/{id}/clients` para mostrar mesas novas de imediato (só campos não
+  sensíveis — `teamName`/`tableNumber`/`connectedAt`/`lastSeen` —, nunca dados de
+  jogo).
+- **`teamLabel(table)`**: helper local (replicar a função, não está em `shared/` —
+  promover para `shared/` só se um 3º jogo precisar) que formata "Nome (Mesa N)" /
+  "Mesa N" via `T('table_n', {n: table.id})`; usar sempre que se mostra o nome de
+  uma equipa, para o nº de mesa estar sempre visível.
+- **Visibilidade de pontos no Público**: se o jogo tiver razões para esconder
+  pontuações do público (ex: suspense), um toggle `publicShowScores` na Consola
+  (persistido em `gameState`/`publicState`) controla o placar do modo Público; o
+  corpo do projetor pode usar tamanhos de texto maiores quando os pontos estão
+  ocultos.
+- **QR code**: só no modo Público (projetor), e só com link para o `client-X.html`
+  — a Consola não precisa de QR próprio.
+
+Este padrão é **opcional** — Hitster e Diamant não o usam (um único `master-X.html`
+sem escolha de modo). Usar apenas se o jogo tiver um ecrã de projetor partilhado
+distinto do dispositivo do anfitrião.
+
+---
+
 ## 🎲 Apps Existentes — Resumo Técnico
 
 ### Mega Hitster (`master-hitster.html`, `client-hitster.html`, `games/hitster.js`)
@@ -280,6 +317,20 @@ choosing_difficulty → ...`
 - `buildVisibleClues(phase, justoneClues, clueStatus)` gera a projeção partilhada
   `visibleClues` (em `guessing`: só pistas `valid`, sem `status`; em `reveal`:
   todas, com `status`) usada tanto em `gameState` como em `publicState`.
+- **QR code só no modo Público**, com link apenas para `client-justone.html`
+  (a Consola não tem QR/modal próprio — quem a usa já está dentro da sessão).
+- **`publicShowScores`**: placar oculto por defeito no modo Público; toggle na
+  Consola (persistido em `gameState`/`publicState`). Quando oculto, o corpo do
+  projetor usa tamanhos de texto maiores para a mesa adivinhadora, fase, pistas em
+  destaque, contagem de anuladas e revelação completa.
+- **`publicClients`**: o modo Público subscreve também `sessions/{id}/clients`
+  (só `teamName`/`tableNumber`/presença, nunca dados de jogo) para mesas novas
+  aparecerem de imediato no placar, sem esperar pelo próximo `publicState` escrito
+  pela Consola.
+- **`teamLabel(table)`**: helper (replicada em `master-justone.html` e
+  `client-justone.html`) que formata "Nome (Mesa N)" / "Mesa N" via
+  `T('table_n', {n: table.id})`; usada em todo o lado em que se mostra o nome de
+  uma equipa, para o nº de mesa estar sempre visível.
 - Pool de palavras em `games/justone-words-pt.txt` / `-en.txt`, cada um dividido em
   3 níveis (easy/medium/hard via marcadores `# --- Fácil/Médio/Difícil ---` ou
   `Easy/Medium/Hard`); seletor "Idioma da lista de palavras" (`wordPoolLang`)
@@ -320,6 +371,10 @@ Sistema modular legacy. Buzzers, +1/-1/+5, respostas de texto, leaderboard. Não
 ## 🚀 Como Adicionar um Novo Jogo
 
 Padrão recomendado: **standalone** (par `master-X.html` + `client-X.html`), usando os shared cores.
+
+Se o jogo tiver um ecrã de projetor/placar partilhado distinto do dispositivo do
+anfitrião, considerar o padrão **Master Dual-Mode (Consola/Público)** descrito na
+secção anterior, usando `master-justone.html` como referência.
 
 ### Esqueleto do cliente (essencial)
 

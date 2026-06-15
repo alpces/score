@@ -31,6 +31,26 @@ de arquitetura específicas, para referência futura:
   `?mode=public&session=CODE`) permite Consola+Público em simultâneo (PC +
   telemóvel, ou 2 ecrãs) sem coordenação extra.
 
+### Ajustes pós-lançamento (2026-06-15)
+
+- **`publicClients`**: o modo Público passou a subscrever também
+  `sessions/{id}/clients` (só `teamName`/`tableNumber`/presença) para mesas novas
+  aparecerem de imediato no placar — sem esta subscrição, o placar do projetor só
+  refletia novas mesas no próximo `publicState` escrito pela Consola.
+- **`publicShowScores`**: toggle na Consola (persistido em
+  `gameState`/`publicState`) que esconde o placar no modo Público por defeito;
+  quando oculto, o corpo do projetor usa tamanhos de texto maiores para pistas e
+  revelação.
+- **QR code restrito ao modo Público**, com link só para `client-justone.html` —
+  a Consola não precisa de QR próprio.
+- **`teamLabel(table)`**: helper que formata "Nome (Mesa N)" / "Mesa N", aplicada
+  de forma consistente em todo o master e cliente.
+
+Estes quatro pontos (escolha de modo, `publicState`, `publicClients`/presença,
+`teamLabel`, QR só no Público) foram generalizados como padrão **Master Dual-Mode
+(Consola/Público)** em `CLAUDE_CONTEXT.md`, para reutilização por jogos futuros com
+ecrã de projetor.
+
 ---
 
 ## 🧱 Refactor — Extracção dos Shared Cores (Maio 2026)

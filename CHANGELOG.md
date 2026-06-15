@@ -4,6 +4,29 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Mega Just One — Ajustes] - 2026-06-15
+
+### Corrigido
+- **Placar do modo Público não atualizava com novas mesas**: nova subscrição a
+  `sessions/{id}/clients` (só `teamName`/`tableNumber`/presença) faz mesas novas
+  aparecerem de imediato no projetor, sem esperar pelo próximo `publicState`.
+- Texto duplicado no botão "Ver Pistas" da Consola.
+
+### Alterado
+- **QR code passa a existir só no modo Público**, com link apenas para
+  `client-justone.html` (a Consola deixou de ter QR/modal próprios).
+- **Pontuações ocultas por defeito no modo Público** (`publicShowScores`, toggle
+  na Consola); corpo do projetor redesenhado para mostrar a equipa adivinhadora,
+  fase, pistas e revelação em destaque quando os pontos estão ocultos.
+- **`teamLabel(table)`**: nova helper que formata "Nome (Mesa N)" / "Mesa N",
+  aplicada de forma consistente no master e no cliente.
+- `jogar.html` deixa de ter link de volta para `masters.html` (cross-hub-link
+  volta a ser de sentido único, masters → jogar).
+- Dica de escolha de dificuldade (`j_choose_difficulty_hint`) reformulada em
+  PT/EN.
+
+---
+
 ## [Mega Just One] - 2026-06
 
 ### Adicionado
