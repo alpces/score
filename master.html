@@ -130,6 +130,7 @@
                 const [showEndSessionModal, setShowEndSessionModal] = useState(false);
 
                 const lastSeenMapRef = useRef({});
+                const prevBuzzersRef = useRef({});
                 const [presenceTick, setPresenceTick] = useState(0);
                 const archivingRef = useRef(false);
 
@@ -253,6 +254,8 @@
                 useEffect(() => {
                     if (!setupComplete || !sessionId) return;
 
+                    prevBuzzersRef.current = {};
+
                     const buzzersRef = ref(rtdb, `sessions/${sessionId}/buzzers`);
                     const responsesRef = ref(rtdb, `sessions/${sessionId}/textResponses`);
 
@@ -300,9 +303,10 @@
 
                     const unsubBuzzers = onValue(buzzersRef, (snapshot) => {
                         const data = snapshot.val() || {};
-                        const prevBuzzers = { ...buzzers };
+                        const prevBuzzers = prevBuzzersRef.current;
+                        prevBuzzersRef.current = data;
                         setBuzzers(data);
-                        
+
                         Object.keys(data).forEach(key => {
                             if (data[key].pressed && !prevBuzzers[key]?.pressed) {
                                 playBuzzer();
