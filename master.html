@@ -1571,6 +1571,7 @@
                 if (showLeaderboard) {
                     const s = sorted();
                     const visible = s.slice(leaderboardRevealPosition - 1);
+                    const rankOf = (score) => s.findIndex(t => t.score === score) + 1;
                     return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-3' },
                         h('div', { className: 'max-w-4xl mx-auto pt-4' },
                             h('div', { className: 'bg-white rounded-2xl p-4' },
@@ -1578,10 +1579,10 @@
                                     h('h2', { className: 'text-xl font-bold' }, 'Classificação'),
                                     h('button', { onClick: () => { setShowLeaderboard(false); setLeaderboardRevealPosition(null); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Voltar')
                                 ),
-                                leaderboardRevealPosition > 1 && h('button', { onClick: () => setLeaderboardRevealPosition(leaderboardRevealPosition - 1), className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold mb-4 animate-pulse' }, `Revelar ${leaderboardRevealPosition - 1}º Lugar`),
+                                leaderboardRevealPosition > 1 && h('button', { onClick: () => setLeaderboardRevealPosition(leaderboardRevealPosition - 1), className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold mb-4 animate-pulse' }, `Revelar ${rankOf(s[leaderboardRevealPosition - 2]?.score)}º Lugar`),
                                 h('div', { className: 'space-y-2' },
                                     visible.map(t => {
-                                        const pos = s.indexOf(t) + 1;
+                                        const pos = rankOf(t.score);
                                         return h('div', { key: t.id, className: `flex justify-between p-3 rounded ${pos === 1 ? 'bg-yellow-400 text-white scale-105' : pos === 2 ? 'bg-gray-300' : pos === 3 ? 'bg-orange-400 text-white' : 'bg-gray-100'}` },
                                             h('div', null, 
                                                 h('span', { className: 'text-2xl font-bold mr-3' }, `${pos}º`), 
