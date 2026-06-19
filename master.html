@@ -1654,7 +1654,7 @@
                                     return h('div', { key: `buzzer-${b.tableId}`, className: 'bg-red-500 bg-opacity-90 px-3 py-2 rounded flex items-center gap-2' },
                                         h('span', { className: 'text-2xl' }, '🔔'),
                                         h('span', { className: 'font-bold' }, `${b.order}º`),
-                                        h('span', null, table?.name || `Mesa ${b.tableId}`),
+                                        h('span', null, table?.name ? `${table.name} · Mesa ${b.tableId}` : `Mesa ${b.tableId}`),
                                         h('button', { onClick: () => resetBuzzer(b.tableId), className: 'bg-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-800 ml-2' }, 'Reset')
                                     );
                                 }),
