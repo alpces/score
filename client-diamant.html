@@ -188,7 +188,7 @@
                     });
                     if (result.ok) {
                         localStore.save({ session: result.code, table: result.table, team: teamName, emails: emails });
-                        setConnected(true); setAutoReconnecting(false); setConnectionError(''); setSessionLost(false);
+                        setConnected(true); ClientCore.showDedicatedWarning(); setAutoReconnecting(false); setConnectionError(''); setSessionLost(false);
                     } else {
                         if (result.clearLocal) clearLocal();
                         setConnectionError(result.error || T('connect_error'));

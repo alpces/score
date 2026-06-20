@@ -316,6 +316,7 @@
                         const emailsArr = emailsStr.split(',').filter(e => e.trim());
                         setEmails(emailsArr.length ? emailsArr : ['']);
                         setRegistered(true);
+                        ClientCore.showDedicatedWarning();
                         setAutoReconnecting(false);
                         setConnecting(false);
                         setSessionLost(false);

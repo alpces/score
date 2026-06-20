@@ -468,14 +468,45 @@
         return { ok: false, error: lastErr };
     }
 
+    /**
+     * Mostra um aviso (modal DOM, sobre o React) a pedir dedicação exclusiva
+     * do telemóvel à app durante o jogo. Aparece uma vez por dispositivo:
+     * guarda 'score_warned' no localStorage ao ser dispensado.
+     *
+     * Chamar imediatamente após ligação bem-sucedida à sessão.
+     */
+    function showDedicatedWarning() {
+        try { if (localStorage.getItem('score_warned')) return; } catch(e) { return; }
+
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:1rem;z-index:9999';
+
+        var card = document.createElement('div');
+        card.style.cssText = 'background:#fff;border-radius:1rem;padding:1.5rem;max-width:22rem;width:100%;text-align:center;box-shadow:0 25px 50px -12px rgba(0,0,0,.4)';
+        card.innerHTML = '<div style="font-size:2.5rem;margin-bottom:.75rem">📱</div>'
+            + '<h2 style="font-size:1.1rem;font-weight:700;color:#1f2937;margin-bottom:.75rem">Atenção</h2>'
+            + '<p style="color:#374151;margin-bottom:.5rem;line-height:1.5">Este telemóvel deve ficar <strong>ligado e exclusivamente nesta app</strong> durante todo o jogo.</p>'
+            + '<p style="color:#4b5563;font-size:.875rem;margin-bottom:1.25rem;line-height:1.5">Se não for possível, sai da sessão e passa a outro telemóvel do grupo.</p>'
+            + '<button style="width:100%;background:#4f46e5;color:#fff;padding:.75rem;border-radius:.75rem;font-weight:700;border:none;cursor:pointer;font-size:1rem">Percebido!</button>';
+
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+
+        card.querySelector('button').addEventListener('click', function() {
+            try { localStorage.setItem('score_warned', '1'); } catch(e) {}
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        });
+    }
+
     window.ClientCore = {
-        getClientId:      getClientId,
-        withTimeout:      withTimeout,
-        createLocalStore: createLocalStore,
-        computeConnState: computeConnState,
-        connectClient:    connectClient,
-        attachWakeLock:   attachWakeLock,
-        joinSession:      joinSession,
-        submitWithVerify: submitWithVerify
+        getClientId:           getClientId,
+        withTimeout:           withTimeout,
+        createLocalStore:      createLocalStore,
+        computeConnState:      computeConnState,
+        connectClient:         connectClient,
+        attachWakeLock:        attachWakeLock,
+        joinSession:           joinSession,
+        submitWithVerify:      submitWithVerify,
+        showDedicatedWarning:  showDedicatedWarning
     };
 })();
