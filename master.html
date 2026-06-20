@@ -46,6 +46,8 @@
         const MASTER_ID = 'master_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
         const MASTER_MODE_KEY = 'score_concept_master_mode';
 
+        const formatTimer = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -88,6 +90,9 @@
                 const [startWithBuzzersBlocked, setStartWithBuzzersBlocked] = useState(true);
                 const [buzzersBlocked, setBuzzersBlocked] = useState(true);
                 const [showMasterKickedModal, setShowMasterKickedModal] = useState(false);
+                const [roundTimerDuration, setRoundTimerDuration] = useState(120);
+                const [roundTimerDeadline, setRoundTimerDeadline] = useState(null);
+                const [nowTick, setNowTick] = useState(Date.now());
                 const [masterMode, setMasterMode] = useState(null); // null | 'console' | 'projector'
                 const [modeChosen, setModeChosen] = useState(false);
                 const [projectorData, setProjectorData] = useState(null);
@@ -367,6 +372,25 @@
                     return () => { unsubGs(); unsubB(); };
                 }, [setupComplete, sessionId, masterMode]);
 
+                // Tick do temporizador de ronda — intervalo enquanto deadline está activo
+                useEffect(() => {
+                    if (!roundTimerDeadline) return;
+                    const id = setInterval(() => {
+                        setNowTick(Date.now());
+                        if (Date.now() >= roundTimerDeadline) clearInterval(id);
+                    }, 500);
+                    return () => clearInterval(id);
+                }, [roundTimerDeadline]);
+
+                // Expiração do temporizador — bloqueia buzzers e texto
+                useEffect(() => {
+                    if (!roundTimerDeadline) return;
+                    if (Date.now() < roundTimerDeadline) return;
+                    setBuzzersBlocked(true);
+                    setTextInputActive(false);
+                    setTextInputTimeRemaining(0);
+                }, [roundTimerDeadline, nowTick]);
+
                 // Auto-selecionar modo a partir do URL param ?mode=
                 useEffect(() => {
                     if (!setupComplete || modeChosen) return;
@@ -397,12 +421,13 @@
                             buzzersBlocked,
                             selectedLogos,
                             textInputActive, textInputTimeRemaining,
+                            roundTimerDeadline, roundTimerDuration,
                             timestamp: Date.now()
                         });
                     } catch (e) { console.error(e); }
                 };
 
-                useEffect(() => { if (setupComplete && sessionId && !archivingRef.current) syncGame(); }, [tables, yellowCategory, redCategory, textInputActive, textInputTimeRemaining, buzzersBlocked, selectedLogos]);
+                useEffect(() => { if (setupComplete && sessionId && !archivingRef.current) syncGame(); }, [tables, yellowCategory, redCategory, textInputActive, textInputTimeRemaining, buzzersBlocked, selectedLogos, roundTimerDeadline]);
 
                 useEffect(() => {
                     if (textInputActive && textInputTimeRemaining > 0) {
@@ -520,6 +545,8 @@
                                 selectedLogos: selectedLogos,
                                 textInputActive: false,
                                 textInputTimeRemaining: 0,
+                                roundTimerDeadline: null,
+                                roundTimerDuration: roundTimerDuration,
                                 timestamp: Date.now()
                             });
                             console.log(`✅ Sessão ${finalCode} criada no Firebase`);
@@ -699,6 +726,12 @@
                     } catch (e) { console.error(e); }
                 };
 
+                const startRoundTimer = () => {
+                    setRoundTimerDeadline(Date.now() + roundTimerDuration * 1000);
+                    setNowTick(Date.now());
+                    setBuzzersBlocked(false); // desbloqueia automaticamente
+                };
+
                 const activateTextInput = async () => {
                     if (Object.keys(textResponses).length > 0) {
                         alert('Tem respostas pendentes. Aplique os pontos e feche primeiro.');
@@ -767,6 +800,8 @@
                     setProjectorBuzzers({});
                     setShowLeaderboardProj(false);
                     setLeaderboardRevealPosProj(null);
+                    setRoundTimerDeadline(null);
+                    setRoundTimerDuration(120);
                     setStartWithBuzzersBlocked(true);
                     setBuzzersBlocked(true);
                 };
@@ -973,6 +1008,8 @@
                                 selectedLogos: entry.selectedLogos || [],
                                 textInputActive: false,
                                 textInputTimeRemaining: 0,
+                                roundTimerDeadline: null,
+                                roundTimerDuration: entry.roundTimerDuration || 120,
                                 timestamp: Date.now()
                             });
                             console.log(`✅ Sessão ${code} carregada e recriada no Firebase com sucesso`);
@@ -1152,6 +1189,10 @@
                             text: r.text
                         }));
                 };
+
+                // Valores computados do temporizador de ronda
+                const timerRemaining = roundTimerDeadline ? Math.max(0, Math.ceil((roundTimerDeadline - Date.now()) / 1000)) : null;
+                const timerActive = timerRemaining !== null && timerRemaining > 0;
 
                 const formatDate = (timestamp) => {
                     const date = new Date(timestamp);
@@ -2069,6 +2110,27 @@
                                 h('button', { onClick: resetAllScores, className: 'px-2 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, 'Reset pts'),
                                 h('button', { onClick: () => setShowEndSessionModal(true), className: 'px-2 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, '🏁 Terminar')
                             )
+                        ),
+                        h('div', { className: 'flex items-center gap-2 pt-1.5 border-t border-gray-100' },
+                            roundTimerDeadline === null && h('input', {
+                                type: 'number', min: 5, max: 600,
+                                value: roundTimerDuration,
+                                onChange: (e) => setRoundTimerDuration(Math.max(5, Math.min(600, parseInt(e.target.value) || 120))),
+                                className: 'w-16 px-2 py-1.5 text-xs border-2 border-gray-300 rounded text-center font-bold'
+                            }),
+                            roundTimerDeadline === null && h('span', { className: 'text-xs text-gray-500' }, 's'),
+                            roundTimerDeadline !== null && h('div', {
+                                className: `font-black text-xl px-3 py-0.5 rounded-lg flex-shrink-0 tabular-nums ${timerRemaining === 0 ? 'bg-red-100 text-red-700' : timerRemaining <= 10 ? 'bg-red-50 text-red-500 animate-pulse' : timerRemaining <= 30 ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-600'}`
+                            }, formatTimer(timerRemaining)),
+                            h('button', {
+                                onClick: startRoundTimer,
+                                className: `flex-1 px-3 py-2 text-sm rounded-lg font-bold transition-all ${roundTimerDeadline === null ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white'}`
+                            }, roundTimerDeadline === null ? '⏱ Iniciar Temporizador' : '↺ Reiniciar'),
+                            roundTimerDeadline !== null && h('button', {
+                                onClick: () => setRoundTimerDeadline(null),
+                                className: 'px-2 py-2 text-xs bg-gray-200 hover:bg-gray-300 text-gray-600 rounded-lg',
+                                title: 'Cancelar temporizador'
+                            }, '✕')
                         ),
                         enableTextInput && h('div', { className: 'flex items-center gap-2 pt-1 border-t border-gray-100' },
                             h('input', {

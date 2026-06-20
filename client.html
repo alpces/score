@@ -120,6 +120,7 @@
                 const [isSubmitting, setIsSubmitting] = useState(false);
                 const [lastSubmitted, setLastSubmitted] = useState('');
                 const [submitError, setSubmitError] = useState('');
+                const [clientNowTick, setClientNowTick] = useState(Date.now());
 
                 const prevTextActiveRef = useRef(false);
 
@@ -239,6 +240,17 @@
                     prevTextActiveRef.current = newActive;
                 }, [gameData?.textInputActive]);
 
+                // Tick do temporizador de ronda no cliente
+                useEffect(() => {
+                    const deadline = gameData?.roundTimerDeadline;
+                    if (!deadline) return;
+                    const id = setInterval(() => {
+                        setClientNowTick(Date.now());
+                        if (Date.now() >= deadline) clearInterval(id);
+                    }, 500);
+                    return () => clearInterval(id);
+                }, [gameData?.roundTimerDeadline]);
+
                 // Liga (registo manual) ou reconecta (silencioso, após refresh)
                 const handleConnect = async (isAuto) => {
                     setError('');
@@ -357,15 +369,9 @@
 
                 const pressBuzzer = async () => {
                     if (!buzzerState.enabled || buzzerState.pressed) return;
-                    
-                    if (gameData?.blockBuzzerAtZero && myTable?.score === 0) {
-                        return;
-                    }
-                    
-                    // Verificar se buzzers estão bloqueados pelo master
-                    if (gameData?.buzzersBlocked) {
-                        return;
-                    }
+                    if (gameData?.blockBuzzerAtZero && myTable?.score === 0) return;
+                    if (gameData?.buzzersBlocked) return;
+                    if (isTimerBlocking) return;
 
                     playBuzzer();
 
@@ -428,6 +434,12 @@
                 const isBuzzerBlockedByZeroScore = gameData?.blockBuzzerAtZero && myTable?.score === 0;
                 const isBuzzersBlockedByMaster = gameData?.buzzersBlocked;
                 const selectedLogos = gameData?.selectedLogos || [];
+
+                // Temporizador de ronda
+                const roundTimerDeadline = gameData?.roundTimerDeadline || null;
+                const roundTimerRemaining = roundTimerDeadline ? Math.max(0, Math.ceil((roundTimerDeadline - clientNowTick) / 1000)) : null;
+                const isTimerBlocking = roundTimerRemaining === 0 && roundTimerDeadline !== null;
+                const clientFormatTimer = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
                 const mainLogo = selectedLogos.length > 0 ? selectedLogos[0] : null;
                 const sponsorLogos = selectedLogos.slice(1);
 
@@ -609,23 +621,26 @@
                                 h('span', { className: 'text-center leading-tight text-lg sm:text-xl' }, gameData.redCategory)
                             )
                         ),
+                        roundTimerRemaining !== null && h('div', {
+                            className: `rounded-xl px-4 py-2 text-center flex-shrink-0 font-black ${isTimerBlocking ? 'bg-red-600 text-white text-base' : roundTimerRemaining <= 10 ? 'bg-orange-500 text-white text-2xl animate-pulse' : roundTimerRemaining <= 30 ? 'bg-yellow-400 text-gray-900 text-2xl' : 'bg-white bg-opacity-20 text-white text-xl'}`
+                        }, isTimerBlocking ? '⛔ Tempo esgotado!' : '⏱ ' + clientFormatTimer(roundTimerRemaining)),
                         h('div', { className: 'flex-1 flex flex-col items-center justify-center gap-4' },
                             showBuzzer && h('button', {
                                 onClick: pressBuzzer,
-                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzersBlockedByMaster,
+                                disabled: !buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore || isBuzzersBlockedByMaster || isTimerBlocking,
                                 className: `${showTextInput ? 'w-44 h-44 sm:w-48 sm:h-48' : 'w-56 h-56 sm:w-64 sm:h-64'} rounded-full text-white font-black text-2xl sm:text-3xl shadow-2xl transition-all transform ${
-                                    isBuzzersBlockedByMaster
+                                    isBuzzersBlockedByMaster || isTimerBlocking
                                         ? 'bg-gray-400 cursor-not-allowed'
                                         : (!buzzerState.enabled || buzzerState.pressed || isBuzzerBlockedByZeroScore)
-                                            ? 'bg-gray-400 cursor-not-allowed opacity-50' 
+                                            ? 'bg-gray-400 cursor-not-allowed opacity-50'
                                             : 'bg-red-600 hover:bg-red-700 hover:scale-105 active:scale-95'
                                 }`
                             }, h('div', { className: 'flex flex-col items-center gap-2' },
-                                h('div', { className: 'text-5xl' }, 
-                                    isBuzzersBlockedByMaster ? '⏳' : (buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔒' : '🔔')
+                                h('div', { className: 'text-5xl' },
+                                    (isBuzzersBlockedByMaster || isTimerBlocking) ? '⏳' : (buzzerState.pressed || isBuzzerBlockedByZeroScore ? '🔒' : '🔔')
                                 ),
-                                h('div', null, 
-                                    isBuzzersBlockedByMaster ? 'Aguarde' : (buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER'))
+                                h('div', null,
+                                    (isBuzzersBlockedByMaster || isTimerBlocking) ? 'Aguarde' : (buzzerState.pressed || isBuzzerBlockedByZeroScore ? 'BLOQUEADO' : (gameData?.buzzerText || 'BUZZER'))
                                 )
                             )),
                             showTextInput && h('div', { className: 'w-full max-w-2xl relative z-20' },
