@@ -531,17 +531,15 @@
 
                 /**
                  * Lidar com escolha quando encontra sessão existente
-                 * Opções: Carregar sessão / Arquivar e criar nova / Cancelar
-                 * @param {string} choice - 'yes', 'no' ou 'cancel'
+                 * Opções: Consola / Projetor / Arquivar e criar nova / Cancelar
+                 * @param {string} choice - 'console', 'projector', 'no' ou 'cancel'
                  */
                 const handleExistingSessionChoice = async (choice) => {
                     const { code, data } = existingSessionData;
-                    
-                    if (choice === 'yes') {
-                        // ===== OPÇÃO 1: Carregar a sessão existente =====
+
+                    if (choice === 'console') {
+                        // ===== OPÇÃO 1: Entrar como Consola (carrega sessão + toma masterLock) =====
                         setShowExistingSessionDialog(false);
-                        
-                        // Reconstruir objeto para loadSession
                         const sessionEntry = {
                             sessionId: code,
                             tables: data.tables || [],
@@ -554,10 +552,25 @@
                             enableBuzzer: data.enableBuzzer !== undefined ? data.enableBuzzer : true,
                             enableTextInput: data.enableTextInput || false
                         };
-                        
-                        // Carregar sem pedir confirmação adicional
-                        loadSession(sessionEntry, true);
-                        
+                        await loadSession(sessionEntry, true);
+                        // Definir modo e escrever masterLock após loadSession completar
+                        setMasterMode('console');
+                        setModeChosen(true);
+                        try { localStorage.setItem(MASTER_MODE_KEY, 'console'); } catch(e) {}
+                        try {
+                            await set(ref(rtdb, `sessions/${code}/masterLock`), { masterId: MASTER_ID, takenAt: Date.now() });
+                        } catch(e) { console.error('masterLock write failed:', e); }
+
+                    } else if (choice === 'projector') {
+                        // ===== OPÇÃO 2: Entrar como Projetor (só leitura, sem escrever nada) =====
+                        setShowExistingSessionDialog(false);
+                        setSessionId(code);
+                        setSetupComplete(true);
+                        setShowScores(true);
+                        setMasterMode('projector');
+                        setModeChosen(true);
+                        try { localStorage.setItem(MASTER_MODE_KEY, 'projector'); } catch(e) {}
+
                     } else if (choice === 'no') {
                         // ===== OPÇÃO 2: Arquivar sessão antiga e criar nova =====
                         setShowExistingSessionDialog(false);
@@ -1150,38 +1163,53 @@
                     return date.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 };
 
-                // MODAL: Sessão Existente
+                // MODAL: Sessão Existente — escolha de modo de entrada
                 if (showExistingSessionDialog && existingSessionData) {
                     return h('div', { className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full' },
-                            h('div', { className: 'text-center mb-6' },
-                                h('div', { className: 'w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-4' },
-                                    h('span', { className: 'text-3xl' }, '⚠️')
+                            h('div', { className: 'text-center mb-5' },
+                                h('div', { className: 'w-14 h-14 bg-yellow-500 rounded-full flex items-center justify-center mx-auto mb-3' },
+                                    h('span', { className: 'text-2xl' }, '⚠️')
                                 ),
-                                h('h2', { className: 'text-2xl font-bold text-gray-800 mb-2' }, 'Sessão Aberta Encontrada'),
-                                h('p', { className: 'text-gray-600' }, 
-                                    `Já existe uma sessão aberta com o código "${existingSessionData.code}".`
-                                ),
-                                h('p', { className: 'text-gray-600 mt-2' }, 
-                                    'Deseja carregar a sessão anterior?'
-                                )
+                                h('h2', { className: 'text-xl font-bold text-gray-800 mb-1' }, 'Sessão Aberta Encontrada'),
+                                h('p', { className: 'font-mono font-bold text-indigo-600 text-lg' }, existingSessionData.code),
+                                h('p', { className: 'text-gray-500 text-sm mt-1' }, 'Como pretende entrar nesta sessão?')
                             ),
-                            h('div', { className: 'space-y-3' },
-                                h('button', { 
-                                    onClick: () => handleExistingSessionChoice('yes'),
-                                    className: 'w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition'
-                                }, 'Sim - Carregar Sessão Anterior'),
-                                h('button', { 
+                            h('div', { className: 'space-y-2' },
+                                h('button', {
+                                    onClick: () => handleExistingSessionChoice('console'),
+                                    className: 'w-full bg-green-600 text-white py-3 px-4 rounded-xl font-bold hover:bg-green-700 transition text-left flex items-center gap-3'
+                                },
+                                    h('span', { className: 'text-2xl' }, '🎮'),
+                                    h('div', null,
+                                        h('div', null, 'Entrar como Consola'),
+                                        h('div', { className: 'text-xs font-normal opacity-80' }, 'Controla o jogo. Expulsa outras consolas ativas.')
+                                    )
+                                ),
+                                h('button', {
+                                    onClick: () => handleExistingSessionChoice('projector'),
+                                    className: 'w-full bg-indigo-600 text-white py-3 px-4 rounded-xl font-bold hover:bg-indigo-700 transition text-left flex items-center gap-3'
+                                },
+                                    h('span', { className: 'text-2xl' }, '📺'),
+                                    h('div', null,
+                                        h('div', null, 'Entrar como Projetor'),
+                                        h('div', { className: 'text-xs font-normal opacity-80' }, 'Só leitura. Não afeta outras ligações.')
+                                    )
+                                ),
+                                h('button', {
                                     onClick: () => handleExistingSessionChoice('no'),
-                                    className: 'w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700 transition'
-                                }, 'Não - Arquivar e Criar Nova'),
-                                h('button', { 
+                                    className: 'w-full bg-orange-500 text-white py-2.5 px-4 rounded-xl font-semibold hover:bg-orange-600 transition text-left flex items-center gap-3'
+                                },
+                                    h('span', { className: 'text-xl' }, '📦'),
+                                    h('div', null,
+                                        h('div', null, 'Arquivar e Criar Nova Sessão'),
+                                        h('div', { className: 'text-xs font-normal opacity-80' }, 'Fecha esta sessão e inicia uma nova.')
+                                    )
+                                ),
+                                h('button', {
                                     onClick: () => handleExistingSessionChoice('cancel'),
-                                    className: 'w-full bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600 transition'
+                                    className: 'w-full bg-gray-200 text-gray-700 py-2 rounded-xl font-semibold hover:bg-gray-300 transition text-center text-sm'
                                 }, 'Cancelar')
-                            ),
-                            h('p', { className: 'text-xs text-gray-500 mt-4 text-center' }, 
-                                'Escolhendo "Não", a sessão anterior será arquivada e uma nova sessão será criada com o mesmo código.'
                             )
                         )
                     );
