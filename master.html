@@ -42,6 +42,9 @@
         // Tipo de jogo atual (para futura expansão)
         const GAME_TYPE = 'generic';
 
+        // ID único por instância do master — detecta quando outro master toma a sessão
+        const MASTER_ID = 'master_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -83,6 +86,7 @@
                 const [enableTextInput, setEnableTextInput] = useState(false);
                 const [startWithBuzzersBlocked, setStartWithBuzzersBlocked] = useState(true);
                 const [buzzersBlocked, setBuzzersBlocked] = useState(true);
+                const [showMasterKickedModal, setShowMasterKickedModal] = useState(false);
 
                 const [tables, setTables] = useState([]);
                 const [categories, setCategories] = useState([]);
@@ -319,10 +323,20 @@
                         setTextResponses(data);
                     });
 
+                    // masterLock — detecta quando outro master se conecta à mesma sessão
+                    const masterLockRef = ref(rtdb, `sessions/${sessionId}/masterLock`);
+                    const unsubMasterLock = onValue(masterLockRef, (snapshot) => {
+                        const lock = snapshot.val();
+                        if (lock && lock.masterId && lock.masterId !== MASTER_ID) {
+                            setShowMasterKickedModal(true);
+                        }
+                    });
+
                     return () => {
                         unsubClients();
                         unsubBuzzers();
                         unsubResponses();
+                        unsubMasterLock();
                     };
                 }, [setupComplete, sessionId]);
 
@@ -474,6 +488,7 @@
                                 textInputTimeRemaining: 0,
                                 timestamp: Date.now()
                             });
+                            await set(ref(rtdb, `sessions/${finalCode}/masterLock`), { masterId: MASTER_ID, takenAt: Date.now() });
                             console.log(`✅ Sessão ${finalCode} criada no Firebase`);
                         } catch (e) {
                             console.error('❌ Erro ao criar sessão no Firebase:', e);
@@ -699,6 +714,7 @@
                     setShowResponses(false);
                     setSelectedLogos([]);
                     setShowEndSessionModal(false);
+                    setShowMasterKickedModal(false);
                     setStartWithBuzzersBlocked(true);
                     setBuzzersBlocked(true);
                 };
@@ -886,6 +902,7 @@
                                 textInputTimeRemaining: 0,
                                 timestamp: Date.now()
                             });
+                            await set(ref(rtdb, `sessions/${code}/masterLock`), { masterId: MASTER_ID, takenAt: Date.now() });
                             console.log(`✅ Sessão ${code} carregada e recriada no Firebase com sucesso`);
                         } catch (e) {
                             console.error('❌ Erro ao recriar sessão no Firebase:', e);
@@ -1107,6 +1124,23 @@
                             h('p', { className: 'text-xs text-gray-500 mt-4 text-center' }, 
                                 'Escolhendo "Não", a sessão anterior será arquivada e uma nova sessão será criada com o mesmo código.'
                             )
+                        )
+                    );
+                }
+
+                // MODAL: Master substituído por outro
+                if (showMasterKickedModal) {
+                    return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center' },
+                            h('div', { className: 'text-5xl mb-4' }, '🔒'),
+                            h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, 'Sessão tomada por outro Master'),
+                            h('p', { className: 'text-gray-600 mb-6' },
+                                'Outro master ligou-se a esta sessão e tomou o controlo. A tua ligação foi interrompida.'
+                            ),
+                            h('button', {
+                                onClick: resetToSetup,
+                                className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition'
+                            }, 'Voltar ao Início')
                         )
                     );
                 }
