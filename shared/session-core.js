@@ -117,7 +117,16 @@
         var prev = {};
 
         return fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
-            var data = snap.val() || {};
+            var raw = snap.val() || {};
+
+            // Filtrar entradas fantasma: escritas apenas com {lastSeen} pelo heartbeat
+            // antes de joinSession completar, ou após a sessão ser removida.
+            // Uma entrada válida tem sempre tableNumber (número inteiro).
+            var data = {};
+            Object.keys(raw).forEach(function(k) {
+                var c = raw[k];
+                if (c && c.tableNumber != null) data[k] = c;
+            });
 
             // lastSeen: sempre — o caller decide se faz state update ou ref
             var lsMap = {};

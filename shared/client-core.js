@@ -188,16 +188,17 @@
         // Força um get() do gameState e dispatch para os callbacks. Garante que
         // mesmo que o listener onValue não dispare após reconexão, o cliente recebe
         // a última versão do servidor.
+        // IMPORTANTE: lastSeen só é escrito DEPOIS de confirmar que a sessão existe
+        // e está ativa — evita criar entradas fantasma em sessões removidas/novas.
         function forceRefresh() {
             if (!alive) return;
             fm.get(fm.ref(rtdb, gameStatePath)).then(function(snap) {
                 if (!alive) return;
                 var data = snap.val();
-                if (!data) return;
-                if (data.active === false) onSessionLost();
-                else onGameState(data);
+                if (!data || data.active === false) { onSessionLost(); return; }
+                onGameState(data);
+                fm.update(fm.ref(rtdb, clientPath), { lastSeen: Date.now() }).catch(function() {});
             }).catch(function() {});
-            fm.update(fm.ref(rtdb, clientPath), { lastSeen: Date.now() }).catch(function() {});
         }
 
         // Visibilidade / focus / online → acorda WebSocket + forceRefresh + onResume.
@@ -222,12 +223,12 @@
         }));
 
         // gameState listener — onValue em tempo real.
+        // null significa que a sessão foi removida (master arquivou ou código expirou).
         unsubs.push(fm.onValue(fm.ref(rtdb, gameStatePath), function(snap) {
             if (!alive) return;
             var data = snap.val();
-            if (!data) return;
-            if (data.active === false) onSessionLost();
-            else onGameState(data);
+            if (!data || data.active === false) { onSessionLost(); return; }
+            onGameState(data);
         }));
 
         // clients/<n> listener — detecta quando o master remove a mesa.
