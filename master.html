@@ -1794,6 +1794,9 @@
                                             h('div', { className: `font-bold text-sm leading-tight ${hasBuzzer ? 'text-white' : 'text-gray-800'}` },
                                                 t.name || `Mesa ${t.id}`
                                             ),
+                                            t.name && h('div', { className: `text-[10px] font-semibold ${hasBuzzer ? 'text-white opacity-75' : 'text-gray-400'}` },
+                                                `Mesa ${t.id}`
+                                            ),
                                             pd && pd.showScores !== false
                                                 ? h('div', { className: `text-3xl sm:text-4xl font-black mt-1 ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.score)
                                                 : h('div', { className: 'text-3xl font-black mt-1 text-gray-300' }, '—')
