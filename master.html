@@ -44,6 +44,7 @@
 
         // ID único por instância do master — detecta quando outro master toma a sessão
         const MASTER_ID = 'master_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+        const MASTER_MODE_KEY = 'score_concept_master_mode';
 
         const playBuzzer = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -87,6 +88,12 @@
                 const [startWithBuzzersBlocked, setStartWithBuzzersBlocked] = useState(true);
                 const [buzzersBlocked, setBuzzersBlocked] = useState(true);
                 const [showMasterKickedModal, setShowMasterKickedModal] = useState(false);
+                const [masterMode, setMasterMode] = useState(null); // null | 'console' | 'projector'
+                const [modeChosen, setModeChosen] = useState(false);
+                const [projectorData, setProjectorData] = useState(null);
+                const [projectorBuzzers, setProjectorBuzzers] = useState({});
+                const [showLeaderboardProj, setShowLeaderboardProj] = useState(false);
+                const [leaderboardRevealPosProj, setLeaderboardRevealPosProj] = useState(null);
 
                 const [tables, setTables] = useState([]);
                 const [categories, setCategories] = useState([]);
@@ -255,8 +262,9 @@
                     };
                 }, []); // Array vazio = monitora sempre
 
+                // Subscrições da Consola — apenas no modo console
                 useEffect(() => {
-                    if (!setupComplete || !sessionId) return;
+                    if (!setupComplete || !sessionId || masterMode !== 'console') return;
 
                     prevBuzzersRef.current = {};
 
@@ -338,7 +346,33 @@
                         unsubResponses();
                         unsubMasterLock();
                     };
-                }, [setupComplete, sessionId]);
+                }, [setupComplete, sessionId, masterMode]);
+
+                // Subscrições do Projetor — leitura do gameState e buzzers
+                useEffect(() => {
+                    if (!setupComplete || !sessionId || masterMode !== 'projector') return;
+
+                    const gsRef = ref(rtdb, `sessions/${sessionId}/gameState`);
+                    const unsubGs = onValue(gsRef, (snap) => {
+                        const data = snap.val();
+                        if (!data || data.active === false) { resetToSetup(); return; }
+                        setProjectorData(data);
+                    });
+
+                    const bRef = ref(rtdb, `sessions/${sessionId}/buzzers`);
+                    const unsubB = onValue(bRef, (snap) => {
+                        setProjectorBuzzers(snap.val() || {});
+                    });
+
+                    return () => { unsubGs(); unsubB(); };
+                }, [setupComplete, sessionId, masterMode]);
+
+                // Auto-selecionar modo a partir do URL param ?mode=
+                useEffect(() => {
+                    if (!setupComplete || modeChosen) return;
+                    const urlMode = new URLSearchParams(window.location.search).get('mode');
+                    if (urlMode === 'console' || urlMode === 'projector') chooseMode(urlMode);
+                }, [setupComplete, modeChosen]);
 
                 const saveCats = async (cats) => {
                     try {
@@ -488,7 +522,6 @@
                                 textInputTimeRemaining: 0,
                                 timestamp: Date.now()
                             });
-                            await set(ref(rtdb, `sessions/${finalCode}/masterLock`), { masterId: MASTER_ID, takenAt: Date.now() });
                             console.log(`✅ Sessão ${finalCode} criada no Firebase`);
                         } catch (e) {
                             console.error('❌ Erro ao criar sessão no Firebase:', e);
@@ -715,8 +748,35 @@
                     setSelectedLogos([]);
                     setShowEndSessionModal(false);
                     setShowMasterKickedModal(false);
+                    setMasterMode(null);
+                    setModeChosen(false);
+                    setProjectorData(null);
+                    setProjectorBuzzers({});
+                    setShowLeaderboardProj(false);
+                    setLeaderboardRevealPosProj(null);
                     setStartWithBuzzersBlocked(true);
                     setBuzzersBlocked(true);
+                };
+
+                const chooseMode = async (mode) => {
+                    setMasterMode(mode);
+                    setModeChosen(true);
+                    try { localStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
+                    if (mode === 'console') {
+                        try {
+                            await set(ref(rtdb, `sessions/${sessionId}/masterLock`), { masterId: MASTER_ID, takenAt: Date.now() });
+                        } catch(e) { console.error('masterLock write failed:', e); }
+                    }
+                };
+
+                const switchMode = () => {
+                    setMasterMode(null);
+                    setModeChosen(false);
+                    setProjectorData(null);
+                    setProjectorBuzzers({});
+                    setShowLeaderboardProj(false);
+                    setLeaderboardRevealPosProj(null);
+                    try { localStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
                 };
 
                 /**
@@ -902,7 +962,6 @@
                                 textInputTimeRemaining: 0,
                                 timestamp: Date.now()
                             });
-                            await set(ref(rtdb, `sessions/${code}/masterLock`), { masterId: MASTER_ID, takenAt: Date.now() });
                             console.log(`✅ Sessão ${code} carregada e recriada no Firebase com sucesso`);
                         } catch (e) {
                             console.error('❌ Erro ao recriar sessão no Firebase:', e);
@@ -1601,7 +1660,181 @@
                     );
                 }
 
-                // ECRÃ: Classificação
+                // ECRÃ: Seleção de Modo (Consola / Projetor)
+                if (setupComplete && !modeChosen) {
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center p-4' },
+                        h('div', { className: 'max-w-md w-full' },
+                            h('div', { className: 'text-center mb-8' },
+                                h('div', { className: 'text-5xl mb-3' }, '🎮'),
+                                h('h1', { className: 'text-2xl font-black text-white mb-1' }, 'Sistema de Pontuação'),
+                                h('p', { className: 'text-indigo-300 font-mono text-lg' }, sessionId)
+                            ),
+                            h('div', { className: 'space-y-4' },
+                                h('button', {
+                                    onClick: () => chooseMode('console'),
+                                    className: 'w-full bg-white rounded-2xl p-5 text-left shadow-xl hover:scale-[1.02] transition-transform active:scale-95'
+                                },
+                                    h('div', { className: 'text-3xl mb-1' }, '🎮'),
+                                    h('div', { className: 'font-black text-lg text-gray-800' }, 'Consola'),
+                                    h('div', { className: 'text-sm text-gray-500 mt-1' }, 'Controla pontuações, buzzers, texto e todas as funções do jogo. Optimizado para telemóvel.')
+                                ),
+                                h('button', {
+                                    onClick: () => chooseMode('projector'),
+                                    className: 'w-full bg-white rounded-2xl p-5 text-left shadow-xl hover:scale-[1.02] transition-transform active:scale-95'
+                                },
+                                    h('div', { className: 'text-3xl mb-1' }, '📺'),
+                                    h('div', { className: 'font-black text-lg text-gray-800' }, 'Projetor'),
+                                    h('div', { className: 'text-sm text-gray-500 mt-1' }, 'Mostra pontuações e ranking para o público. Sem interação com os clientes.')
+                                )
+                            ),
+                            h('div', { className: 'mt-6 text-center' },
+                                h('p', { className: 'text-indigo-400 text-xs' }, 'Dica: adiciona ?mode=projector ao URL para abrir sempre em modo Projetor')
+                            )
+                        )
+                    );
+                }
+
+                // ECRÃ: Projetor
+                if (masterMode === 'projector') {
+                    const pd = projectorData;
+                    const projTables = pd ? (pd.tables || []) : [];
+                    const projSorted = [...projTables].sort((a, b) => b.score - a.score);
+                    const projRankOf = (score) => projSorted.findIndex(t => t.score === score) + 1;
+                    const projBuzzerOrder = Object.entries(projectorBuzzers)
+                        .filter(([_, b]) => b && b.pressed)
+                        .sort((a, b) => (a[1].timestamp || 0) - (b[1].timestamp || 0))
+                        .map(([id, b], idx) => ({ tableId: parseInt(id), order: idx + 1 }));
+                    const projQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(CLIENT_URL + '?session=' + sessionId)}`;
+
+                    return h('div', { className: 'min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex flex-col' },
+
+                        /* Header */
+                        h('div', { className: 'flex-shrink-0 bg-black bg-opacity-30 px-4 py-3 flex items-center justify-between gap-2' },
+                            h('div', { className: 'flex items-center gap-2 flex-wrap' },
+                                h('span', { className: 'font-mono font-black text-white text-lg' }, sessionId),
+                                h('span', { className: 'text-xs text-indigo-300 bg-indigo-900 bg-opacity-60 px-2 py-1 rounded' }, '📺 Projetor')
+                            ),
+                            h('div', { className: 'flex items-center gap-2' },
+                                h('button', {
+                                    onClick: () => setShowSessionCode(true),
+                                    className: 'px-2 py-1.5 text-xs bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700'
+                                }, '📱 QR'),
+                                h('button', {
+                                    onClick: switchMode,
+                                    className: 'px-2 py-1.5 text-xs bg-white bg-opacity-20 text-white rounded-lg font-semibold hover:bg-opacity-30'
+                                }, 'Mudar Modo')
+                            )
+                        ),
+
+                        /* Conteúdo principal */
+                        h('div', { className: 'flex-1 overflow-y-auto p-3' },
+                            projBuzzerOrder.length > 0 && h('div', {
+                                className: 'mb-3 rounded-xl p-3',
+                                style: { animation: 'buzzerFlash 1s ease-in-out infinite' }
+                            },
+                                h('div', { className: 'flex flex-wrap gap-2' },
+                                    projBuzzerOrder.map(b => {
+                                        const t = projTables.find(t => t.id === b.tableId);
+                                        return h('div', { key: b.tableId, className: 'bg-red-500 bg-opacity-90 px-3 py-2 rounded-lg text-white flex items-center gap-2' },
+                                            h('span', { className: 'text-xl' }, '🔔'),
+                                            h('span', { className: 'font-black' }, `${b.order}º`),
+                                            h('span', null, t ? (t.name || `Mesa ${t.id}`) : `Mesa ${b.tableId}`)
+                                        );
+                                    })
+                                )
+                            ),
+
+                            projTables.length === 0
+                                ? h('div', { className: 'text-center text-white text-xl mt-16 opacity-50' },
+                                    h('div', { className: 'text-5xl mb-4' }, '⏳'),
+                                    h('div', null, 'A aguardar ligação das mesas...')
+                                  )
+                                : h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3' },
+                                    projTables.map(t => {
+                                        const hasBuzzer = projectorBuzzers[t.id]?.pressed;
+                                        const rank = projRankOf(t.score);
+                                        const medal = ['🥇', '🥈', '🥉'][rank - 1] || null;
+                                        return h('div', {
+                                            key: t.id,
+                                            className: `rounded-xl p-4 text-center min-h-[110px] flex flex-col justify-between ${hasBuzzer ? 'bg-red-500 animate-pulse' : 'bg-white bg-opacity-95'}`
+                                        },
+                                            h('div', { className: 'flex justify-center mb-1' },
+                                                hasBuzzer
+                                                    ? h('span', { className: 'text-2xl' }, '🔔')
+                                                    : medal ? h('span', { className: 'text-xl' }, medal) : h('span', { className: 'text-xl invisible' }, '·')
+                                            ),
+                                            h('div', { className: `font-bold text-sm leading-tight ${hasBuzzer ? 'text-white' : 'text-gray-800'}` },
+                                                t.name || `Mesa ${t.id}`
+                                            ),
+                                            pd && pd.showScores !== false
+                                                ? h('div', { className: `text-3xl sm:text-4xl font-black mt-1 ${hasBuzzer ? 'text-white' : 'text-indigo-600'}` }, t.score)
+                                                : h('div', { className: 'text-3xl font-black mt-1 text-gray-300' }, '—')
+                                        );
+                                    })
+                                  )
+                        ),
+
+                        /* Barra inferior */
+                        h('div', { className: 'flex-shrink-0 bg-white p-2 flex gap-2 items-center' },
+                            h('button', {
+                                onClick: () => {
+                                    const s = projSorted;
+                                    setLeaderboardRevealPosProj(s.length > 5 ? 6 : s.length);
+                                    setShowLeaderboardProj(true);
+                                },
+                                className: 'px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600'
+                            }, 'Ranking')
+                        ),
+
+                        /* Leaderboard modal (overlay fixo no ecrã do projetor) */
+                        showLeaderboardProj && projSorted.length > 0 && (() => {
+                            const s = projSorted;
+                            const visible = s.slice((leaderboardRevealPosProj || 1) - 1);
+                            return h('div', { className: 'fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 z-50' },
+                                h('div', { className: 'bg-white rounded-2xl p-4 w-full max-w-lg max-h-[90vh] flex flex-col' },
+                                    h('div', { className: 'flex justify-between mb-4 flex-shrink-0' },
+                                        h('h2', { className: 'text-xl font-bold' }, 'Classificação'),
+                                        h('button', { onClick: () => { setShowLeaderboardProj(false); setLeaderboardRevealPosProj(null); }, className: 'px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700' }, 'Fechar')
+                                    ),
+                                    leaderboardRevealPosProj > 1 && h('button', {
+                                        onClick: () => setLeaderboardRevealPosProj(leaderboardRevealPosProj - 1),
+                                        className: 'w-full bg-indigo-600 text-white py-3 rounded-lg font-bold mb-4 animate-pulse flex-shrink-0'
+                                    }, `Revelar ${projRankOf(s[leaderboardRevealPosProj - 2]?.score)}º Lugar`),
+                                    h('div', { className: 'space-y-2 overflow-y-auto flex-1' },
+                                        visible.map(t => {
+                                            const pos = projRankOf(t.score);
+                                            return h('div', { key: t.id, className: `flex justify-between p-3 rounded ${pos === 1 ? 'bg-yellow-400 text-white' : pos === 2 ? 'bg-gray-300' : pos === 3 ? 'bg-orange-400 text-white' : 'bg-gray-100'}` },
+                                                h('div', null,
+                                                    h('span', { className: 'text-2xl font-bold mr-3' }, `${pos}º`),
+                                                    h('span', { className: 'font-bold text-xl' }, t.name || `Mesa ${t.id}`),
+                                                    h('span', { className: 'text-sm ml-2 opacity-75' }, `(Mesa ${t.id})`)
+                                                ),
+                                                h('span', { className: 'text-2xl font-bold' }, `${t.score} pts`)
+                                            );
+                                        })
+                                    )
+                                )
+                            );
+                        })(),
+
+                        /* QR fullscreen */
+                        showSessionCode && h('div', {
+                            className: 'fixed inset-0 bg-gradient-to-br from-green-600 to-green-700 flex flex-col items-center justify-center p-8 z-50 cursor-pointer',
+                            onClick: () => setShowSessionCode(false)
+                        },
+                            h('div', { className: 'text-center mb-8' },
+                                h('div', { className: 'text-xs text-white opacity-60 mb-3 uppercase tracking-widest' }, 'Código da Sessão'),
+                                h('h2', { className: 'text-7xl sm:text-9xl font-black text-white tracking-widest drop-shadow-2xl' }, sessionId)
+                            ),
+                            h('div', { className: 'bg-white p-6 rounded-3xl shadow-2xl' },
+                                h('img', { src: projQrUrl, alt: 'QR Code', className: 'w-64 h-64 sm:w-72 sm:h-72', onClick: (e) => e.stopPropagation() })
+                            ),
+                            h('div', { className: 'mt-6 text-white text-sm opacity-60' }, 'Toca para fechar')
+                        )
+                    );
+                }
+
+                // ECRÃ: Classificação (Consola)
                 if (showLeaderboard) {
                     const s = sorted();
                     const visible = s.slice(leaderboardRevealPosition - 1);
@@ -1800,6 +2033,7 @@
                                 }, buzzersBlocked ? '🔓 Desbloquear' : '🔒 Bloquear')
                             ),
                             h('div', { className: 'flex flex-wrap gap-1.5 items-center' },
+                                h('button', { onClick: switchMode, className: 'px-2 py-1.5 text-xs bg-indigo-400 text-white rounded-lg font-semibold hover:bg-indigo-500' }, '📺 Projetor'),
                                 h('button', { onClick: () => { const s = sorted(); setLeaderboardRevealPosition(s.length > 5 ? 6 : s.length); setShowLeaderboard(true); }, className: 'px-2 py-1.5 text-xs bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600' }, 'Rank'),
                                 h('button', { onClick: resetAllScores, className: 'px-2 py-1.5 text-xs bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600' }, 'Reset pts'),
                                 h('button', { onClick: () => setShowEndSessionModal(true), className: 'px-2 py-1.5 text-xs bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700' }, '🏁 Terminar')
