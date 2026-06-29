@@ -11,8 +11,11 @@
     <style>
         @keyframes slideIn { from{transform:translateY(-8px);opacity:0} to{transform:translateY(0);opacity:1} }
         .slide-in { animation: slideIn .2s ease-out; }
-        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
-        .fade-in { animation: fadeIn .2s ease-out; }
+        @keyframes accuseFlash {
+            0%,100% { border-color:rgba(239,68,68,.5); background-color:rgba(127,29,29,.4); box-shadow:0 0 0 0 rgba(239,68,68,.4); }
+            50%      { border-color:rgba(239,68,68,.9); background-color:rgba(185,28,28,.5); box-shadow:0 0 12px 4px rgba(239,68,68,.5); }
+        }
+        .accuse-flash { animation: accuseFlash .7s ease-in-out infinite; }
     </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen">
@@ -35,10 +38,34 @@
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
 
-        var GAME_TYPE   = 'deception';
-        var CLIENT_URL  = window.AppConfig.CLIENT_DECEPTION_URL;
+        var GAME_TYPE  = 'deception';
+        var CLIENT_URL = (window.AppConfig && window.AppConfig.CLIENT_DECEPTION_URL)
+            || (window.location.origin + window.location.pathname.replace('master-deception.html', 'client-deception.html'));
 
-        /* ── role display ─────────────────────────────────────────── */
+        /* ── siren ────────────────────────────────────────────────── */
+        function playSiren() {
+            try {
+                var ctx = new (window.AudioContext || window.webkitAudioContext)();
+                var osc = ctx.createOscillator();
+                var gain = ctx.createGain();
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, ctx.currentTime);
+                osc.frequency.setValueAtTime(650, ctx.currentTime + 0.3);
+                osc.frequency.setValueAtTime(800, ctx.currentTime + 0.6);
+                osc.frequency.setValueAtTime(650, ctx.currentTime + 0.9);
+                osc.frequency.setValueAtTime(800, ctx.currentTime + 1.2);
+                osc.frequency.setValueAtTime(650, ctx.currentTime + 1.5);
+                gain.gain.setValueAtTime(0.4, ctx.currentTime);
+                gain.gain.setValueAtTime(0.4, ctx.currentTime + 1.7);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 2.0);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 2.0);
+                osc.onended = function () { try { ctx.close(); } catch (e) {} };
+            } catch (e) {}
+        }
+
+        /* ── role defaults + localStorage ─────────────────────────── */
         var ROLE_LABELS = {
             assassino:   { label: 'Assassino',    icon: '🔪', color: 'text-rose-300',   bg: 'bg-rose-500/15',   border: 'border-rose-500/30'   },
             cumplice:    { label: 'Cúmplice',     icon: '🤝', color: 'text-orange-300', bg: 'bg-orange-500/15', border: 'border-orange-500/30' },
@@ -46,6 +73,26 @@
             investigador:{ label: 'Investigador', icon: '🔍', color: 'text-blue-300',   bg: 'bg-blue-500/15',   border: 'border-blue-500/30'   },
             detetive:    { label: 'Detetive',     icon: '🕵️', color: 'text-purple-300', bg: 'bg-purple-500/15', border: 'border-purple-500/30' }
         };
+
+        var DEFAULT_ROLE_TEXTS = {
+            assassino:    'Cometeste o crime. As tuas cartas são as pistas que o Forense apresenta. Não deixes que te descubram!',
+            cumplice:     'Ajuda o assassino a não ser descoberto. Conheces a identidade do assassino e as suas cartas escolhidas.',
+            testemunha:   'Viste o crime acontecer! Sabes quais as equipas envolvidas, mas não sabes quem é o assassino e quem é o cúmplice.',
+            investigador: 'Investiga o crime! Analisa as cartas do Forense e tenta identificar o assassino. Podes usar o botão de acusação uma única vez!',
+            detetive:     'Investiga o crime como detetive sénior! Analisa as cartas do Forense e tenta identificar o assassino. Podes usar o botão de acusação uma única vez!'
+        };
+
+        function loadRoleTexts() {
+            try {
+                var s = localStorage.getItem('dec_roleTexts');
+                if (s) return Object.assign({}, DEFAULT_ROLE_TEXTS, JSON.parse(s));
+            } catch (e) {}
+            return Object.assign({}, DEFAULT_ROLE_TEXTS);
+        }
+
+        function persistRoleTexts(t) {
+            try { localStorage.setItem('dec_roleTexts', JSON.stringify(t)); } catch (e) {}
+        }
 
         /* ── role distribution ────────────────────────────────────── */
         function buildRoles(clients, useComplexRoles) {
@@ -62,67 +109,76 @@
             if (useComplexRoles && shuffled.length >= 4) seq.push('testemunha');
             while (seq.length < shuffled.length) seq.push('investigador');
 
-            var assassinTable    = shuffled[0];
-            var ac               = clients[assassinTable] || {};
-            var aBlue            = ac.blueCard || '';
-            var aRed             = ac.redCard  || '';
-            var aName            = ac.teamName || ('Mesa ' + assassinTable);
+            var aTable = shuffled[0];
+            var ac     = clients[aTable] || {};
+            var aBlue  = ac.blueCard || '';
+            var aRed   = ac.redCard  || '';
+            var aName  = ac.teamName || ('Mesa ' + aTable);
 
-            var accompliceIdx    = seq.indexOf('cumplice');
-            var accompliceTable  = accompliceIdx >= 0 ? shuffled[accompliceIdx] : null;
-            var apName           = accompliceTable && clients[accompliceTable]
-                ? (clients[accompliceTable].teamName || 'Mesa ' + accompliceTable)
-                : null;
+            var apIdx   = seq.indexOf('cumplice');
+            var apTable = apIdx >= 0 ? shuffled[apIdx] : null;
+            var apName  = apTable && clients[apTable]
+                ? (clients[apTable].teamName || 'Mesa ' + apTable) : null;
 
             var roles = {};
             shuffled.forEach(function (tNum, i) {
                 var role = seq[i], si = {};
-                if (role === 'assassino') {
-                    si = { blueCard: aBlue, redCard: aRed };
-                } else if (role === 'cumplice') {
-                    si = { assassinTable: assassinTable, assassinTeamName: aName, blueCard: aBlue, redCard: aRed };
-                } else if (role === 'testemunha') {
-                    var inv = [aName, apName || ('Mesa ' + accompliceTable)];
+                if (role === 'assassino')  si = { blueCard: aBlue, redCard: aRed };
+                else if (role === 'cumplice') si = { assassinTable: aTable, assassinTeamName: aName, blueCard: aBlue, redCard: aRed };
+                else if (role === 'testemunha') {
+                    var inv = [aName, apName || ('Mesa ' + apTable)];
                     if (Math.random() < 0.5) inv.reverse();
                     si = { involvedTables: inv };
                 }
                 roles[tNum] = { role: role, secretInfo: si };
             });
-            return { roles: roles, assassinTable: assassinTable };
+            return { roles: roles, assassinTable: aTable };
         }
 
-        /* ── presence dot ────────────────────────────────────────── */
-        function connDot(sinceMs) {
-            if (sinceMs < 30000) return h('span', { className: 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0' });
-            if (sinceMs < 60000) return h('span', { className: 'inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 flex-shrink-0' });
+        /* ── presence dot ─────────────────────────────────────────── */
+        function connDot(ms) {
+            if (ms < 30000) return h('span', { className: 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0' });
+            if (ms < 60000) return h('span', { className: 'inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 flex-shrink-0' });
             return h('span', { className: 'inline-block w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0' });
         }
 
         /* ── App ─────────────────────────────────────────────────── */
         function App() {
             /* setup inputs */
-            var c1 = useState('');        var codeInput = c1[0];     var setCodeInput = c1[1];
-            var c2 = useState('Acusar'); var buzzerName = c2[0];    var setBuzzerName = c2[1];
-            var c3 = useState('5');      var accusePts = c3[0];     var setAccusePts = c3[1];
-            var c4 = useState('5');      var victoryPts = c4[0];    var setVictoryPts = c4[1];
+            var ci = useState('');           var codeInput = ci[0];    var setCodeInput = ci[1];
+            var bn = useState('Acusar');     var buzzerName = bn[0];   var setBuzzerName = bn[1];
+            var ap = useState('5');          var accusePts = ap[0];    var setAccusePts = ap[1];
+            var vp = useState('5');          var victoryPts = vp[0];   var setVictoryPts = vp[1];
+            var rt = useState(loadRoleTexts); var roleTexts = rt[0];   var setRoleTexts = rt[1];
 
             /* session */
-            var s1 = useState('');  var sessionCode = s1[0];  var setSessionCode = s1[1];
-            var s2 = useState(null);var gameData = s2[0];     var setGameData = s2[1];
-            var s3 = useState({});  var clients = s3[0];      var setClients = s3[1];
-            var s4 = useState({});  var lastSeen = s4[0];     var setLastSeen = s4[1];
-            var s5 = useState(0);   var tick = s5[0];         var setTick = s5[1];
+            var sc = useState('');   var sessionCode = sc[0]; var setSessionCode = sc[1];
+            var gd = useState(null); var gameData = gd[0];    var setGameData = gd[1];
+            var cl = useState({});   var clients = cl[0];     var setClients = cl[1];
+            var ls = useState({});   var lastSeen = ls[0];    var setLastSeen = ls[1];
+            var tk = useState(0);    var tick = tk[0];        var setTick = tk[1];
 
-            /* UI modals */
+            /* sessions list (setup screen) */
+            var as = useState([]); var activeSessions = as[0]; var setActiveSessions = as[1];
+            var sh = useState([]); var sessionHistory = sh[0]; var setSessionHistory = sh[1];
+
+            /* UI */
             var u1 = useState(false); var showQR = u1[0];           var setShowQR = u1[1];
             var u2 = useState(false); var showLeaderboard = u2[0];  var setShowLeaderboard = u2[1];
             var u3 = useState(false); var showNewRound = u3[0];     var setShowNewRound = u3[1];
             var u4 = useState(false); var showCloseConfirm = u4[0]; var setShowCloseConfirm = u4[1];
-            var u5 = useState(false); var codeCopied = u5[0];       var setCodeCopied = u5[1];
-            var u6 = useState(false); var useRoles = u6[0];         var setUseRoles = u6[1];
-            var u7 = useState(false); var closing = u7[0];          var setClosing = u7[1];
+            var u5 = useState(false); var showExistDialog = u5[0];  var setShowExistDialog = u5[1];
+            var u6 = useState(null);  var existingData = u6[0];     var setExistingData = u6[1];
+            var u7 = useState(false); var showHistory = u7[0];      var setShowHistory = u7[1];
+            var u8 = useState(false); var showRoleConfig = u8[0];   var setShowRoleConfig = u8[1];
+            var u9 = useState(false); var codeCopied = u9[0];       var setCodeCopied = u9[1];
+            var ua = useState(false); var useRoles = ua[0];         var setUseRoles = ua[1];
+            var ub = useState({});    var flashingTables = ub[0];   var setFlashingTables = ub[1];
+            var uc = useState(false); var closing = uc[0];          var setClosing = uc[1];
 
-            var prevClientCountRef = useRef(0);
+            var prevClientCountRef    = useRef(0);
+            var prevAccusationsRef    = useRef({});
+            var autoEndedRef          = useRef(false);
 
             /* presence tick */
             useEffect(function () {
@@ -130,70 +186,182 @@
                 return function () { clearInterval(iv); };
             }, []);
 
-            /* restore code from URL */
+            /* URL restore */
             useEffect(function () {
-                var p = new URLSearchParams(window.location.search);
-                var u = p.get('session');
+                var u = new URLSearchParams(window.location.search).get('session');
                 if (u) setCodeInput(u.toUpperCase());
             }, []);
 
-            /* Firebase listeners */
+            /* subscribe active sessions (setup only) */
+            useEffect(function () {
+                if (sessionCode) return;
+                return SessionCore.subscribeActiveSessions({
+                    rtdb: rtdb, fm: fm, gameType: GAME_TYPE, onChange: setActiveSessions
+                });
+            }, [sessionCode]);
+
+            /* subscribe session history */
+            useEffect(function () {
+                if (!showHistory) return;
+                return SessionCore.subscribeSessionHistory({
+                    rtdb: rtdb, fm: fm, gameType: GAME_TYPE, onChange: setSessionHistory
+                });
+            }, [showHistory]);
+
+            /* Firebase listeners (game) */
             useEffect(function () {
                 if (!sessionCode) return;
                 var u1 = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), function (snap) {
                     var d = snap.val();
-                    if (!d || d.active === false) { setGameData(null); return; }
+                    if (!d || d.active === false) { setGameData(null); setSessionCode(''); return; }
                     setGameData(d);
                 });
                 var u2 = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients'), function (snap) {
                     var raw = snap.val() || {};
-                    var ls = {};
+                    var lsMap = {};
                     Object.keys(raw).forEach(function (k) {
-                        if (raw[k] && raw[k].tableNumber) ls[raw[k].tableNumber] = raw[k].lastSeen || 0;
+                        if (raw[k] && raw[k].tableNumber) lsMap[raw[k].tableNumber] = raw[k].lastSeen || 0;
                     });
-                    setLastSeen(ls);
+                    setLastSeen(lsMap);
                     setClients(raw);
                 });
                 return function () { u1(); u2(); };
             }, [sessionCode]);
 
-            /* auto-manage useRoles toggle based on client count */
+            /* auto-manage useRoles toggle */
             useEffect(function () {
                 var n = Object.values(clients).filter(function (c) { return c && c.tableNumber; }).length;
                 var prev = prevClientCountRef.current;
                 prevClientCountRef.current = n;
-                if (n <= 4) {
-                    setUseRoles(false);
-                } else if (prev <= 4) {
-                    setUseRoles(true);
-                }
+                if (n <= 4) setUseRoles(false);
+                else if (prev <= 4) setUseRoles(true);
             }, [clients]);
 
-            /* ── session actions ─────────────────────────────────── */
-            var createSession = async function () {
+            /* siren + flash on new accusations */
+            var accusations     = gameData ? (gameData.accusations || {}) : {};
+            var accusationsKey  = Object.keys(accusations).sort().join(',');
+            useEffect(function () {
+                var prev = prevAccusationsRef.current;
+                var newKeys = Object.keys(accusations).filter(function (k) { return !prev[k]; });
+                if (newKeys.length > 0) {
+                    playSiren();
+                    setFlashingTables(function (ft) {
+                        var n = Object.assign({}, ft);
+                        newKeys.forEach(function (k) { n[k] = true; });
+                        return n;
+                    });
+                    setTimeout(function () {
+                        setFlashingTables(function (ft) {
+                            var n = Object.assign({}, ft);
+                            newKeys.forEach(function (k) { delete n[k]; });
+                            return n;
+                        });
+                    }, 6000);
+                }
+                prevAccusationsRef.current = accusations;
+            }, [accusationsKey]);
+
+            /* reset autoEndedRef when new round starts (phase → running) */
+            var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
+            useEffect(function () {
+                if (phase === 'running') autoEndedRef.current = false;
+            }, [phase]);
+
+            /* ── derived ─────────────────────────────────────────── */
+            var roles          = gameData ? (gameData.roles || {}) : {};
+            var scores         = gameData ? (gameData.scores || {}) : {};
+            var assassinTable  = gameData ? gameData.assassinTable : null;
+            var confirmedCorrect = gameData ? !!gameData.confirmedCorrect : false;
+            var roundResult    = gameData ? (gameData.roundResult || null) : null;
+            var accusePtsNow   = (gameData && gameData.config && gameData.config.accusationPoints)  || parseInt(accusePts)  || 5;
+            var victoryPtsNow  = (gameData && gameData.config && gameData.config.roleVictoryPoints) || parseInt(victoryPts) || 5;
+
+            var sortedClients = Object.values(clients)
+                .filter(function (c) { return c && c.tableNumber; })
+                .sort(function (a, b) { return a.tableNumber - b.tableNumber; });
+
+            var accusationList = Object.values(accusations)
+                .sort(function (a, b) { return (a.timestamp || 0) - (b.timestamp || 0); });
+
+            var clientCount    = sortedClients.length;
+            var accusationCount = accusationList.length;
+
+            /* auto-end: all accused + nobody confirmed correct */
+            useEffect(function () {
+                if (phase !== 'running' || !clientCount || !gameData) return;
+                if (confirmedCorrect || autoEndedRef.current) return;
+                if (accusationCount >= clientCount) {
+                    autoEndedRef.current = true;
+                    doEndRound(null);
+                }
+            }, [accusationCount, clientCount, phase, confirmedCorrect]);
+
+            /* ── actions ─────────────────────────────────────────── */
+            function doEndRound(winnerTable) {
+                if (!sessionCode || !gameData) return;
+                var s = Object.assign({}, gameData.scores || {});
+                var result;
+                if (winnerTable !== null) {
+                    s[winnerTable] = (s[winnerTable] || 0) + accusePtsNow;
+                    var c = clients[winnerTable] || {};
+                    result = { winner: 'accusers', winnerTable: winnerTable, winnerTeam: c.teamName || ('Mesa ' + winnerTable) };
+                } else {
+                    Object.keys(roles).forEach(function (tNum) {
+                        var r = roles[tNum] && roles[tNum].role;
+                        if (r === 'assassino' || r === 'cumplice') s[tNum] = (s[tNum] || 0) + victoryPtsNow;
+                    });
+                    result = { winner: 'killers' };
+                }
+                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
+                    phase: 'waiting', scores: s,
+                    confirmedCorrect: winnerTable !== null,
+                    roundResult: result,
+                    timestamp: Date.now()
+                });
+            }
+
+            var checkAndCreate = async function () {
                 var code = codeInput.trim().toUpperCase();
                 if (!code) return;
+                var existing = activeSessions.find(function (s) { return s.sessionId === code; });
+                if (existing) { setExistingData({ code: code, session: existing }); setShowExistDialog(true); return; }
+                await doCreateSession(code);
+            };
+
+            var doCreateSession = async function (code) {
                 var gs = {
                     gameType: GAME_TYPE, active: true, phase: 'waiting', round: 0,
                     buzzerName: buzzerName.trim() || 'Acusar',
-                    config: {
-                        accusationPoints:  parseInt(accusePts)  || 5,
-                        roleVictoryPoints: parseInt(victoryPts) || 5
-                    },
+                    config: { accusationPoints: parseInt(accusePts) || 5, roleVictoryPoints: parseInt(victoryPts) || 5 },
+                    roleTexts: roleTexts,
                     roles: {}, assassinTable: null, accusations: {}, scores: {},
-                    timestamp: Date.now()
+                    confirmedCorrect: false, roundResult: null, timestamp: Date.now()
                 };
                 await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), gs);
-                setSessionCode(code);
+                setSessionCode(code); setShowExistDialog(false);
+            };
+
+            var archiveAndCreate = async function () {
+                if (!existingData) return;
+                var code = existingData.code;
+                var history = { round: existingData.session.round || 0, scores: existingData.session.scores || {} };
+                await SessionCore.archiveSession({ rtdb, fm, sessionId: code, gameType: GAME_TYPE, history: history, enrich: SessionCore.enrichers.attachClientsField });
+                await doCreateSession(code);
             };
 
             var startRound = function () {
                 if (!sessionCode || !gameData) return;
-                var nextRound = ((gameData.round) || 0) + 1;
+                var next = ((gameData.round) || 0) + 1;
+                var clears = {};
+                sortedClients.forEach(function (c) {
+                    clears['sessions/' + sessionCode + '/clients/' + c.tableNumber + '/blueCard'] = '';
+                    clears['sessions/' + sessionCode + '/clients/' + c.tableNumber + '/redCard']  = '';
+                });
+                if (Object.keys(clears).length) fm.update(fm.ref(rtdb), clears);
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
-                    phase: 'setup', round: nextRound,
+                    phase: 'setup', round: next,
                     roles: {}, assassinTable: null, accusations: {},
-                    timestamp: Date.now()
+                    confirmedCorrect: false, roundResult: null, timestamp: Date.now()
                 });
                 setShowNewRound(false);
             };
@@ -204,50 +372,26 @@
                 if (!result) { alert('Não há mesas ligadas.'); return; }
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
                     phase: 'running', roles: result.roles, assassinTable: result.assassinTable,
-                    accusations: {}, timestamp: Date.now()
+                    accusations: {}, confirmedCorrect: false, roundResult: null, timestamp: Date.now()
                 });
             };
 
-            var resetAllAccusations = function () {
-                if (!sessionCode) return;
-                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { accusations: {} });
-            };
-
-            var resetOneAccusation = function (tableNum) {
-                if (!sessionCode) return;
-                fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState/accusations/' + tableNum));
-            };
-
-            var markCorrect = function (tableNum) {
+            var markCorrect      = function (tNum) { doEndRound(tNum); };
+            var endRoundManual   = function () { if (confirm('Terminar ronda? O assassino (e cúmplice) receberão ' + victoryPtsNow + ' pts.')) doEndRound(null); };
+            var resetAllAccusations = function () { if (!sessionCode) return; fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { accusations: {} }); };
+            var resetOneAccusation  = function (tNum) { if (!sessionCode) return; fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState/accusations/' + tNum)); };
+            var resetScores      = function () { if (!confirm('Repor todos os pontos a zero?')) return; fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { scores: {} }); };
+            var adjustScore      = function (tNum, delta) {
                 if (!gameData) return;
-                var pts = (gameData.config && gameData.config.accusationPoints) || parseInt(accusePts) || 5;
-                var scores = Object.assign({}, gameData.scores || {});
-                scores[tableNum] = (scores[tableNum] || 0) + pts;
-                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { scores: scores });
-            };
-
-            var confirmRoleVictory = function () {
-                if (!gameData) return;
-                var pts = (gameData.config && gameData.config.roleVictoryPoints) || parseInt(victoryPts) || 5;
-                var roles = gameData.roles || {};
-                var scores = Object.assign({}, gameData.scores || {});
-                Object.keys(roles).forEach(function (tNum) {
-                    var r = roles[tNum] && roles[tNum].role;
-                    if (r === 'assassino' || r === 'cumplice') {
-                        scores[tNum] = (scores[tNum] || 0) + pts;
-                    }
-                });
-                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { scores: scores });
+                var s = Object.assign({}, gameData.scores || {});
+                s[tNum] = Math.max(0, (s[tNum] || 0) + delta);
+                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { scores: s });
             };
 
             var closeSession = async function () {
                 setClosing(true);
-                try {
-                    await fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { active: false });
-                    setTimeout(async function () {
-                        try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode)); } catch (e) {}
-                    }, 600);
-                } catch (e) {}
+                var history = { round: gameData ? gameData.round : 0, scores: gameData ? gameData.scores : {} };
+                await SessionCore.archiveSession({ rtdb, fm, sessionId: sessionCode, gameType: GAME_TYPE, history: history, enrich: SessionCore.enrichers.attachClientsField });
                 setSessionCode(''); setGameData(null); setClients({}); setLastSeen({});
                 setShowCloseConfirm(false); setClosing(false);
             };
@@ -255,202 +399,79 @@
             var copyLink = function () {
                 var url = CLIENT_URL + '?session=' + sessionCode;
                 navigator.clipboard.writeText(url).catch(function () {});
-                setCodeCopied(true);
-                setTimeout(function () { setCodeCopied(false); }, 2000);
+                setCodeCopied(true); setTimeout(function () { setCodeCopied(false); }, 2000);
             };
 
-            /* ── derived ─────────────────────────────────────────── */
-            var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
-            var roles = gameData ? (gameData.roles || {}) : {};
-            var accusations = gameData ? (gameData.accusations || {}) : {};
-            var scores = gameData ? (gameData.scores || {}) : {};
-            var assassinTable = gameData ? gameData.assassinTable : null;
-            var accusePtsNow  = (gameData && gameData.config && gameData.config.accusationPoints) || parseInt(accusePts) || 5;
-            var victoryPtsNow = (gameData && gameData.config && gameData.config.roleVictoryPoints) || parseInt(victoryPts) || 5;
+            var saveRoleTexts = function () {
+                persistRoleTexts(roleTexts);
+                if (sessionCode && gameData) fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { roleTexts: roleTexts });
+            };
 
-            var sortedClients = Object.values(clients)
-                .filter(function (c) { return c && c.tableNumber; })
-                .sort(function (a, b) { return a.tableNumber - b.tableNumber; });
+            var qrUrl = CLIENT_URL + '?session=' + sessionCode;
 
-            var accusationList = Object.values(accusations)
-                .sort(function (a, b) { return (a.timestamp || 0) - (b.timestamp || 0); });
-
-            var hasScores = Object.keys(scores).some(function (k) { return (scores[k] || 0) > 0; });
-
-            var sortedScores = Object.keys(scores)
-                .map(Number)
-                .filter(function (t) { return (scores[t] || 0) > 0; })
-                .sort(function (a, b) { return (scores[b] || 0) - (scores[a] || 0); });
-
-            var clientCount = sortedClients.length;
-            var rolesToggleLocked = clientCount <= 4;
-            var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(CLIENT_URL + '?session=' + sessionCode);
-
-            /* ── SETUP SCREEN ──────────────────────────────────────── */
-            if (!sessionCode) {
-                return h('div', { className: 'min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/20 flex flex-col items-center justify-center px-4 py-8' },
-                    h('div', { className: 'w-full max-w-sm flex flex-col gap-6' },
-                        h('div', { className: 'text-center' },
-                            h('div', { className: 'text-7xl mb-3' }, '🔪'),
-                            h('h1', { className: 'text-2xl font-black' }, 'Deception Murder'),
-                            h('p', { className: 'text-slate-400 text-sm mt-1' }, 'in Hong Kong — Master')
-                        ),
-                        h('div', { className: 'rounded-3xl border border-slate-800 bg-slate-900/80 p-6 flex flex-col gap-4' },
-                            h('label', { className: 'flex flex-col gap-1.5 text-sm' },
-                                h('span', { className: 'font-semibold text-slate-300' }, 'Código da sessão'),
-                                h('input', {
-                                    className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-rose-400 font-mono tracking-widest',
-                                    placeholder: 'Ex: HK01',
-                                    value: codeInput,
-                                    onChange: function (e) { setCodeInput(e.target.value.toUpperCase()); }
-                                })
-                            ),
-                            h('details', { className: 'text-sm' },
-                                h('summary', { className: 'cursor-pointer font-semibold text-slate-400 hover:text-slate-200 select-none py-1' }, 'Configuração avançada ▾'),
-                                h('div', { className: 'mt-3 flex flex-col gap-3' },
-                                    h('label', { className: 'flex flex-col gap-1' },
-                                        h('span', { className: 'font-semibold text-slate-300' }, 'Nome do botão de acusação'),
-                                        h('input', {
-                                            className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400',
-                                            value: buzzerName,
-                                            onChange: function (e) { setBuzzerName(e.target.value); }
-                                        })
-                                    ),
-                                    h('div', { className: 'grid grid-cols-2 gap-3' },
-                                        h('label', { className: 'flex flex-col gap-1' },
-                                            h('span', { className: 'font-semibold text-slate-300 text-xs' }, 'Pts acusação correta'),
-                                            h('input', {
-                                                className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold',
-                                                type: 'number', min: '0', value: accusePts,
-                                                onChange: function (e) { setAccusePts(e.target.value); }
-                                            })
-                                        ),
-                                        h('label', { className: 'flex flex-col gap-1' },
-                                            h('span', { className: 'font-semibold text-slate-300 text-xs' }, 'Pts vitória papel'),
-                                            h('input', {
-                                                className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold',
-                                                type: 'number', min: '0', value: victoryPts,
-                                                onChange: function (e) { setVictoryPts(e.target.value); }
-                                            })
-                                        )
-                                    )
-                                )
-                            ),
-                            h('button', {
-                                className: 'mt-1 rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-500 active:scale-95 transition-all',
-                                onClick: createSession
-                            }, 'Criar sessão')
-                        ),
-                        h('a', { href: 'masters.html', className: 'text-center text-sm text-slate-500 hover:text-slate-300' }, '← Voltar aos jogos')
-                    )
-                );
-            }
-
-            /* ── GAME SCREEN ───────────────────────────────────────── */
-
-            /* New Round modal */
+            /* ── MODALS (called as functions to avoid remount) ─────── */
             function NewRoundModal() {
-                return h('div', {
-                    className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4',
-                    onClick: function (e) { if (e.target === e.currentTarget) setShowNewRound(false); }
-                },
+                return h('div', { className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4', onClick: function (e) { if (e.target === e.currentTarget) setShowNewRound(false); } },
                     h('div', { className: 'bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm slide-in flex flex-col gap-5' },
                         h('div', {},
                             h('div', { className: 'text-xl font-black' }, '▶ Nova Ronda'),
                             gameData && h('div', { className: 'text-sm text-slate-400 mt-0.5' }, 'Ronda ' + (((gameData.round) || 0) + 1))
                         ),
                         h('label', {
-                            className: 'flex items-start gap-3 rounded-2xl border cursor-pointer px-4 py-3 transition-colors ' +
-                                (rolesToggleLocked
-                                    ? 'border-slate-800 bg-slate-950/50 opacity-50 cursor-not-allowed'
-                                    : useRoles
-                                        ? 'border-orange-500/40 bg-orange-950/30'
-                                        : 'border-slate-700 bg-slate-950/50 hover:border-slate-600')
+                            className: 'flex items-start gap-3 rounded-2xl border cursor-pointer px-4 py-3 ' +
+                                (clientCount <= 4 ? 'border-slate-800 opacity-50 cursor-not-allowed' :
+                                    useRoles ? 'border-orange-500/40 bg-orange-950/30' : 'border-slate-700 bg-slate-950/50')
                         },
-                            h('input', {
-                                type: 'checkbox',
-                                className: 'mt-0.5 w-4 h-4 flex-shrink-0 accent-orange-500',
-                                checked: useRoles,
-                                disabled: rolesToggleLocked,
-                                onChange: function (e) { setUseRoles(e.target.checked); }
-                            }),
+                            h('input', { type: 'checkbox', className: 'mt-0.5 w-4 h-4 flex-shrink-0 accent-orange-500', checked: useRoles, disabled: clientCount <= 4, onChange: function (e) { setUseRoles(e.target.checked); } }),
                             h('div', {},
-                                h('div', { className: 'font-semibold text-sm ' + (rolesToggleLocked ? 'text-slate-500' : 'text-slate-200') },
-                                    '🤝 👁️ Usar Cúmplice e Testemunha'
-                                ),
-                                h('div', { className: 'text-xs mt-0.5 ' + (rolesToggleLocked ? 'text-slate-600' : 'text-slate-400') },
-                                    rolesToggleLocked
-                                        ? 'Necessário mais de 4 mesas (' + clientCount + ' ligadas)'
-                                        : 'Cúmplice (N≥3), Testemunha (N≥4) — ' + clientCount + ' mesas ligadas'
-                                )
+                                h('div', { className: 'font-semibold text-sm ' + (clientCount <= 4 ? 'text-slate-500' : 'text-slate-200') }, '🤝 👁️ Usar Cúmplice e Testemunha'),
+                                h('div', { className: 'text-xs mt-0.5 ' + (clientCount <= 4 ? 'text-slate-600' : 'text-slate-400') },
+                                    clientCount <= 4 ? 'Necessário mais de 4 mesas (' + clientCount + ' ligadas)' : 'Cúmplice (N≥3), Testemunha (N≥4) — ' + clientCount + ' mesas')
                             )
                         ),
                         h('div', { className: 'flex gap-3' },
-                            h('button', {
-                                className: 'flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700',
-                                onClick: function () { setShowNewRound(false); }
-                            }, 'Cancelar'),
-                            h('button', {
-                                className: 'flex-1 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-500 active:scale-95 transition-all',
-                                onClick: startRound
-                            }, 'Iniciar ronda')
+                            h('button', { className: 'flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700', onClick: function () { setShowNewRound(false); } }, 'Cancelar'),
+                            h('button', { className: 'flex-1 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-500 active:scale-95 transition-all', onClick: startRound }, 'Iniciar')
                         )
                     )
                 );
             }
 
-            /* QR modal */
             function QRModal() {
-                return h('div', {
-                    className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4',
-                    onClick: function (e) { if (e.target === e.currentTarget) setShowQR(false); }
-                },
+                return h('div', { className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4', onClick: function (e) { if (e.target === e.currentTarget) setShowQR(false); } },
                     h('div', { className: 'bg-white rounded-3xl p-6 w-full max-w-xs slide-in flex flex-col items-center gap-4' },
                         h('div', { className: 'text-lg font-black text-gray-800' }, '📱 Entrar na sessão'),
-                        h('img', { src: qrUrl, alt: 'QR Code', className: 'rounded-2xl w-48 h-48', width: 192, height: 192 }),
-                        h('div', { className: 'font-mono font-bold text-2xl text-gray-800 tracking-widest' }, sessionCode),
-                        h('button', {
-                            className: 'w-full rounded-xl border border-gray-300 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-200',
-                            onClick: copyLink
-                        }, codeCopied ? '✓ Link copiado!' : 'Copiar link'),
-                        h('button', {
-                            className: 'text-sm text-gray-400 hover:text-gray-600',
-                            onClick: function () { setShowQR(false); }
-                        }, 'Fechar')
+                        h('img', { src: 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(qrUrl), alt: 'QR', className: 'rounded-2xl w-48 h-48', width: 192, height: 192 }),
+                        h('div', { className: 'font-mono font-black text-2xl text-gray-800 tracking-widest' }, sessionCode),
+                        h('button', { className: 'w-full rounded-xl border border-gray-300 bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-200', onClick: copyLink }, codeCopied ? '✓ Copiado!' : 'Copiar link'),
+                        h('button', { className: 'text-sm text-gray-400 hover:text-gray-600', onClick: function () { setShowQR(false); } }, 'Fechar')
                     )
                 );
             }
 
-            /* Leaderboard modal */
             function LeaderboardModal() {
                 var all = sortedClients.map(function (c) {
-                    return { tableNumber: c.tableNumber, teamName: c.teamName, score: scores[c.tableNumber] || 0 };
+                    return { tNum: c.tableNumber, teamName: c.teamName, score: scores[c.tableNumber] || 0 };
                 }).sort(function (a, b) { return b.score - a.score; });
                 var medals = ['🥇', '🥈', '🥉'];
-                return h('div', {
-                    className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4',
-                    onClick: function (e) { if (e.target === e.currentTarget) setShowLeaderboard(false); }
-                },
+                return h('div', { className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4', onClick: function (e) { if (e.target === e.currentTarget) setShowLeaderboard(false); } },
                     h('div', { className: 'bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm slide-in flex flex-col gap-4 max-h-[80vh]' },
                         h('div', { className: 'flex items-center justify-between' },
                             h('div', { className: 'text-xl font-black' }, '🏆 Ranking'),
-                            h('button', { className: 'text-slate-400 hover:text-white text-sm', onClick: function () { setShowLeaderboard(false); } }, '✕')
+                            h('button', { className: 'text-slate-400 hover:text-white', onClick: function () { setShowLeaderboard(false); } }, '✕')
                         ),
                         h('div', { className: 'flex flex-col gap-2 overflow-y-auto' },
-                            all.map(function (entry, i) {
-                                var rl = roles[entry.tableNumber] ? (ROLE_LABELS[roles[entry.tableNumber].role] || null) : null;
-                                return h('div', {
-                                    key: entry.tableNumber,
-                                    className: 'flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2.5'
-                                },
+                            all.map(function (e, i) {
+                                var rl = roles[e.tNum] ? (ROLE_LABELS[roles[e.tNum].role] || null) : null;
+                                return h('div', { key: e.tNum, className: 'flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2.5' },
                                     h('div', { className: 'flex items-center gap-2' },
                                         h('span', { className: 'text-lg w-6 text-center flex-shrink-0' }, medals[i] || (i + 1) + 'º'),
                                         h('div', {},
-                                            h('div', { className: 'font-semibold text-sm' }, 'Mesa ' + entry.tableNumber + (entry.teamName ? ' · ' + entry.teamName : '')),
+                                            h('div', { className: 'font-semibold text-sm' }, 'Mesa ' + e.tNum + (e.teamName ? ' · ' + e.teamName : '')),
                                             rl && h('div', { className: 'text-xs ' + rl.color }, rl.icon + ' ' + rl.label)
                                         )
                                     ),
-                                    h('span', { className: 'text-lg font-black ' + (entry.score > 0 ? 'text-amber-300' : 'text-slate-600') }, entry.score + ' pts')
+                                    h('span', { className: 'text-lg font-black ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + 'pts')
                                 );
                             })
                         )
@@ -458,236 +479,304 @@
                 );
             }
 
-            /* Close confirm modal */
-            function CloseConfirmModal() {
+            function CloseModal() {
                 return h('div', { className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4' },
                     h('div', { className: 'bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-xs slide-in flex flex-col gap-4' },
                         h('div', { className: 'text-center' },
                             h('div', { className: 'text-4xl mb-2' }, '⚠️'),
                             h('div', { className: 'font-black text-lg' }, 'Fechar sessão?'),
-                            h('div', { className: 'text-slate-400 text-sm mt-1' },
-                                'A sessão ', h('span', { className: 'font-mono font-bold text-white' }, sessionCode),
-                                ' será encerrada e as mesas serão desligadas.'
-                            )
+                            h('div', { className: 'text-slate-400 text-sm mt-1' }, 'A sessão ', h('span', { className: 'font-mono font-bold text-white' }, sessionCode), ' será arquivada e as mesas serão desligadas.')
                         ),
                         h('div', { className: 'flex gap-3' },
-                            h('button', {
-                                className: 'flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700',
-                                onClick: function () { setShowCloseConfirm(false); },
-                                disabled: closing
-                            }, 'Cancelar'),
-                            h('button', {
-                                className: 'flex-1 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-600 disabled:opacity-50',
-                                onClick: closeSession,
-                                disabled: closing
-                            }, closing ? 'A fechar...' : 'Fechar sessão')
+                            h('button', { className: 'flex-1 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700 disabled:opacity-50', onClick: function () { setShowCloseConfirm(false); }, disabled: closing }, 'Cancelar'),
+                            h('button', { className: 'flex-1 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-600 disabled:opacity-50', onClick: closeSession, disabled: closing }, closing ? 'A fechar...' : 'Fechar')
                         )
                     )
                 );
             }
 
+            function ExistDialog() {
+                return h('div', { className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4' },
+                    h('div', { className: 'bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm slide-in flex flex-col gap-4' },
+                        h('div', { className: 'text-center' },
+                            h('div', { className: 'text-4xl mb-2' }, '⚡'),
+                            h('div', { className: 'font-black text-lg' }, 'Sessão já existe'),
+                            h('div', { className: 'text-slate-400 text-sm mt-1' }, 'A sessão ', h('span', { className: 'font-mono font-bold text-white' }, existingData && existingData.code), ' já está ativa.')
+                        ),
+                        h('div', { className: 'flex flex-col gap-2' },
+                            h('button', { className: 'rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white hover:bg-emerald-500', onClick: function () { setSessionCode(existingData.code); setShowExistDialog(false); } }, 'Retomar sessão'),
+                            h('button', { className: 'rounded-xl bg-amber-500 px-4 py-3 font-bold text-slate-950 hover:bg-amber-400', onClick: archiveAndCreate }, 'Arquivar e criar nova'),
+                            h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 font-semibold hover:bg-slate-700', onClick: function () { setShowExistDialog(false); } }, 'Cancelar')
+                        )
+                    )
+                );
+            }
+
+            function HistoryModal() {
+                return h('div', { className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4', onClick: function (e) { if (e.target === e.currentTarget) setShowHistory(false); } },
+                    h('div', { className: 'bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm slide-in flex flex-col gap-4 max-h-[85vh]' },
+                        h('div', { className: 'flex items-center justify-between' },
+                            h('div', { className: 'text-xl font-black' }, '📂 Sessões arquivadas'),
+                            h('button', { className: 'text-slate-400 hover:text-white', onClick: function () { setShowHistory(false); } }, '✕')
+                        ),
+                        h('div', { className: 'flex flex-col gap-3 overflow-y-auto' },
+                            !sessionHistory.length && h('p', { className: 'text-slate-500 text-sm text-center py-4' }, 'Sem sessões arquivadas.'),
+                            sessionHistory.map(function (entry) {
+                                var date = entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('pt-PT') : '—';
+                                var scoresText = Object.entries(entry.scores || {}).map(function (kv) { return 'Mesa ' + kv[0] + ': ' + kv[1] + 'pts'; }).join(' · ');
+                                return h('div', { key: entry.id, className: 'rounded-2xl border border-slate-800 bg-slate-950/60 p-3' },
+                                    h('div', { className: 'flex items-center justify-between' },
+                                        h('div', { className: 'font-mono font-bold text-sm' }, entry.sessionId || '—'),
+                                        h('div', { className: 'text-xs text-slate-500' }, date)
+                                    ),
+                                    h('div', { className: 'text-xs text-slate-400 mt-1' }, 'Ronda ' + (entry.round || '—') + (scoresText ? ' · ' + scoresText : ''))
+                                );
+                            })
+                        )
+                    )
+                );
+            }
+
+            /* ── SETUP SCREEN ─────────────────────────────────────── */
+            if (!sessionCode) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/20 flex flex-col' },
+                    h('div', { className: 'mx-auto w-full max-w-2xl px-4 py-8 flex flex-col gap-6' },
+                        h('div', { className: 'flex items-center justify-between' },
+                            h('div', {},
+                                h('h1', { className: 'text-2xl font-black' }, '🔪 Deception Murder'),
+                                h('p', { className: 'text-slate-400 text-sm' }, 'Master')
+                            ),
+                            h('div', { className: 'flex gap-2' },
+                                h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: function () { setShowHistory(true); } }, 'Histórico'),
+                                h('a', { href: 'masters.html', className: 'rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-sm font-semibold hover:bg-white/20' }, '← Voltar')
+                            )
+                        ),
+
+                        /* active sessions */
+                        activeSessions.length > 0 && h('div', { className: 'rounded-3xl border border-emerald-500/30 bg-emerald-950/30 p-4 flex flex-col gap-2' },
+                            h('div', { className: 'text-sm font-bold text-emerald-300 mb-1' }, 'Sessões ativas'),
+                            activeSessions.map(function (s) {
+                                return h('div', { key: s.sessionId, className: 'flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2.5' },
+                                    h('div', {},
+                                        h('div', { className: 'font-mono font-bold' }, s.sessionId),
+                                        h('div', { className: 'text-xs text-slate-400' }, 'Ronda ' + (s.round || 0) + ' · ' + (s.phase || '—'))
+                                    ),
+                                    h('button', { className: 'rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500', onClick: function () { setSessionCode(s.sessionId); } }, 'Retomar')
+                                );
+                            })
+                        ),
+
+                        /* create session */
+                        h('div', { className: 'rounded-3xl border border-slate-800 bg-slate-900/80 p-6 flex flex-col gap-4' },
+                            h('h2', { className: 'font-bold text-lg' }, 'Nova sessão'),
+                            h('label', { className: 'flex flex-col gap-1.5 text-sm' },
+                                h('span', { className: 'font-semibold text-slate-300' }, 'Código da sessão'),
+                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-rose-400 font-mono tracking-widest', placeholder: 'Ex: HK01', value: codeInput, onChange: function (e) { setCodeInput(e.target.value.toUpperCase()); } })
+                            ),
+                            h('details', { className: 'text-sm' },
+                                h('summary', { className: 'cursor-pointer font-semibold text-slate-400 hover:text-slate-200 select-none py-1' }, 'Configuração ▾'),
+                                h('div', { className: 'mt-3 flex flex-col gap-4' },
+                                    h('div', { className: 'grid grid-cols-2 gap-3' },
+                                        h('label', { className: 'flex flex-col gap-1' },
+                                            h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Nome do botão de acusação'),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400', value: buzzerName, onChange: function (e) { setBuzzerName(e.target.value); } })
+                                        ),
+                                        h('div', { className: 'grid grid-cols-2 gap-2' },
+                                            h('label', { className: 'flex flex-col gap-1' },
+                                                h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Pts acusação'),
+                                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold', type: 'number', min: '0', value: accusePts, onChange: function (e) { setAccusePts(e.target.value); } })
+                                            ),
+                                            h('label', { className: 'flex flex-col gap-1' },
+                                                h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Pts vitória'),
+                                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold', type: 'number', min: '0', value: victoryPts, onChange: function (e) { setVictoryPts(e.target.value); } })
+                                            )
+                                        )
+                                    ),
+                                    /* role texts */
+                                    h('div', {},
+                                        h('div', { className: 'flex items-center justify-between mb-2' },
+                                            h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Textos dos papéis'),
+                                            h('div', { className: 'flex gap-2' },
+                                                h('button', { className: 'text-xs text-slate-500 hover:text-slate-300 underline', onClick: function () { var d = Object.assign({}, DEFAULT_ROLE_TEXTS); setRoleTexts(d); persistRoleTexts(d); } }, 'Repor'),
+                                                h('button', { className: 'text-xs text-rose-400 hover:text-rose-200 underline', onClick: saveRoleTexts }, 'Guardar')
+                                            )
+                                        ),
+                                        h('div', { className: 'flex flex-col gap-2' },
+                                            Object.keys(ROLE_LABELS).map(function (role) {
+                                                var rl = ROLE_LABELS[role];
+                                                return h('div', { key: role, className: 'flex flex-col gap-1' },
+                                                    h('label', { className: 'text-xs font-semibold ' + rl.color }, rl.icon + ' ' + rl.label),
+                                                    h('textarea', {
+                                                        className: 'w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300 outline-none focus:border-rose-400 resize-none',
+                                                        rows: 2,
+                                                        value: roleTexts[role] || '',
+                                                        onChange: function (e) {
+                                                            var v = e.target.value;
+                                                            setRoleTexts(function (prev) {
+                                                                var n = Object.assign({}, prev);
+                                                                n[role] = v;
+                                                                return n;
+                                                            });
+                                                        }
+                                                    })
+                                                );
+                                            })
+                                        )
+                                    )
+                                )
+                            ),
+                            h('button', { className: 'mt-1 rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-500 active:scale-95 transition-all', onClick: checkAndCreate }, 'Criar sessão')
+                        )
+                    ),
+                    showExistDialog && ExistDialog(),
+                    showHistory && HistoryModal()
+                );
+            }
+
+            /* ── GAME SCREEN ──────────────────────────────────────── */
             return h('div', { className: 'min-h-screen bg-slate-950 flex flex-col' },
 
-                /* ── header ── */
+                /* header */
                 h('div', { className: 'flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800 bg-slate-900/90 sticky top-0 z-10' },
                     h('div', { className: 'flex items-center gap-3 min-w-0' },
-                        h('div', { className: 'text-xl font-black flex-shrink-0' }, '🔪'),
+                        h('span', { className: 'text-xl flex-shrink-0' }, '🔪'),
                         h('div', { className: 'min-w-0' },
                             h('div', { className: 'font-bold text-sm truncate' }, 'Deception Murder'),
-                            h('div', { className: 'flex items-center gap-2 text-xs text-slate-400' },
+                            h('div', { className: 'text-xs text-slate-400 flex items-center gap-1.5 flex-wrap' },
                                 h('span', { className: 'font-mono font-bold text-slate-300' }, sessionCode),
-                                h('span', {}, '·'),
-                                h('span', {}, clientCount + ' mesas'),
-                                gameData && h('span', {}, '· ' + (phase === 'waiting' ? 'Aguarda' : phase === 'setup' ? 'Escolha de cartas' : 'Ronda ' + (gameData.round || 1)))
+                                h('span', {}, '·'), h('span', {}, clientCount + ' mesas'),
+                                gameData && phase === 'setup' && h('span', {}, '· Ronda ' + gameData.round + ' · Escolha de cartas'),
+                                gameData && phase === 'running' && h('span', {}, '· Ronda ' + gameData.round + ' · Em jogo'),
+                                gameData && phase === 'waiting' && gameData.round > 0 && h('span', {}, '· Ronda ' + gameData.round + ' terminada')
                             )
                         )
                     ),
                     h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
-                        h('button', {
-                            className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-semibold hover:bg-slate-700',
-                            onClick: function () { setShowQR(true); },
-                            title: 'QR Code / Link'
-                        }, '📱'),
-                        h('button', {
-                            className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-semibold hover:bg-slate-700',
-                            onClick: function () { setShowLeaderboard(true); },
-                            title: 'Ranking'
-                        }, '🏆'),
-                        h('button', {
-                            className: 'rounded-xl border border-rose-700/50 bg-rose-950/40 px-3 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-900/40',
-                            onClick: function () { setShowCloseConfirm(true); }
-                        }, 'Fechar')
+                        h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700', onClick: function () { setShowQR(true); }, title: 'QR Code' }, '📱'),
+                        h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700', onClick: function () { setShowLeaderboard(true); }, title: 'Ranking' }, '🏆'),
+                        h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700', onClick: resetScores, title: 'Repor pontos' }, '↺ pts'),
+                        h('button', { className: 'rounded-xl border border-rose-700/50 bg-rose-950/40 px-3 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-900/40', onClick: function () { setShowCloseConfirm(true); } }, 'Fechar')
                     )
                 ),
 
-                /* ── body ── */
-                h('div', { className: 'flex-1 grid lg:grid-cols-[300px_minmax(0,1fr)] gap-0' },
+                /* body */
+                h('div', { className: 'flex-1 grid lg:grid-cols-[300px_minmax(0,1fr)]' },
 
-                    /* ── LEFT: tables list ── */
-                    h('div', { className: 'border-r border-slate-800 bg-slate-900/40 p-4 flex flex-col gap-3 lg:max-h-[calc(100vh-56px)] lg:overflow-y-auto' },
-                        h('div', { className: 'flex items-center justify-between' },
-                            h('div', { className: 'text-sm font-bold text-slate-400 uppercase tracking-wide' }, 'Mesas'),
-                            h('div', { className: 'text-xs text-slate-500' }, clientCount + ' ligadas')
-                        ),
-                        !sortedClients.length && h('div', { className: 'text-sm text-slate-600 text-center py-4' }, 'Nenhuma mesa ligada'),
+                    /* LEFT: tables */
+                    h('div', { className: 'border-r border-slate-800 bg-slate-900/40 p-4 flex flex-col gap-3 lg:max-h-[calc(100vh-57px)] lg:overflow-y-auto' },
+                        h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' }, 'Mesas conectadas (' + clientCount + ')'),
+                        !clientCount && h('p', { className: 'text-sm text-slate-600 text-center py-4' }, 'Nenhuma mesa ligada'),
                         sortedClients.map(function (client) {
                             var tNum = client.tableNumber;
                             var roleEntry = roles[tNum];
                             var rl = roleEntry ? (ROLE_LABELS[roleEntry.role] || null) : null;
-                            var ls = lastSeen[tNum] || 0;
-                            var since = ls ? (Date.now() - ls + tick * 0) : 999999;
-                            since = ls ? (Date.now() - ls) : 999999;
-                            var sc = scores[tNum] || 0;
+                            var isAssassin = String(tNum) === String(assassinTable);
+                            var sc_val = scores[tNum] || 0;
+                            var lsTime = lastSeen[tNum] || 0;
+                            var since = lsTime ? (Date.now() - lsTime) : 999999;
+                            var hasAcc = !!accusations[tNum];
+                            var isFlash = !!flashingTables[tNum];
 
                             return h('div', {
                                 key: tNum,
-                                className: 'rounded-2xl border border-slate-800 bg-slate-950/60 p-3 flex flex-col gap-1.5'
+                                className: 'rounded-2xl border p-3 flex flex-col gap-2 transition-all ' +
+                                    (isFlash ? 'accuse-flash' : hasAcc ? 'border-rose-500/30 bg-rose-950/20' : 'border-slate-800 bg-slate-950/60')
                             },
-                                h('div', { className: 'flex items-start justify-between gap-2' },
-                                    h('div', { className: 'flex items-center gap-2 min-w-0' },
-                                        connDot(since),
-                                        h('div', { className: 'min-w-0' },
-                                            h('div', { className: 'font-bold text-sm truncate' },
-                                                'Mesa ' + tNum + (client.teamName ? ' · ' + client.teamName : '')
-                                            )
-                                        )
+                                /* row 1: presence + name + score */
+                                h('div', { className: 'flex items-start gap-2' },
+                                    h('div', { className: 'pt-1' }, connDot(since)),
+                                    h('div', { className: 'flex-1 min-w-0' },
+                                        h('div', { className: 'font-bold text-sm truncate' }, 'Mesa ' + tNum + (client.teamName ? ' · ' + client.teamName : '')),
+                                        rl && h('div', { className: 'text-xs mt-0.5 ' + rl.color }, rl.icon + ' ' + rl.label)
                                     ),
-                                    h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
-                                        sc > 0 && h('span', { className: 'text-xs font-bold text-amber-300' }, sc + 'pts'),
-                                        rl && h('span', {
-                                            className: 'rounded-full px-2 py-0.5 text-xs font-bold border ' + rl.bg + ' ' + rl.border + ' ' + rl.color
-                                        }, rl.icon)
+                                    /* score +/- */
+                                    h('div', { className: 'flex items-center gap-1 flex-shrink-0' },
+                                        h('button', { className: 'w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold flex items-center justify-center', onClick: function () { adjustScore(tNum, -1); } }, '−'),
+                                        h('span', { className: 'text-sm font-bold text-amber-300 min-w-[2rem] text-center' }, sc_val + 'pts'),
+                                        h('button', { className: 'w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold flex items-center justify-center', onClick: function () { adjustScore(tNum, 1); } }, '+')
                                     )
                                 ),
-                                rl && h('div', { className: 'text-xs ' + rl.color + ' pl-4' }, rl.label),
-                                /* cards: only for assassin */
-                                String(tNum) === String(assassinTable) && roleEntry && h('div', { className: 'grid grid-cols-2 gap-1.5 mt-1' },
+                                /* card info: setup phase shows status; running shows assassin cards */
+                                phase === 'setup' && h('div', { className: 'text-xs pl-4 ' + ((client.blueCard || client.redCard) ? 'text-emerald-400' : 'text-slate-600') },
+                                    (client.blueCard || client.redCard)
+                                        ? '✓  🔵 ' + (client.blueCard || '—') + '  🔴 ' + (client.redCard || '—')
+                                        : '○  Aguarda escolha de cartas'
+                                ),
+                                phase === 'running' && isAssassin && roleEntry && h('div', { className: 'grid grid-cols-2 gap-1.5 pl-4' },
                                     h('div', { className: 'rounded-lg border border-blue-500/30 bg-blue-950/30 px-2 py-1.5 text-center' },
                                         h('div', { className: 'text-xs text-blue-400' }, '🔵'),
-                                        h('div', { className: 'text-xs font-bold text-blue-200 truncate' },
-                                            (roleEntry.secretInfo && roleEntry.secretInfo.blueCard) || client.blueCard || '—'
-                                        )
+                                        h('div', { className: 'text-xs font-bold text-blue-200 truncate' }, (roleEntry.secretInfo && roleEntry.secretInfo.blueCard) || client.blueCard || '—')
                                     ),
                                     h('div', { className: 'rounded-lg border border-rose-500/30 bg-rose-950/30 px-2 py-1.5 text-center' },
                                         h('div', { className: 'text-xs text-rose-400' }, '🔴'),
-                                        h('div', { className: 'text-xs font-bold text-rose-200 truncate' },
-                                            (roleEntry.secretInfo && roleEntry.secretInfo.redCard) || client.redCard || '—'
-                                        )
+                                        h('div', { className: 'text-xs font-bold text-rose-200 truncate' }, (roleEntry.secretInfo && roleEntry.secretInfo.redCard) || client.redCard || '—')
                                     )
                                 ),
-                                /* per-table accusation reset */
-                                accusations[tNum] && h('div', { className: 'flex items-center justify-between mt-1 rounded-lg border border-rose-500/20 bg-rose-950/20 px-2 py-1' },
+                                /* accusation reset */
+                                hasAcc && h('div', { className: 'flex items-center justify-between pl-4 py-0.5' },
                                     h('span', { className: 'text-xs text-rose-300' }, '⚡ Acusação enviada'),
-                                    h('button', {
-                                        className: 'text-xs text-slate-400 hover:text-white underline',
-                                        onClick: function () { resetOneAccusation(tNum); }
-                                    }, 'Repor')
+                                    h('button', { className: 'text-xs text-slate-400 hover:text-white underline', onClick: function () { resetOneAccusation(tNum); } }, 'Repor')
                                 )
                             );
                         })
                     ),
 
-                    /* ── RIGHT: game controls ── */
-                    h('div', { className: 'p-5 flex flex-col gap-5 lg:max-h-[calc(100vh-56px)] lg:overflow-y-auto' },
+                    /* RIGHT: controls */
+                    h('div', { className: 'p-5 flex flex-col gap-5 lg:max-h-[calc(100vh-57px)] lg:overflow-y-auto' },
 
-                        /* WAITING phase */
-                        phase === 'waiting' && h('div', { className: 'flex flex-col items-center justify-center flex-1 gap-6 py-12 fade-in' },
-                            h('div', { className: 'text-center' },
-                                h('div', { className: 'text-6xl mb-4' }, '🔪'),
-                                h('div', { className: 'text-2xl font-black' }, 'Sessão pronta'),
-                                h('div', { className: 'text-slate-400 text-sm mt-1' },
-                                    clientCount > 0
-                                        ? clientCount + ' mesa' + (clientCount !== 1 ? 's' : '') + ' ligada' + (clientCount !== 1 ? 's' : '') + '. Quando estiver pronto, inicia a primeira ronda.'
-                                        : 'Aguarda que as mesas se liguem...'
-                                )
+                        /* WAITING */
+                        phase === 'waiting' && h('div', { className: 'flex flex-col items-center justify-center flex-1 gap-6 py-12' },
+                            roundResult && h('div', { className: 'w-full max-w-sm rounded-3xl border ' + (roundResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') + ' p-6 text-center mb-2' },
+                                h('div', { className: 'text-5xl mb-3' }, roundResult.winner === 'accusers' ? '🎉' : '🔪'),
+                                h('div', { className: 'text-xl font-black' }, roundResult.winner === 'accusers' ? (roundResult.winnerTeam || 'Mesa ' + roundResult.winnerTable) + ' acertou!' : 'Assassino impune!'),
+                                h('div', { className: 'text-sm text-slate-400 mt-1' }, roundResult.winner === 'accusers' ? '+' + accusePtsNow + ' pts para os investigadores' : '+' + victoryPtsNow + ' pts para assassino e cúmplice')
                             ),
-                            h('button', {
-                                className: 'rounded-2xl bg-rose-600 px-8 py-4 text-xl font-black text-white hover:bg-rose-500 active:scale-95 transition-all shadow-lg shadow-rose-900/40',
-                                onClick: function () { setShowNewRound(true); }
-                            }, '▶ Nova Ronda')
+                            h('div', { className: 'text-center' },
+                                h('div', { className: 'text-2xl font-black' }, gameData && gameData.round > 0 ? 'Pronto para mais uma ronda?' : 'Sessão pronta'),
+                                h('div', { className: 'text-slate-400 text-sm mt-1' }, clientCount + ' mesa' + (clientCount !== 1 ? 's' : '') + ' ligada' + (clientCount !== 1 ? 's' : ''))
+                            ),
+                            h('button', { className: 'rounded-2xl bg-rose-600 px-8 py-4 text-xl font-black text-white hover:bg-rose-500 active:scale-95 transition-all shadow-lg shadow-rose-900/40', onClick: function () { setShowNewRound(true); } }, '▶ Nova Ronda')
                         ),
 
-                        /* SETUP phase */
-                        phase === 'setup' && h('div', { className: 'flex flex-col gap-5 fade-in' },
+                        /* SETUP */
+                        phase === 'setup' && h('div', { className: 'flex flex-col gap-4' },
                             h('div', { className: 'rounded-2xl border border-amber-500/30 bg-amber-950/30 px-4 py-4' },
                                 h('div', { className: 'font-bold text-amber-200 mb-1' }, '📋 Ronda ' + (gameData ? gameData.round : '—')),
-                                h('div', { className: 'text-sm text-amber-200/80' }, 'As mesas estão a escolher as suas cartas. Quando todas tiverem guardado, distribui os papéis.')
+                                h('div', { className: 'text-sm text-amber-200/80' }, 'As mesas estão a escolher as suas cartas. Quando estiverem prontas, distribui os papéis.')
                             ),
-                            /* card status per table */
-                            h('div', { className: 'flex flex-col gap-2' },
-                                h('div', { className: 'text-sm font-semibold text-slate-400' }, 'Estado das cartas:'),
-                                sortedClients.map(function (client) {
-                                    var hasCards = !!(client.blueCard || client.redCard);
-                                    return h('div', { key: client.tableNumber, className: 'flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2.5' },
-                                        h('span', { className: hasCards ? 'text-emerald-400 text-lg' : 'text-slate-600 text-lg' }, hasCards ? '✓' : '○'),
-                                        h('div', { className: 'flex-1 min-w-0' },
-                                            h('div', { className: 'text-sm font-semibold truncate' }, 'Mesa ' + client.tableNumber + (client.teamName ? ' · ' + client.teamName : '')),
-                                            hasCards && h('div', { className: 'text-xs text-slate-400 truncate' },
-                                                '🔵 ' + (client.blueCard || '—') + '  🔴 ' + (client.redCard || '—')
-                                            )
-                                        )
-                                    );
-                                })
+                            h('div', { className: 'text-sm text-slate-400' },
+                                sortedClients.filter(function (c) { return c.blueCard || c.redCard; }).length + ' / ' + clientCount + ' mesas com cartas guardadas'
                             ),
-                            h('button', {
-                                className: 'rounded-2xl bg-indigo-600 px-6 py-4 text-lg font-black text-white hover:bg-indigo-500 active:scale-95 transition-all',
-                                onClick: distributeRoles
-                            }, '🎲 Distribuir Papéis')
+                            h('button', { className: 'rounded-2xl bg-indigo-600 px-6 py-4 text-lg font-black text-white hover:bg-indigo-500 active:scale-95 transition-all', onClick: distributeRoles }, '🎲 Distribuir Papéis')
                         ),
 
-                        /* RUNNING phase */
-                        phase === 'running' && h('div', { className: 'flex flex-col gap-5 fade-in' },
-
-                            /* action row */
+                        /* RUNNING */
+                        phase === 'running' && h('div', { className: 'flex flex-col gap-4' },
                             h('div', { className: 'flex flex-wrap gap-2' },
-                                h('button', {
-                                    className: 'rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700',
-                                    onClick: resetAllAccusations
-                                }, '↺ Resetar botões'),
-                                h('button', {
-                                    className: 'rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-2.5 text-sm font-semibold text-orange-300 hover:bg-orange-500/20',
-                                    onClick: confirmRoleVictory
-                                }, '🏆 Vitória assassino+cúmplice (+' + victoryPtsNow + 'pts)'),
-                                h('button', {
-                                    className: 'rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/20',
-                                    onClick: function () { setShowNewRound(true); }
-                                }, '▶ Nova ronda')
+                                h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700', onClick: resetAllAccusations }, '↺ Resetar botões'),
+                                h('button', { className: 'rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm font-semibold text-rose-300 hover:bg-rose-500/20', onClick: endRoundManual }, '🔪 Terminar ronda'),
+                                h('button', { className: 'rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/20', onClick: function () { setShowNewRound(true); } }, '▶ Nova ronda')
                             ),
-
-                            /* accusations */
+                            h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' }, 'Acusações (' + accusationList.length + ' / ' + clientCount + ')'),
+                            !accusationList.length && h('div', { className: 'rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-6 text-sm text-slate-500 text-center' }, 'Nenhuma acusação recebida.'),
                             h('div', { className: 'flex flex-col gap-3' },
-                                h('div', { className: 'text-sm font-semibold text-slate-400 uppercase tracking-wide' },
-                                    'Acusações (' + accusationList.length + ')'
-                                ),
-                                !accusationList.length && h('div', { className: 'rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-5 text-sm text-slate-500 text-center' },
-                                    'Nenhuma acusação recebida.'
-                                ),
-                                accusationList.map(function (acc) {
+                                accusationList.map(function (acc, idx) {
                                     var tNum = acc.tableNumber;
                                     var roleEntry = roles[tNum];
                                     var rl = roleEntry ? (ROLE_LABELS[roleEntry.role] || null) : null;
                                     var ts = acc.timestamp ? new Date(acc.timestamp).toLocaleTimeString('pt-PT') : '';
-                                    return h('div', {
-                                        key: tNum,
-                                        className: 'rounded-2xl border border-rose-500/20 bg-rose-950/20 p-4 slide-in'
-                                    },
+                                    return h('div', { key: tNum, className: 'rounded-2xl border border-rose-500/25 bg-rose-950/20 p-4 slide-in' },
                                         h('div', { className: 'flex items-start justify-between gap-2 mb-3' },
                                             h('div', {},
-                                                h('div', { className: 'font-bold' }, 'Mesa ' + tNum + (acc.teamName ? ' · ' + acc.teamName : '')),
+                                                h('div', { className: 'font-bold' }, idx + 1 + 'º · Mesa ' + tNum + (acc.teamName ? ' · ' + acc.teamName : '')),
                                                 rl && h('div', { className: 'text-xs mt-0.5 ' + rl.color }, rl.icon + ' ' + rl.label),
                                                 ts && h('div', { className: 'text-xs text-slate-500 mt-0.5' }, ts)
                                             ),
                                             h('span', { className: 'text-rose-400 text-xl' }, '⚡')
                                         ),
                                         h('div', { className: 'flex flex-wrap gap-2' },
-                                            h('button', {
-                                                className: 'rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500',
-                                                onClick: function () { markCorrect(tNum); }
-                                            }, '✓ Correta (+' + accusePtsNow + ' pts)'),
-                                            h('button', {
-                                                className: 'rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold hover:bg-slate-700',
-                                                onClick: function () { resetOneAccusation(tNum); }
-                                            }, '↺ Repor botão')
+                                            h('button', { className: 'rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500', onClick: function () { markCorrect(tNum); } }, '✓ Correta (+' + accusePtsNow + 'pts)'),
+                                            h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold hover:bg-slate-700', onClick: function () { resetOneAccusation(tNum); } }, '↺ Repor botão')
                                         )
                                     );
                                 })
@@ -696,11 +785,13 @@
                     )
                 ),
 
-                /* ── modals ── */
+                /* modals */
                 showNewRound && NewRoundModal(),
                 showQR && QRModal(),
                 showLeaderboard && LeaderboardModal(),
-                showCloseConfirm && CloseConfirmModal()
+                showCloseConfirm && CloseModal(),
+                showExistDialog && ExistDialog(),
+                showHistory && HistoryModal()
             );
         }
 

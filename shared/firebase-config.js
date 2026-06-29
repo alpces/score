@@ -29,6 +29,8 @@ const AppConfig = {
     MASTER_HITSTER_URL: 'https://alpces.github.io/score/master-hitster.html',
     CLIENT_JUSTONE_URL: 'https://alpces.github.io/score/client-justone.html',
     MASTER_JUSTONE_URL: 'https://alpces.github.io/score/master-justone.html',
+    CLIENT_DECEPTION_URL: 'https://alpces.github.io/score/client-deception.html',
+    MASTER_DECEPTION_URL: 'https://alpces.github.io/score/master-deception.html',
 };
 
 window.FirebaseConfig = FirebaseConfig;

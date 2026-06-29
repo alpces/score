@@ -38,117 +38,104 @@
 
     <script>
     window.addEventListener('firebaseReady', function () {
-        var useState = React.useState, useEffect = React.useEffect, h = React.createElement;
+        var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
 
         var HEARTBEAT_MS = 15000;
-        var localStore = ClientCore.createLocalStore('deception');
-        var CLIENT_ID  = ClientCore.getClientId('deception_clientId');
+        var localStore   = ClientCore.createLocalStore('deception');
+        var CLIENT_ID    = ClientCore.getClientId('deception_clientId');
+
+        /* ── daily warning (replaces showDedicatedWarning) ─────────── */
+        function showDailyWarning() {
+            try {
+                var today = new Date().toDateString();
+                if (localStorage.getItem('dec_warned_date') === today) return;
+            } catch (e) { return; }
+            var overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:1rem;z-index:9999';
+            var card = document.createElement('div');
+            card.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:1rem;padding:1.5rem;max-width:22rem;width:100%;text-align:center;box-shadow:0 25px 50px -12px rgba(0,0,0,.4)';
+            card.innerHTML = '<div style="font-size:2.5rem;margin-bottom:.75rem">📱</div>'
+                + '<h2 style="font-size:1.1rem;font-weight:700;color:#f1f5f9;margin-bottom:.75rem">Atenção</h2>'
+                + '<p style="color:#cbd5e1;margin-bottom:.5rem;line-height:1.5">Este telemóvel deve ficar <strong>ligado e exclusivamente nesta app</strong> durante todo o jogo.</p>'
+                + '<p style="color:#94a3b8;font-size:.875rem;margin-bottom:1.25rem;line-height:1.5">Se não for possível, sai da sessão e passa a outro telemóvel do grupo.</p>'
+                + '<button style="width:100%;background:#e11d48;color:#fff;padding:.75rem;border-radius:.75rem;font-weight:700;border:none;cursor:pointer;font-size:1rem">Percebido!</button>';
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+            card.querySelector('button').addEventListener('click', function () {
+                try { localStorage.setItem('dec_warned_date', new Date().toDateString()); } catch (e) {}
+                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            });
+        }
 
         /* ── role display ───────────────────────────────────────────── */
-        var ROLES = {
-            assassino: {
-                label: 'Assassino', icon: '🔪',
-                border: 'border-rose-500/50', bg: 'bg-rose-950/50',
-                render: function (si) {
-                    return [
-                        h('p', { key: 'd', className: 'text-slate-200 leading-relaxed text-sm' },
-                            'Cometeste o crime. As tuas cartas são as pistas que o Forense apresenta. Não deixes que te descubram!'
-                        ),
-                        si && (si.blueCard || si.redCard) && h('div', { key: 'c', className: 'mt-3 grid grid-cols-2 gap-3' },
-                            h('div', { className: 'rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-2.5 text-center' },
-                                h('div', { className: 'text-xs text-blue-400 mb-1' }, '🔵 Carta Azul'),
-                                h('div', { className: 'font-bold text-blue-200' }, si.blueCard || '—')
-                            ),
-                            h('div', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2.5 text-center' },
-                                h('div', { className: 'text-xs text-rose-400 mb-1' }, '🔴 Carta Vermelha'),
-                                h('div', { className: 'font-bold text-rose-200' }, si.redCard || '—')
-                            )
-                        )
-                    ];
-                }
-            },
-            cumplice: {
-                label: 'Cúmplice', icon: '🤝',
-                border: 'border-orange-500/50', bg: 'bg-orange-950/50',
-                render: function (si) {
-                    if (!si) return h('p', { className: 'text-slate-200 text-sm' }, 'Ajuda o assassino a não ser descoberto.');
-                    return [
-                        h('p', { key: 'd', className: 'text-slate-200 leading-relaxed text-sm' },
-                            'Conheces o assassino! Ajuda-o sem te traires.'
-                        ),
-                        h('div', { key: 'i', className: 'mt-3 rounded-xl border border-orange-500/30 bg-orange-950/40 p-3' },
-                            h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-2' }, '🔐 Informação secreta'),
-                            h('div', { className: 'text-sm text-slate-300 mb-2' },
-                                'Assassino: ', h('span', { className: 'font-bold text-white' }, si.assassinTeamName || ('Mesa ' + si.assassinTable))
-                            ),
-                            h('div', { className: 'grid grid-cols-2 gap-2' },
-                                h('div', { className: 'rounded-lg border border-blue-500/30 bg-blue-950/30 px-2 py-2 text-center' },
-                                    h('div', { className: 'text-xs text-blue-400' }, '🔵 Azul'),
-                                    h('div', { className: 'font-bold text-blue-200 text-sm mt-0.5' }, si.blueCard || '—')
-                                ),
-                                h('div', { className: 'rounded-lg border border-rose-500/30 bg-rose-950/30 px-2 py-2 text-center' },
-                                    h('div', { className: 'text-xs text-rose-400' }, '🔴 Vermelha'),
-                                    h('div', { className: 'font-bold text-rose-200 text-sm mt-0.5' }, si.redCard || '—')
-                                )
-                            )
-                        )
-                    ];
-                }
-            },
-            testemunha: {
-                label: 'Testemunha', icon: '👁️',
-                border: 'border-yellow-500/50', bg: 'bg-yellow-950/50',
-                render: function (si) {
-                    var tables = si && si.involvedTables ? si.involvedTables : [];
-                    return [
-                        h('p', { key: 'd', className: 'text-slate-200 leading-relaxed text-sm' },
-                            'Viste o crime acontecer! Sabes as mesas envolvidas, mas não sabes quem é o assassino e quem é o cúmplice.'
-                        ),
-                        tables.length > 0 && h('div', { key: 'i', className: 'mt-3 rounded-xl border border-yellow-500/30 bg-yellow-950/40 p-3' },
-                            h('div', { className: 'text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-2' }, '🔐 Informação secreta'),
-                            h('div', { className: 'text-sm text-slate-300 mb-1' }, 'Equipas envolvidas no crime:'),
-                            h('div', { className: 'flex flex-col gap-1 mt-1' },
-                                tables.map(function (t, i) {
-                                    return h('div', { key: i, className: 'font-bold text-white text-sm' }, '• ' + t);
-                                })
-                            )
-                        )
-                    ];
-                }
-            },
-            investigador: {
-                label: 'Investigador', icon: '🔍',
-                border: 'border-blue-500/50', bg: 'bg-blue-950/50',
-                render: function () {
-                    return h('p', { className: 'text-slate-200 leading-relaxed text-sm' },
-                        'Investiga o crime! Analisa as cartas do Forense e tenta identificar o assassino e as suas cartas. Podes usar o botão de acusação uma única vez!'
-                    );
-                }
-            },
-            detetive: {
-                label: 'Detetive', icon: '🕵️',
-                border: 'border-purple-500/50', bg: 'bg-purple-950/50',
-                render: function () {
-                    return h('p', { className: 'text-slate-200 leading-relaxed text-sm' },
-                        'Investiga o crime como detetive sénior! Analisa as cartas do Forense e tenta identificar o assassino. Podes usar o botão de acusação uma única vez!'
-                    );
-                }
-            }
+        var DEFAULT_ROLE_TEXTS = {
+            assassino:    'Cometeste o crime. As tuas cartas são as pistas que o Forense apresenta. Não deixes que te descubram!',
+            cumplice:     'Ajuda o assassino a não ser descoberto. Conheces a identidade do assassino e as suas cartas escolhidas.',
+            testemunha:   'Viste o crime acontecer! Sabes quais as equipas envolvidas, mas não sabes quem é o assassino e quem é o cúmplice.',
+            investigador: 'Investiga o crime! Analisa as cartas do Forense e tenta identificar o assassino. Podes usar o botão de acusação uma única vez!',
+            detetive:     'Investiga o crime como detetive sénior! Analisa as cartas do Forense e tenta identificar o assassino. Podes usar o botão de acusação uma única vez!'
         };
 
-        /* ── card persistence ────────────────────────────────────────── */
-        function loadSavedCards() {
-            try { return { blue: localStorage.getItem('dec_blue') || '', red: localStorage.getItem('dec_red') || '' }; }
-            catch (e) { return { blue: '', red: '' }; }
-        }
-        function persistCards(blue, red) {
-            try { localStorage.setItem('dec_blue', blue); localStorage.setItem('dec_red', red); } catch (e) {}
+        var ROLES = {
+            assassino:   { label: 'Assassino',    icon: '🔪', border: 'border-rose-500/50',   bg: 'bg-rose-950/50'   },
+            cumplice:    { label: 'Cúmplice',     icon: '🤝', border: 'border-orange-500/50', bg: 'bg-orange-950/50' },
+            testemunha:  { label: 'Testemunha',   icon: '👁️', border: 'border-yellow-500/50', bg: 'bg-yellow-950/50' },
+            investigador:{ label: 'Investigador', icon: '🔍', border: 'border-blue-500/50',   bg: 'bg-blue-950/50'   },
+            detetive:    { label: 'Detetive',     icon: '🕵️', border: 'border-purple-500/50', bg: 'bg-purple-950/50' }
+        };
+
+        function renderSecretInfo(role, si) {
+            if (role === 'assassino' && si && (si.blueCard || si.redCard)) {
+                return h('div', { className: 'mt-3 grid grid-cols-2 gap-3' },
+                    h('div', { className: 'rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-2.5 text-center' },
+                        h('div', { className: 'text-xs text-blue-400 mb-1' }, '🔵 Carta Azul'),
+                        h('div', { className: 'font-bold text-blue-200' }, si.blueCard || '—')
+                    ),
+                    h('div', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2.5 text-center' },
+                        h('div', { className: 'text-xs text-rose-400 mb-1' }, '🔴 Carta Vermelha'),
+                        h('div', { className: 'font-bold text-rose-200' }, si.redCard || '—')
+                    )
+                );
+            }
+            if (role === 'cumplice' && si && si.assassinTable) {
+                return h('div', { className: 'mt-3 rounded-xl border border-orange-500/30 bg-orange-950/40 p-3' },
+                    h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-2' }, '🔐 Informação secreta'),
+                    h('div', { className: 'text-sm text-slate-300 mb-2' }, 'Assassino: ', h('span', { className: 'font-bold text-white' }, si.assassinTeamName || ('Mesa ' + si.assassinTable))),
+                    h('div', { className: 'grid grid-cols-2 gap-2' },
+                        h('div', { className: 'rounded-lg border border-blue-500/30 bg-blue-950/30 px-2 py-2 text-center' },
+                            h('div', { className: 'text-xs text-blue-400' }, '🔵 Azul'),
+                            h('div', { className: 'font-bold text-blue-200 text-sm mt-0.5' }, si.blueCard || '—')
+                        ),
+                        h('div', { className: 'rounded-lg border border-rose-500/30 bg-rose-950/30 px-2 py-2 text-center' },
+                            h('div', { className: 'text-xs text-rose-400' }, '🔴 Vermelha'),
+                            h('div', { className: 'font-bold text-rose-200 text-sm mt-0.5' }, si.redCard || '—')
+                        )
+                    )
+                );
+            }
+            if (role === 'testemunha' && si && si.involvedTables && si.involvedTables.length) {
+                return h('div', { className: 'mt-3 rounded-xl border border-yellow-500/30 bg-yellow-950/40 p-3' },
+                    h('div', { className: 'text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-2' }, '🔐 Informação secreta'),
+                    h('div', { className: 'text-sm text-slate-300 mb-1' }, 'Equipas envolvidas no crime:'),
+                    h('div', { className: 'flex flex-col gap-1 mt-1' },
+                        si.involvedTables.map(function (t, i) { return h('div', { key: i, className: 'font-bold text-white text-sm' }, '• ' + t); })
+                    )
+                );
+            }
+            return null;
         }
 
-        /* ── App ─────────────────────────────────────────────────────── */
+        /* ── card persistence ─────────────────────────────────────── */
+        function loadSavedCards() {
+            try { return { blue: localStorage.getItem('dec_blue') || '', red: localStorage.getItem('dec_red') || '' }; } catch (e) { return { blue: '', red: '' }; }
+        }
+        function persistCards(b, r) {
+            try { localStorage.setItem('dec_blue', b); localStorage.setItem('dec_red', r); } catch (e) {}
+        }
+
+        /* ── App ─────────────────────────────────────────────────── */
         function App() {
-            /* connection */
             var r1 = useState(false);  var connected = r1[0];    var setConnected = r1[1];
             var r2 = useState('');     var sessionCode = r2[0];  var setSessionCode = r2[1];
             var r3 = useState('');     var tableNumber = r3[0];  var setTableNumber = r3[1];
@@ -160,7 +147,6 @@
             var r9 = useState(true);   var fbOk = r9[0];         var setFbOk = r9[1];
             var r10 = useState(false); var joining = r10[0];     var setJoining = r10[1];
 
-            /* game */
             var g1 = useState(null);   var gameData = g1[0];     var setGameData = g1[1];
             var g2 = useState('');     var blueCard = g2[0];     var setBlueCard = g2[1];
             var g3 = useState('');     var redCard = g3[0];      var setRedCard = g3[1];
@@ -168,6 +154,7 @@
             var g5 = useState(false);  var savingCards = g5[0];  var setSavingCards = g5[1];
             var g6 = useState(false);  var accusing = g6[0];     var setAccusing = g6[1];
 
+            var prevRoundRef = useRef(null);
             var tableId = parseInt(tableNumber || '0');
 
             /* restore local session */
@@ -185,8 +172,7 @@
                     if (u) setSessionCode(u.toUpperCase());
                 }
                 var c = loadSavedCards();
-                setBlueCard(c.blue);
-                setRedCard(c.red);
+                setBlueCard(c.blue); setRedCard(c.red);
             }, []);
 
             useEffect(function () {
@@ -202,8 +188,7 @@
                     heartbeatMs: HEARTBEAT_MS,
                     onGameState: setGameData,
                     onSessionLost: function () {
-                        setSessionLost(true); setConnected(false); setGameData(null);
-                        localStore.clear();
+                        setSessionLost(true); setConnected(false); setGameData(null); localStore.clear();
                     },
                     onFbConnectionChange: setFbOk
                 });
@@ -217,7 +202,20 @@
                 return function () { lock.release(); };
             }, [connected]);
 
-            /* ── actions ─────────────────────────────────────────────── */
+            /* clear cards + accuse state when new round starts */
+            useEffect(function () {
+                if (!gameData) return;
+                var r = gameData.round;
+                if (prevRoundRef.current !== null && r !== prevRoundRef.current) {
+                    setBlueCard(''); setRedCard('');
+                    persistCards('', '');
+                    setCardsSaved(false);
+                    setAccusing(false);
+                }
+                prevRoundRef.current = r;
+            }, [gameData && gameData.round]);
+
+            /* ── actions ─────────────────────────────────────────── */
             var handleConnect = async function (isAuto) {
                 setJoining(true);
                 var result = await ClientCore.joinSession({
@@ -230,7 +228,7 @@
                 if (result.ok) {
                     localStore.save({ session: result.code, table: result.table, team: teamName, emails: emails });
                     setConnected(true);
-                    ClientCore.showDedicatedWarning();
+                    showDailyWarning();
                     setAutoRecon(false); setConnError(''); setSessionLost(false);
                 } else {
                     if (result.clearLocal) localStore.clear();
@@ -252,8 +250,7 @@
                 setSavingCards(true);
                 try {
                     await ClientCore.withTimeout(
-                        fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableId), { blueCard: b, redCard: r }),
-                        6000
+                        fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableId), { blueCard: b, redCard: r }), 6000
                     );
                     persistCards(b, r);
                     setCardsSaved(true);
@@ -267,7 +264,7 @@
 
             var handleAccuse = async function () {
                 if (!sessionCode || !tableId || accusing) return;
-                if (!confirm('Confirmas a acusação? O botão ficará bloqueado (o master pode repô-lo).')) return;
+                if (!confirm('Confirmas a acusação? O botão ficará bloqueado nesta ronda.')) return;
                 setAccusing(true);
                 try {
                     await ClientCore.withTimeout(
@@ -281,16 +278,19 @@
                 }
             };
 
-            /* ── derived ─────────────────────────────────────────────── */
+            /* ── derived ─────────────────────────────────────────── */
             var phase          = gameData ? (gameData.phase || 'waiting') : 'waiting';
             var myRoleEntry    = gameData && gameData.roles ? gameData.roles[tableId] : null;
             var myAccusation   = gameData && gameData.accusations ? gameData.accusations[tableId] : null;
             var buzzerName     = (gameData && gameData.buzzerName) || 'Acusar';
             var myScore        = gameData && gameData.scores ? (gameData.scores[tableId] || 0) : 0;
             var roleConf       = myRoleEntry ? (ROLES[myRoleEntry.role] || ROLES.investigador) : null;
+            var roleText       = (gameData && gameData.roleTexts && myRoleEntry && gameData.roleTexts[myRoleEntry.role])
+                                 || (myRoleEntry && DEFAULT_ROLE_TEXTS[myRoleEntry.role]) || '';
             var accusationSent = !!myAccusation || (accusing && !myAccusation);
+            var roundResult    = gameData ? (gameData.roundResult || null) : null;
 
-            /* ── JOIN FORM ───────────────────────────────────────────── */
+            /* ── JOIN FORM ───────────────────────────────────────── */
             if (!connected) {
                 return h('div', { className: 'min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center px-4 py-8' },
                     h('div', { className: 'w-full max-w-sm flex flex-col gap-6' },
@@ -299,63 +299,33 @@
                             h('h1', { className: 'text-2xl font-black' }, 'Deception Murder'),
                             h('p', { className: 'text-slate-400 text-sm mt-1' }, 'in Hong Kong')
                         ),
-
-                        sessionLost && h('div', { className: 'rounded-2xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-sm text-rose-300 text-center' },
-                            'A sessão terminou ou foi reiniciada.'
-                        ),
-                        autoRecon && !connError && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-400 text-center' },
-                            'A reconectar...'
-                        ),
-
+                        sessionLost && h('div', { className: 'rounded-2xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-sm text-rose-300 text-center' }, 'A sessão terminou ou foi reiniciada.'),
+                        autoRecon && !connError && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-400 text-center' }, 'A reconectar...'),
                         h('div', { className: 'rounded-3xl border border-slate-800 bg-slate-900/80 p-6 flex flex-col gap-4' },
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
                                 h('span', { className: 'font-semibold text-slate-300' }, 'Código da sessão'),
-                                h('input', {
-                                    className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400 font-mono tracking-widest',
-                                    placeholder: 'Ex: HK01',
-                                    value: sessionCode,
-                                    onChange: function (e) { setSessionCode(e.target.value.toUpperCase()); }
-                                })
+                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400 font-mono tracking-widest', placeholder: 'Ex: HK01', value: sessionCode, onChange: function (e) { setSessionCode(e.target.value.toUpperCase()); } })
                             ),
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
                                 h('span', { className: 'font-semibold text-slate-300' }, 'Número da mesa'),
-                                h('input', {
-                                    className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400',
-                                    type: 'number', min: '1', max: '12', placeholder: '—',
-                                    value: tableNumber,
-                                    onChange: function (e) { setTableNumber(e.target.value); }
-                                })
+                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400', type: 'number', min: '1', max: '12', placeholder: '—', value: tableNumber, onChange: function (e) { setTableNumber(e.target.value); } })
                             ),
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
                                 h('span', { className: 'font-semibold text-slate-300' }, 'Nome da equipa'),
-                                h('input', {
-                                    className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400',
-                                    placeholder: 'Equipa A',
-                                    value: teamName,
-                                    onChange: function (e) { setTeamName(e.target.value); }
-                                })
+                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400', placeholder: 'Equipa A', value: teamName, onChange: function (e) { setTeamName(e.target.value); } })
                             ),
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
                                 h('span', { className: 'font-semibold text-slate-300' }, 'Email(s) do grupo'),
-                                h('input', {
-                                    className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400 text-sm',
-                                    placeholder: 'email1@ex.com, email2@ex.com',
-                                    value: emails,
-                                    onChange: function (e) { setEmails(e.target.value); }
-                                })
+                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400 text-sm', placeholder: 'email1@ex.com, email2@ex.com', value: emails, onChange: function (e) { setEmails(e.target.value); } })
                             ),
                             connError && h('div', { className: 'rounded-xl border border-rose-500/30 bg-rose-950/40 px-3 py-2.5 text-sm text-rose-300' }, connError),
-                            h('button', {
-                                className: 'rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-500 disabled:opacity-50 active:scale-95 transition-all',
-                                disabled: joining,
-                                onClick: function () { handleConnect(false); }
-                            }, joining ? 'A entrar...' : 'Entrar na sessão')
+                            h('button', { className: 'rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-500 disabled:opacity-50 active:scale-95 transition-all', disabled: joining, onClick: function () { handleConnect(false); } }, joining ? 'A entrar...' : 'Entrar na sessão')
                         )
                     )
                 );
             }
 
-            /* ── GAME VIEW ───────────────────────────────────────────── */
+            /* ── GAME VIEW ───────────────────────────────────────── */
             return h('div', { className: 'min-h-screen bg-slate-950 text-white flex flex-col' },
 
                 /* header */
@@ -367,70 +337,58 @@
                     h('div', { className: 'flex items-center gap-2' },
                         !fbOk && h('span', { className: 'text-xs text-rose-400' }, '⚠ offline'),
                         myScore > 0 && h('span', { className: 'rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-sm font-bold text-amber-300' }, myScore + ' pts'),
-                        h('button', {
-                            className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold hover:bg-slate-700',
-                            onClick: handleDisconnect
-                        }, 'Sair')
+                        h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold hover:bg-slate-700', onClick: handleDisconnect }, 'Sair')
                     )
                 ),
 
                 /* body */
                 h('div', { className: 'flex-1 px-4 py-6 flex flex-col gap-5 max-w-lg mx-auto w-full' },
 
-                    /* WAITING phase */
-                    phase === 'waiting' && h('div', { className: 'flex flex-col items-center justify-center flex-1 gap-4 fade-in' },
-                        h('div', { className: 'text-6xl' }, '⏳'),
-                        h('div', { className: 'text-center' },
-                            h('div', { className: 'text-lg font-bold' }, 'Sessão ativa'),
-                            h('div', { className: 'text-slate-400 text-sm mt-1' }, 'Aguarda que o master inicie uma nova ronda...')
-                        )
+                    /* WAITING */
+                    phase === 'waiting' && h('div', { className: 'flex flex-col items-center justify-center flex-1 gap-5 py-8 fade-in' },
+                        roundResult
+                            ? h('div', { className: 'w-full rounded-3xl border ' +
+                                (roundResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') +
+                                ' p-6 text-center flex flex-col gap-2' },
+                                h('div', { className: 'text-5xl' }, roundResult.winner === 'accusers' ? '🎉' : '🔪'),
+                                h('div', { className: 'text-2xl font-black mt-1' }, roundResult.winner === 'accusers' ? (roundResult.winnerTeam || 'Investigadores') + ' acertaram!' : 'Assassino impune!'),
+                                h('div', { className: 'text-sm text-slate-400 mt-1' }, 'Aguarda que o master inicie a próxima ronda...')
+                            )
+                            : h('div', { className: 'flex flex-col items-center gap-3' },
+                                h('div', { className: 'text-6xl' }, '⏳'),
+                                h('div', { className: 'text-center' },
+                                    h('div', { className: 'text-lg font-bold' }, 'Sessão ativa'),
+                                    h('div', { className: 'text-slate-400 text-sm mt-1' }, 'Aguarda que o master inicie uma nova ronda...')
+                                )
+                            )
                     ),
 
-                    /* SETUP phase — card selection */
+                    /* SETUP — card selection */
                     phase === 'setup' && h('div', { className: 'flex flex-col gap-4 fade-in' },
                         h('div', { className: 'rounded-2xl border border-amber-500/30 bg-amber-950/30 px-4 py-3 text-sm text-amber-200 leading-relaxed' },
-                            '📋 ', h('strong', {}, 'Escolhe as tuas cartas:'),
-                            ' Olha para as 8 cartas da tua mesa. Escolhe uma carta azul e uma carta vermelha e escreve os nomes abaixo.'
+                            '📋 ', h('strong', {}, 'Escolhe as tuas cartas:'), ' Olha para as 8 cartas da tua mesa. Escolhe uma carta azul e uma carta vermelha e escreve os nomes abaixo.'
                         ),
                         h('div', { className: 'grid grid-cols-2 gap-3' },
                             h('div', { className: 'flex flex-col gap-2' },
                                 h('label', { className: 'text-sm font-bold text-blue-300' }, '🔵 Carta Azul'),
-                                h('input', {
-                                    className: 'rounded-xl border border-blue-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-blue-400',
-                                    placeholder: 'Nome da carta',
-                                    value: blueCard,
-                                    onChange: function (e) { setBlueCard(e.target.value); }
-                                })
+                                h('input', { className: 'rounded-xl border border-blue-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-blue-400', placeholder: 'Nome da carta', value: blueCard, onChange: function (e) { setBlueCard(e.target.value); } })
                             ),
                             h('div', { className: 'flex flex-col gap-2' },
                                 h('label', { className: 'text-sm font-bold text-rose-300' }, '🔴 Carta Vermelha'),
-                                h('input', {
-                                    className: 'rounded-xl border border-rose-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400',
-                                    placeholder: 'Nome da carta',
-                                    value: redCard,
-                                    onChange: function (e) { setRedCard(e.target.value); }
-                                })
+                                h('input', { className: 'rounded-xl border border-rose-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400', placeholder: 'Nome da carta', value: redCard, onChange: function (e) { setRedCard(e.target.value); } })
                             )
                         ),
                         h('button', {
-                            className: 'rounded-xl py-3 font-bold text-sm transition-colors ' +
-                                (cardsSaved ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white') +
-                                ' disabled:opacity-50',
-                            disabled: savingCards,
-                            onClick: saveCards
+                            className: 'rounded-xl py-3 font-bold text-sm transition-colors disabled:opacity-50 ' + (cardsSaved ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'),
+                            disabled: savingCards, onClick: saveCards
                         }, savingCards ? 'A guardar...' : cardsSaved ? '✓ Guardado!' : 'Guardar escolhas'),
-
-                        h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-4 text-sm text-slate-400 text-center' },
-                            'Aguarda que o master distribua os papéis...'
-                        )
+                        h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-4 text-sm text-slate-400 text-center' }, 'Aguarda que o master distribua os papéis...')
                     ),
 
-                    /* RUNNING phase — waiting for role */
-                    phase === 'running' && !myRoleEntry && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-6 text-sm text-slate-400 text-center fade-in' },
-                        'A aguardar atribuição de papel...'
-                    ),
+                    /* RUNNING — waiting for role */
+                    phase === 'running' && !myRoleEntry && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-6 text-sm text-slate-400 text-center fade-in' }, 'A aguardar atribuição de papel...'),
 
-                    /* RUNNING phase — role card */
+                    /* RUNNING — role card */
                     phase === 'running' && myRoleEntry && roleConf && h('div', {
                         className: 'rounded-3xl border ' + roleConf.border + ' ' + roleConf.bg + ' p-5 flex flex-col gap-3 fade-in'
                     },
@@ -441,22 +399,18 @@
                                 h('div', { className: 'text-3xl font-black mt-0.5' }, roleConf.label)
                             )
                         ),
-                        h('div', {}, roleConf.render(myRoleEntry.secretInfo))
+                        h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, roleText),
+                        renderSecretInfo(myRoleEntry.role, myRoleEntry.secretInfo)
                     ),
 
-                    /* RUNNING phase — accuse button */
+                    /* RUNNING — accuse button */
                     phase === 'running' && h('div', { className: 'flex flex-col items-center gap-2 pt-2 fade-in' },
                         h('button', {
                             className: 'w-full rounded-2xl py-5 text-xl font-black transition-all ' +
-                                (accusationSent
-                                    ? 'border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed'
-                                    : 'bg-rose-600 hover:bg-rose-500 text-white active:scale-95 accuse-pulse'),
-                            disabled: accusationSent,
-                            onClick: handleAccuse
+                                (accusationSent ? 'border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-500 text-white active:scale-95 accuse-pulse'),
+                            disabled: accusationSent, onClick: handleAccuse
                         }, accusationSent ? '✓ ' + buzzerName + ' enviado' : buzzerName),
-                        accusationSent && h('div', { className: 'text-xs text-slate-500 text-center' },
-                            'Botão usado. O master pode repô-lo.'
-                        )
+                        accusationSent && h('div', { className: 'text-xs text-slate-500 text-center' }, 'Botão de acusação usado nesta ronda.')
                     )
                 )
             );
