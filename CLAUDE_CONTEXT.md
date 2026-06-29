@@ -30,6 +30,8 @@ score/
 ├── client-diamant.html           # Standalone — Diamant / Incan Gold (cliente)
 ├── master-justone.html           # Standalone — Mega Just One (master, modos Consola/Público)
 ├── client-justone.html           # Standalone — Mega Just One (cliente)
+├── master-deception.html         # Standalone — Deception Murder in Hong Kong (master)
+├── client-deception.html         # Standalone — Deception Murder in Hong Kong (cliente)
 │
 ├── shared/
 │   ├── firebase-config.js        # FirebaseConfig + AppConfig (URLs públicas)
@@ -398,6 +400,20 @@ choosing_difficulty → ...`
   (`games/diamant.js` pertence ao motor antigo `master.html`/`client.html`, não ao
   standalone).
 
+### Deception Murder in Hong Kong (`master-deception.html`, `client-deception.html`)
+Jogo de papéis secretos inspirado no Deception: Murder in HK. Fases: `setup → running`.
+- **Setup**: cada mesa escolhe uma carta azul e uma carta vermelha (inputs de texto, guardados em Firebase + localStorage)
+- **Distribuição de papéis** (master): aleatória; sequência por nº de mesas — `assassino` (sempre), `cumplice` (N≥3), `testemunha` (N≥4), resto `investigador`/`detetive`. `secretInfo` por papel:
+  - `assassino`: `{ blueCard, redCard }` (as suas próprias cartas, como confirmação)
+  - `cumplice`: `{ assassinTable, assassinTeamName, blueCard, redCard }` (identidade + cartas do assassino)
+  - `testemunha`: `{ involvedTables: [nomeA, nomeB] }` (duas equipas em ordem aleatória — não sabe qual é qual)
+  - `investigador`/`detetive`: `{}`
+- **Running**: cada cliente vê o seu papel + secretInfo; botão de acusação (uso único, bloqueado após envio, reposto pelo master individualmente ou em bloco)
+- **Master**: vê papel de cada mesa; cartas visíveis **apenas** da mesa assassina; painel de acusações com "Acusação correta (+N pts)" e "Repor botão"; pontuação acumula entre rondas; "Nova ronda" limpa papéis+acusações mas mantém scores; "Confirmar vitória assassino+cúmplice" atribui roleVictoryPoints a ambos
+- Firebase: `gameState.roles[tableNumber]={role,secretInfo}`, `gameState.accusations[tableNumber]={tableNumber,teamName,timestamp}`, `gameState.scores[tableNumber]=number`; sem archiveSession (jogo informal sem histórico)
+- Sem `games/deception-*.js` em runtime — tudo inline nos HTMLs; os ficheiros `games/deception-client.js` / `games/deception-master.js` são artefactos da implementação inicial (ignorar)
+- Cor de identidade: **rose** (🔪)
+
 ### Contador Genérico (`master.html` + `client.html` + `games/generic.js`)
 Sistema modular legacy. Buzzers, +1/-1/+5, respostas de texto, leaderboard. Não usa shared cores.
 
@@ -460,6 +476,23 @@ CLIENT_MEUJOGO_URL: 'https://alpces.github.io/score/client-meujogo.html',
 MASTER_MEUJOGO_URL: 'https://alpces.github.io/score/master-meujogo.html',
 ```
 
+### Atualizar as landing pages (obrigatório)
+**Sempre** que um novo jogo for adicionado, atualizar **ambas** as landing pages:
+
+- **`jogar.html`** — adicionar card para `client-meujogo.html` na grelha `<main>`
+- **`masters.html`** — adicionar card para `master-meujogo.html` na grelha `<main>`
+
+Seguir o padrão visual dos cards existentes (ícone 6xl, título `font-black`, descrição `text-slate-300 flex-1`, botão com cor própria do jogo). Cada jogo deve ter uma cor distinta:
+
+| Jogo | Cor |
+|---|---|
+| Mega Hitster | violet |
+| Mega Diamant | amber |
+| Mega Just One | teal |
+| Mega Concept | sky |
+| Deception Murder | rose |
+| (novos jogos) | escolher cor que não conflitua com os anteriores |
+
 ### Escolher um enricher
 - Tables são vistas do cliente (com emails como atributo) → `enrichers.mergeEmailsIntoTables`
 - Tables têm vida própria + queres preservar dados raw dos clientes → `enrichers.attachClientsField`
@@ -474,6 +507,7 @@ MASTER_MEUJOGO_URL: 'https://alpces.github.io/score/master-meujogo.html',
 | Genérico / Diamant | purple-600, indigo-600, green-500, red-500 |
 | Mega Hitster | violet-900, purple-900, indigo-900 (fundo); yellow-500 (joker); violet-400/600 (pontos) |
 | Mega Just One | teal-900, cyan-900 (fundo); teal-600/teal-400 (ações, pontos, destaques) |
+| Deception Murder | slate-950 (fundo); rose-600 (acusação); blue-500/rose-500 (cartas azul/vermelha); cor por papel: rose=assassino, orange=cúmplice, yellow=testemunha, blue=investigador, purple=detetive |
 
 - **Botões**: `rounded-lg`, `font-bold`, `active:scale-95 transition-all`
 - **Cards**: `bg-white rounded-2xl shadow-2xl p-4` (claros) / `bg-slate-800 rounded-xl border` (escuros)
@@ -492,7 +526,8 @@ MASTER_MEUJOGO_URL: 'https://alpces.github.io/score/master-meujogo.html',
 6. **Modais persistentes** (NewRoundModal, ReviewModal): chamar como função `Modal()`, não `h(Modal, null)`. Ver secção de padrões defensivos.
 7. **Testes**: não há suite automatizada. Validar manualmente em browser e em GitHub Pages após push (preview ≠ produção em alguns casos de cache).
 8. **Língua**: PT-PT em UI, comentários e mensagens de erro. Inglês em nomes de funções e variáveis.
-9. **Commits**: mensagens em PT, formato Conventional Commits (`feat(...)`, `fix(...)`, `refactor(...)`, `docs(...)`, ...). Co-Author: `Claude Sonnet 4.6 <noreply@anthropic.com>`.
+9. **Commits e push**: fazer sempre commit + push automáticos após qualquer alteração de código pedida, sem necessidade de pedir confirmação. Mensagens em PT, formato Conventional Commits (`feat(...)`, `fix(...)`, `refactor(...)`, `docs(...)`, ...). Co-Author: `Claude Sonnet 4.6 <noreply@anthropic.com>`.
+10. **Landing pages**: sempre que um novo jogo for adicionado ou removido, atualizar `jogar.html` e `masters.html` no mesmo commit, sem esperar instruções explícitas para o fazer.
 
 ---
 
