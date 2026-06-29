@@ -53,7 +53,7 @@
         }
 
         /* ── role distribution ────────────────────────────────────── */
-        function buildRoles(clients, n) {
+        function buildRoles(clients, useComplexRoles) {
             var tableNums = Object.keys(clients)
                 .filter(function (k) { return clients[k] && clients[k].tableNumber; })
                 .map(Number).sort(function (a, b) { return a - b; });
@@ -62,10 +62,10 @@
             /* shuffle */
             var shuffled = tableNums.slice().sort(function () { return Math.random() - 0.5; });
 
-            /* role sequence: assassino always first, then cumplice, testemunha, rest investigators */
+            /* role sequence: assassino always; cumplice+testemunha only if useComplexRoles */
             var seq = ['assassino'];
-            if (shuffled.length >= 3) seq.push('cumplice');
-            if (shuffled.length >= 4) seq.push('testemunha');
+            if (useComplexRoles && shuffled.length >= 3) seq.push('cumplice');
+            if (useComplexRoles && shuffled.length >= 4) seq.push('testemunha');
             while (seq.length < shuffled.length) seq.push('investigador');
 
             var assassinTable = shuffled[0];
@@ -114,12 +114,28 @@
             var s4 = useState({});   var lastSeen = s4[0];          var setLastSeen = s4[1];
             var s5 = useState(0);    var tick = s5[0];              var setTick = s5[1];
             var s6 = useState(false); var codeCopied = s6[0];       var setCodeCopied = s6[1];
+            var s7 = useState(false); var useRoles = s7[0];         var setUseRoles = s7[1];
+
+            var prevClientCountRef = useRef(0);
 
             /* presence tick */
             useEffect(function () {
                 var iv = setInterval(function () { setTick(function (t) { return t + 1; }); }, 5000);
                 return function () { clearInterval(iv); };
             }, []);
+
+            /* auto-manage useRoles based on client count:
+               <=4 → force off (locked); first crossing above 4 → auto-enable */
+            useEffect(function () {
+                var n = Object.values(clients).filter(function (c) { return c && c.tableNumber; }).length;
+                var prev = prevClientCountRef.current;
+                prevClientCountRef.current = n;
+                if (n <= 4) {
+                    setUseRoles(false);
+                } else if (prev <= 4) {
+                    setUseRoles(true);
+                }
+            }, [clients]);
 
             /* restore code from URL */
             useEffect(function () {
@@ -172,7 +188,7 @@
 
             var distributeRoles = function () {
                 if (!sessionCode || !gameData) return;
-                var result = buildRoles(clients);
+                var result = buildRoles(clients, useRoles);
                 if (!result) { alert('Não há mesas ligadas.'); return; }
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
                     phase: 'running',
@@ -327,6 +343,36 @@
                         /* actions (only when session active) */
                         gameData && h('section', { className: 'rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/20 flex flex-col gap-3' },
                             h('h2', { className: 'text-lg font-bold mb-1' }, 'Controlo'),
+
+                            /* toggle: usar cúmplice e testemunha */
+                            h('label', {
+                                className: 'flex items-start gap-3 rounded-xl border ' +
+                                    (sortedClients.length <= 4
+                                        ? 'border-slate-800 bg-slate-950/40 opacity-50 cursor-not-allowed'
+                                        : useRoles
+                                            ? 'border-orange-500/30 bg-orange-950/30 cursor-pointer'
+                                            : 'border-slate-700 bg-slate-900/60 cursor-pointer') +
+                                    ' px-3 py-2.5'
+                            },
+                                h('input', {
+                                    type: 'checkbox',
+                                    className: 'mt-0.5 accent-orange-500 w-4 h-4 flex-shrink-0',
+                                    checked: useRoles,
+                                    disabled: sortedClients.length <= 4,
+                                    onChange: function (e) { setUseRoles(e.target.checked); }
+                                }),
+                                h('div', {},
+                                    h('div', { className: 'text-sm font-semibold ' + (sortedClients.length <= 4 ? 'text-slate-500' : 'text-slate-200') },
+                                        '🤝👁️ Usar Cúmplice e Testemunha'
+                                    ),
+                                    h('div', { className: 'text-xs mt-0.5 ' + (sortedClients.length <= 4 ? 'text-slate-600' : 'text-slate-400') },
+                                        sortedClients.length <= 4
+                                            ? 'Necessário mais de 4 mesas ligadas'
+                                            : 'Se ativo: cúmplice (N≥3 mesas), testemunha (N≥4 mesas)'
+                                    )
+                                )
+                            ),
+
                             h('button', {
                                 className: 'rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500',
                                 onClick: distributeRoles
