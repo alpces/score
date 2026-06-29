@@ -70,19 +70,17 @@
 
         /* ── role display ───────────────────────────────────────────── */
         var DEFAULT_ROLE_TEXTS = {
-            assassino:    'Cometeste o crime. As tuas cartas são as pistas que o Forense apresenta. Não deixes que te descubram!',
+            assassino:    'Cometeste o crime. As tuas cartas são as pistas que o Forense (o anfitrião) apresenta aos investigadores. Não deixes que te descubram!',
             cumplice:     'Ajuda o assassino a não ser descoberto. Conheces a identidade do assassino e as suas cartas escolhidas.',
-            testemunha:   'Viste o crime acontecer! Sabes quais as equipas envolvidas, mas não sabes quem é o assassino e quem é o cúmplice.',
-            investigador: 'Investiga o crime! Analisa as cartas do Forense e tenta identificar o assassino. Podes usar o botão de acusação uma única vez!',
-            detetive:     'Investiga o crime como detetive sénior! Analisa as cartas do Forense e tenta identificar o assassino. Podes usar o botão de acusação uma única vez!'
+            testemunha:   'Viste o crime acontecer! Sabes quais as equipas envolvidas, mas não sabes quem é o assassino e quem é o cúmplice. Atenção: se o assassino for apanhado mas descobrirem que foste testemunha, serás eliminado e o assassino e cúmplice ganham o jogo!',
+            investigador: 'Investiga o crime! O Forense (o anfitrião) apresenta as cartas do assassino como pistas. Tenta identificar o assassino e as suas cartas. Podes usar o botão de acusação uma única vez!'
         };
 
         var ROLES = {
             assassino:   { label: 'Assassino',    icon: '🔪', border: 'border-rose-500/50',   bg: 'bg-rose-950/50'   },
             cumplice:    { label: 'Cúmplice',     icon: '🤝', border: 'border-orange-500/50', bg: 'bg-orange-950/50' },
             testemunha:  { label: 'Testemunha',   icon: '👁️', border: 'border-yellow-500/50', bg: 'bg-yellow-950/50' },
-            investigador:{ label: 'Investigador', icon: '🔍', border: 'border-blue-500/50',   bg: 'bg-blue-950/50'   },
-            detetive:    { label: 'Detetive',     icon: '🕵️', border: 'border-purple-500/50', bg: 'bg-purple-950/50' }
+            investigador:{ label: 'Investigador', icon: '🔍', border: 'border-blue-500/50',   bg: 'bg-blue-950/50'   }
         };
 
         function renderSecretInfo(role, si) {
@@ -126,12 +124,20 @@
             return null;
         }
 
-        /* ── card persistence ─────────────────────────────────────── */
-        function loadSavedCards() {
-            try { return { blue: localStorage.getItem('dec_blue') || '', red: localStorage.getItem('dec_red') || '' }; } catch (e) { return { blue: '', red: '' }; }
+        /* ── card persistence (with round tracking to prevent stale data) ── */
+        function loadSavedCards(currentRound) {
+            try {
+                var storedRound = localStorage.getItem('dec_cards_round');
+                if (currentRound != null && storedRound !== String(currentRound)) return { blue: '', red: '' };
+                return { blue: localStorage.getItem('dec_blue') || '', red: localStorage.getItem('dec_red') || '' };
+            } catch (e) { return { blue: '', red: '' }; }
         }
-        function persistCards(b, r) {
-            try { localStorage.setItem('dec_blue', b); localStorage.setItem('dec_red', r); } catch (e) {}
+        function persistCards(b, r, round) {
+            try {
+                localStorage.setItem('dec_blue', b);
+                localStorage.setItem('dec_red', r);
+                if (round != null) localStorage.setItem('dec_cards_round', String(round));
+            } catch (e) {}
         }
 
         /* ── App ─────────────────────────────────────────────────── */
@@ -171,7 +177,7 @@
                     var u = p.get('session');
                     if (u) setSessionCode(u.toUpperCase());
                 }
-                var c = loadSavedCards();
+                var c = loadSavedCards(null); /* round checked later on first gameData */
                 setBlueCard(c.blue); setRedCard(c.red);
             }, []);
 
@@ -202,13 +208,19 @@
                 return function () { lock.release(); };
             }, [connected]);
 
-            /* clear cards + accuse state when new round starts */
+            /* clear cards + accuse state when round changes (or on first load with stale data) */
             useEffect(function () {
                 if (!gameData) return;
                 var r = gameData.round;
-                if (prevRoundRef.current !== null && r !== prevRoundRef.current) {
+                if (prevRoundRef.current === null) {
+                    /* first load: check if stored cards belong to this round */
+                    var fresh = loadSavedCards(r);
+                    setBlueCard(fresh.blue); setRedCard(fresh.red);
+                    if (!fresh.blue && !fresh.red) setCardsSaved(false);
+                } else if (r !== prevRoundRef.current) {
+                    /* round changed mid-session */
                     setBlueCard(''); setRedCard('');
-                    persistCards('', '');
+                    persistCards('', '', null);
                     setCardsSaved(false);
                     setAccusing(false);
                 }
@@ -252,9 +264,8 @@
                     await ClientCore.withTimeout(
                         fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableId), { blueCard: b, redCard: r }), 6000
                     );
-                    persistCards(b, r);
-                    setCardsSaved(true);
-                    setTimeout(function () { setCardsSaved(false); }, 2500);
+                    persistCards(b, r, gameData && gameData.round);
+                    setCardsSaved(true); /* stays green until text changes */
                 } catch (e) {
                     alert('Erro ao guardar as cartas. Tenta novamente.');
                 } finally {
@@ -287,7 +298,8 @@
             var roleConf       = myRoleEntry ? (ROLES[myRoleEntry.role] || ROLES.investigador) : null;
             var roleText       = (gameData && gameData.roleTexts && myRoleEntry && gameData.roleTexts[myRoleEntry.role])
                                  || (myRoleEntry && DEFAULT_ROLE_TEXTS[myRoleEntry.role]) || '';
-            var accusationSent = !!myAccusation || (accusing && !myAccusation);
+            var usedAccusations   = gameData ? (gameData.usedAccusations || {}) : {};
+            var accusationSent    = !!myAccusation || (accusing && !myAccusation) || !!usedAccusations[tableId];
             var roundResult    = gameData ? (gameData.roundResult || null) : null;
 
             /* ── JOIN FORM ───────────────────────────────────────── */
@@ -347,12 +359,29 @@
                     /* WAITING */
                     phase === 'waiting' && h('div', { className: 'flex flex-col items-center justify-center flex-1 gap-5 py-8 fade-in' },
                         roundResult
-                            ? h('div', { className: 'w-full rounded-3xl border ' +
-                                (roundResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') +
-                                ' p-6 text-center flex flex-col gap-2' },
-                                h('div', { className: 'text-5xl' }, roundResult.winner === 'accusers' ? '🎉' : '🔪'),
-                                h('div', { className: 'text-2xl font-black mt-1' }, roundResult.winner === 'accusers' ? (roundResult.winnerTeam || 'Investigadores') + ' acertaram!' : 'Assassino impune!'),
-                                h('div', { className: 'text-sm text-slate-400 mt-1' }, 'Aguarda que o master inicie a próxima ronda...')
+                            ? h('div', { className: 'w-full flex flex-col gap-3' },
+                                h('div', { className: 'rounded-3xl border ' +
+                                    (roundResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') +
+                                    ' p-6 text-center flex flex-col gap-2' },
+                                    h('div', { className: 'text-5xl' }, roundResult.winner === 'accusers' ? '🎉' : '🔪'),
+                                    h('div', { className: 'text-2xl font-black mt-1' }, roundResult.winner === 'accusers' ? (roundResult.winnerTeam || 'Investigadores') + ' acertaram!' : 'Assassino impune!')
+                                ),
+                                /* assassin reveal — shown to ALL clients after round ends */
+                                roundResult.assassinTable && h('div', { className: 'rounded-3xl border border-rose-500/30 bg-rose-950/30 p-5 flex flex-col gap-3' },
+                                    h('div', { className: 'text-xs font-semibold text-rose-400 uppercase tracking-wide' }, '🔪 Revelação — O Assassino era'),
+                                    h('div', { className: 'text-xl font-black' }, roundResult.assassinTeamName || ('Mesa ' + roundResult.assassinTable)),
+                                    roundResult.assassinCards && h('div', { className: 'grid grid-cols-2 gap-3 mt-1' },
+                                        h('div', { className: 'rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-2.5 text-center' },
+                                            h('div', { className: 'text-xs text-blue-400 mb-1' }, '🔵 Carta Azul'),
+                                            h('div', { className: 'font-bold text-blue-200' }, roundResult.assassinCards.blue || '—')
+                                        ),
+                                        h('div', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2.5 text-center' },
+                                            h('div', { className: 'text-xs text-rose-400 mb-1' }, '🔴 Carta Vermelha'),
+                                            h('div', { className: 'font-bold text-rose-200' }, roundResult.assassinCards.red || '—')
+                                        )
+                                    )
+                                ),
+                                h('div', { className: 'text-sm text-slate-500 text-center' }, 'Aguarda que o anfitrião inicie a próxima ronda...')
                             )
                             : h('div', { className: 'flex flex-col items-center gap-3' },
                                 h('div', { className: 'text-6xl' }, '⏳'),
@@ -371,18 +400,24 @@
                         h('div', { className: 'grid grid-cols-2 gap-3' },
                             h('div', { className: 'flex flex-col gap-2' },
                                 h('label', { className: 'text-sm font-bold text-blue-300' }, '🔵 Carta Azul'),
-                                h('input', { className: 'rounded-xl border border-blue-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-blue-400', placeholder: 'Nome da carta', value: blueCard, onChange: function (e) { setBlueCard(e.target.value); } })
+                                h('input', { className: 'rounded-xl border border-blue-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-blue-400', placeholder: 'Nome da carta', value: blueCard,
+                                    onChange: function (e) { setBlueCard(e.target.value); setCardsSaved(false); } })
                             ),
                             h('div', { className: 'flex flex-col gap-2' },
                                 h('label', { className: 'text-sm font-bold text-rose-300' }, '🔴 Carta Vermelha'),
-                                h('input', { className: 'rounded-xl border border-rose-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400', placeholder: 'Nome da carta', value: redCard, onChange: function (e) { setRedCard(e.target.value); } })
+                                h('input', { className: 'rounded-xl border border-rose-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400', placeholder: 'Nome da carta', value: redCard,
+                                    onChange: function (e) { setRedCard(e.target.value); setCardsSaved(false); } })
                             )
                         ),
                         h('button', {
                             className: 'rounded-xl py-3 font-bold text-sm transition-colors disabled:opacity-50 ' + (cardsSaved ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'),
                             disabled: savingCards, onClick: saveCards
                         }, savingCards ? 'A guardar...' : cardsSaved ? '✓ Guardado!' : 'Guardar escolhas'),
-                        h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-4 text-sm text-slate-400 text-center' }, 'Aguarda que o master distribua os papéis...')
+                        cardsSaved
+                            ? h('div', { className: 'rounded-2xl border border-emerald-500/30 bg-emerald-950/30 px-4 py-4 text-sm text-emerald-200 text-center leading-relaxed' },
+                                '✓ Cartas guardadas! Agora aguarda que o anfitrião dê início ao sorteio do personagem de cada equipa.'
+                              )
+                            : h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-4 text-sm text-slate-400 text-center' }, 'Escolhe as cartas e carrega em "Guardar escolhas".')
                     ),
 
                     /* RUNNING — waiting for role */
