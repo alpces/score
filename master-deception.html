@@ -251,13 +251,8 @@
             /* subscribe session history */
             useEffect(function () {
                 if (!showHistory) return;
-                console.log('[History] A subscrever sessionHistory para gameType:', GAME_TYPE);
                 return SessionCore.subscribeSessionHistory({
-                    rtdb: rtdb, fm: fm, gameType: GAME_TYPE,
-                    onChange: function(entries) {
-                        console.log('[History] Entradas recebidas do Firebase:', entries.length, JSON.stringify(entries));
-                        setSessionHistory(entries);
-                    }
+                    rtdb: rtdb, fm: fm, gameType: GAME_TYPE, onChange: setSessionHistory
                 });
             }, [showHistory]);
 
@@ -528,12 +523,11 @@
             var closeSession = async function () {
                 setClosing(true);
                 var history = { round: gameData ? (gameData.round || 0) : 0, scores: gameData ? (gameData.scores || {}) : {} };
-                console.log('[CloseSession] A arquivar sessão:', sessionCode, 'history:', JSON.stringify(history));
                 var res = await SessionCore.archiveSession({ rtdb, fm, sessionId: sessionCode, gameType: GAME_TYPE, history: history, enrich: SessionCore.enrichers.attachClientsField });
-                console.log('[CloseSession] Resultado do archiveSession:', JSON.stringify(res));
-                if (!res.ok) { alert('Erro ao arquivar: ' + (res.error && res.error.message || res.error)); console.error('[CloseSession] Erro:', res.error); setClosing(false); return; }
+                if (!res.ok) { alert('Erro ao arquivar: ' + (res.error && res.error.message || res.error)); setClosing(false); return; }
                 setSessionCode(''); setGameData(null); setClients({}); setLastSeen({});
                 setShowCloseConfirm(false); setClosing(false);
+                setShowHistory(true);
             };
 
             var exitWithoutArchive = function () {
