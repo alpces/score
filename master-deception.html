@@ -41,6 +41,7 @@
         var GAME_TYPE  = 'deception';
         var CLIENT_URL = (window.AppConfig && window.AppConfig.CLIENT_DECEPTION_URL)
             || (window.location.origin + window.location.pathname.replace('master-deception.html', 'client-deception.html'));
+        var MASTER_MODE_KEY = 'decMasterMode';
 
         /* ── siren ────────────────────────────────────────────────── */
         function playSiren() {
@@ -177,9 +178,17 @@
             var ub = useState({});    var flashingTables = ub[0];   var setFlashingTables = ub[1];
             var uc = useState(false); var closing = uc[0];          var setClosing = uc[1];
 
+            /* master mode */
+            var mm  = useState(null);  var masterMode    = mm[0];    var setMasterMode    = mm[1];
+            var mc2 = useState(false); var modeChosen    = mc2[0];   var setModeChosen    = mc2[1];
+            /* projector state (read-only) */
+            var pb1 = useState(null);  var publicState   = pb1[0];   var setPublicState   = pb1[1];
+            var pb2 = useState({});    var publicClients = pb2[0];   var setPublicClients = pb2[1];
+
             var prevClientCountRef    = useRef(0);
             var prevAccusationsRef    = useRef({});
             var autoEndedRef          = useRef(false);
+            var publicSyncTimerRef    = useRef(null);
 
             /* presence tick */
             useEffect(function () {
@@ -187,11 +196,37 @@
                 return function () { clearInterval(iv); };
             }, []);
 
-            /* URL restore */
+            /* URL restore + mode resolution */
             useEffect(function () {
-                var u = new URLSearchParams(window.location.search).get('session');
-                if (u) setCodeInput(u.toUpperCase());
+                var params = new URLSearchParams(window.location.search);
+                var urlSession = params.get('session');
+                var urlMode = params.get('mode');
+                if (urlMode === 'public' && urlSession) {
+                    setSessionCode(urlSession.toUpperCase());
+                    setMasterMode('public');
+                    try { localStorage.setItem(MASTER_MODE_KEY, 'public'); } catch(e) {}
+                    setModeChosen(true);
+                    return;
+                }
+                if (urlSession) setCodeInput(urlSession.toUpperCase());
+                if (urlMode === 'public' || urlMode === 'console') {
+                    setMasterMode(urlMode);
+                    try { localStorage.setItem(MASTER_MODE_KEY, urlMode); } catch(e) {}
+                    setModeChosen(true);
+                    return;
+                }
+                var saved; try { saved = localStorage.getItem(MASTER_MODE_KEY); } catch(e) {}
+                if (saved === 'console' || saved === 'public') { setMasterMode(saved); setModeChosen(true); }
             }, []);
+
+            var switchMode = function () {
+                setMasterMode(null); setModeChosen(false);
+                try { localStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
+            };
+            var chooseMode = function (mode) {
+                setMasterMode(mode); setModeChosen(true);
+                try { localStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
+            };
 
             /* subscribe active sessions (setup only) */
             useEffect(function () {
@@ -209,9 +244,9 @@
                 });
             }, [showHistory]);
 
-            /* Firebase listeners (game) */
+            /* Firebase listeners (game — consola only) */
             useEffect(function () {
-                if (!sessionCode) return;
+                if (!sessionCode || masterMode === 'public') return;
                 var u1 = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), function (snap) {
                     var d = snap.val();
                     if (!d || d.active === false) { setGameData(null); setSessionCode(''); return; }
@@ -227,7 +262,35 @@
                     setClients(raw);
                 });
                 return function () { u1(); u2(); };
-            }, [sessionCode]);
+            }, [sessionCode, masterMode]);
+
+            /* publicState sync (consola → Firebase, debounced) */
+            useEffect(function () {
+                if (!sessionCode || masterMode !== 'console' || !gameData) return;
+                if (publicSyncTimerRef.current) clearTimeout(publicSyncTimerRef.current);
+                publicSyncTimerRef.current = setTimeout(function () {
+                    fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/publicState'), {
+                        phase: gameData.phase || 'waiting',
+                        round: gameData.round || 0,
+                        scores: gameData.scores || {},
+                        roundResult: gameData.roundResult || null,
+                        timestamp: Date.now()
+                    }).catch(function(e) { console.error('Sync publicState:', e); });
+                }, 200);
+                return function () { clearTimeout(publicSyncTimerRef.current); };
+            }, [sessionCode, masterMode, gameData]);
+
+            /* publicState + clients subscription (projeção) */
+            useEffect(function () {
+                if (!sessionCode || masterMode !== 'public') return;
+                var u1 = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/publicState'), function (snap) {
+                    setPublicState(snap.val() || null);
+                });
+                var u2 = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients'), function (snap) {
+                    setPublicClients(snap.val() || {});
+                });
+                return function () { u1(); u2(); setPublicState(null); setPublicClients({}); };
+            }, [sessionCode, masterMode]);
 
             /* auto-manage useRoles toggle */
             useEffect(function () {
@@ -593,6 +656,117 @@
                 );
             }
 
+            /* ── MODE SELECTION ──────────────────────────────────── */
+            if (!modeChosen) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/20 flex flex-col items-center justify-center p-6' },
+                    h('div', { className: 'w-full max-w-sm flex flex-col gap-6' },
+                        h('div', { className: 'text-center' },
+                            h('div', { className: 'text-5xl mb-3' }, '🔪'),
+                            h('h1', { className: 'text-2xl font-black' }, 'Deception Murder'),
+                            h('p', { className: 'text-slate-400 mt-1 text-sm' }, 'Escolhe o modo de utilização')
+                        ),
+                        h('div', { className: 'flex flex-col gap-3' },
+                            h('button', { className: 'rounded-2xl border border-slate-700 bg-slate-900 p-5 text-left hover:border-rose-500/50 hover:bg-slate-800 active:scale-[0.98] transition-all', onClick: function () { chooseMode('console'); } },
+                                h('div', { className: 'font-bold text-lg' }, '📱 Consola'),
+                                h('div', { className: 'text-sm text-slate-400 mt-1' }, 'Controla a sessão — cria rondas, distribui papéis, valida acusações.')
+                            ),
+                            h('button', { className: 'rounded-2xl border border-slate-700 bg-slate-900 p-5 text-left hover:border-rose-500/50 hover:bg-slate-800 active:scale-[0.98] transition-all', onClick: function () { chooseMode('public'); } },
+                                h('div', { className: 'font-bold text-lg' }, '📺 Projeção'),
+                                h('div', { className: 'text-sm text-slate-400 mt-1' }, 'Mostra o ranking de pontuações numa televisão ou projetor.')
+                            )
+                        ),
+                        h('a', { href: 'masters.html', className: 'text-center text-sm text-slate-500 hover:text-slate-300 underline' }, '← Voltar')
+                    )
+                );
+            }
+
+            /* ── PROJECTOR: code entry ───────────────────────────── */
+            if (masterMode === 'public' && !sessionCode) {
+                return h('div', { className: 'min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6' },
+                    h('div', { className: 'w-full max-w-xs flex flex-col gap-6' },
+                        h('div', { className: 'flex justify-between items-center' },
+                            h('div', { className: 'text-xl font-black' }, '📺 Projeção'),
+                            h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: switchMode }, '⇄ Trocar modo')
+                        ),
+                        h('label', { className: 'flex flex-col gap-1.5 text-sm' },
+                            h('span', { className: 'font-semibold text-slate-300' }, 'Código da sessão'),
+                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400 font-mono tracking-widest text-center', placeholder: 'Ex: HK01', value: codeInput, autoFocus: true, onChange: function (e) { setCodeInput(e.target.value.toUpperCase()); }, onKeyDown: function (e) { if (e.key === 'Enter' && codeInput.trim()) setSessionCode(codeInput.trim().toUpperCase()); } })
+                        ),
+                        h('button', { className: 'rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-500 active:scale-95 transition-all disabled:opacity-40', disabled: !codeInput.trim(), onClick: function () { setSessionCode(codeInput.trim().toUpperCase()); } }, 'Ligar à sessão')
+                    )
+                );
+            }
+
+            /* ── PROJECTOR VIEW ──────────────────────────────────── */
+            if (masterMode === 'public' && sessionCode) {
+                var pubScores = (publicState && publicState.scores) || {};
+                var pubRound  = publicState ? (publicState.round || 0) : 0;
+                var pubPhase  = publicState ? (publicState.phase || 'waiting') : 'waiting';
+                var pubResult = publicState ? (publicState.roundResult || null) : null;
+                var pubPhaseLabel = pubPhase === 'setup' ? 'Escolha de cartas' : pubPhase === 'running' ? 'Em jogo' : (pubRound > 0 ? 'Ronda ' + pubRound + ' terminada' : 'A aguardar');
+                var pubClients = Object.values(publicClients).filter(function (c) { return c && c.tableNumber; }).sort(function (a, b) { return a.tableNumber - b.tableNumber; });
+                var ranked = pubClients.map(function (c) {
+                    return { tNum: c.tableNumber, teamName: c.teamName, score: pubScores[c.tableNumber] || 0 };
+                }).sort(function (a, b) { return b.score - a.score; });
+                var medals = ['🥇','🥈','🥉'];
+                var projQrUrl = CLIENT_URL + '?session=' + sessionCode;
+                return h('div', { className: 'min-h-screen bg-slate-950 flex flex-col' },
+                    /* header */
+                    h('div', { className: 'flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800 bg-slate-900/90' },
+                        h('div', { className: 'flex items-center gap-3' },
+                            h('span', { className: 'text-xl' }, '🔪'),
+                            h('div', {},
+                                h('div', { className: 'font-bold text-sm' }, 'Deception Murder · Projeção'),
+                                h('div', { className: 'text-xs text-slate-400' },
+                                    h('span', { className: 'font-mono font-bold text-slate-300' }, sessionCode),
+                                    ' · ',
+                                    pubPhaseLabel,
+                                    pubPhase !== 'waiting' && pubRound > 0 && (' · Ronda ' + pubRound)
+                                )
+                            )
+                        ),
+                        h('div', { className: 'flex items-center gap-2' },
+                            h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: switchMode }, '⇄ Trocar modo')
+                        )
+                    ),
+                    /* main: ranking + QR */
+                    h('div', { className: 'flex-1 flex flex-col lg:flex-row items-stretch' },
+                        /* ranking */
+                        h('div', { className: 'flex-1 flex flex-col items-center justify-center p-6 gap-6' },
+                            pubResult && h('div', { className: 'w-full max-w-md rounded-2xl border ' + (pubResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') + ' p-4 text-center slide-in' },
+                                h('div', { className: 'text-3xl mb-1' }, pubResult.winner === 'accusers' ? '🎉' : '🔪'),
+                                h('div', { className: 'font-black text-lg' },
+                                    pubResult.winner === 'accusers'
+                                        ? (pubResult.winnerTeam || 'Investigadores') + ' acertaram!'
+                                        : (pubResult.escaped ? 'Assassino escapou!' : 'Assassino impune!')
+                                )
+                            ),
+                            h('div', { className: 'w-full max-w-md' },
+                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 text-center' }, '🏆 Ranking'),
+                                !ranked.length && h('p', { className: 'text-slate-600 text-center py-6' }, 'Aguarda que as mesas se liguem…'),
+                                h('div', { className: 'flex flex-col gap-2' },
+                                    ranked.map(function (e, i) {
+                                        return h('div', { key: e.tNum, className: 'flex items-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-3' },
+                                            h('span', { className: 'text-2xl w-8 text-center flex-shrink-0' }, medals[i] || (i + 1) + 'º'),
+                                            h('div', { className: 'flex-1 min-w-0' },
+                                                h('div', { className: 'font-bold' }, 'Mesa ' + e.tNum + (e.teamName ? ' · ' + e.teamName : ''))
+                                            ),
+                                            h('span', { className: 'text-xl font-black ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + 'pts')
+                                        );
+                                    })
+                                )
+                            )
+                        ),
+                        /* QR sidebar */
+                        h('div', { className: 'lg:w-56 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col items-center justify-center gap-3 p-6' },
+                            h('div', { className: 'text-sm font-bold text-slate-300' }, '📱 Entrar no jogo'),
+                            h('img', { src: 'https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=' + encodeURIComponent(projQrUrl), alt: 'QR', className: 'rounded-xl w-40 h-40', width: 160, height: 160 }),
+                            h('div', { className: 'font-mono font-black text-xl text-white tracking-widest' }, sessionCode)
+                        )
+                    )
+                );
+            }
+
             /* ── SETUP SCREEN ─────────────────────────────────────── */
             if (!sessionCode) {
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/20 flex flex-col' },
@@ -603,6 +777,7 @@
                                 h('p', { className: 'text-slate-400 text-sm' }, 'Master')
                             ),
                             h('div', { className: 'flex gap-2' },
+                                h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: switchMode }, '⇄ Trocar modo'),
                                 h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: function () { setShowHistory(true); } }, 'Histórico'),
                                 h('a', { href: 'masters.html', className: 'rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-sm font-semibold hover:bg-white/20' }, '← Voltar')
                             )
@@ -713,6 +888,7 @@
                         )
                     ),
                     h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
+                        h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700', onClick: switchMode, title: 'Trocar modo' }, '⇄'),
                         h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700', onClick: function () { setShowQR(true); }, title: 'QR Code' }, '📱'),
                         h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700', onClick: function () { setShowLeaderboard(true); }, title: 'Ranking' }, '🏆'),
                         h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700', onClick: resetScores, title: 'Repor pontos' }, '↺ pts'),
