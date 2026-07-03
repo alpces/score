@@ -232,12 +232,14 @@
             await fm.update(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
                 active: false, closedAt: Date.now()
             });
+            console.log('[archiveSession] Passo 1 OK — sessão marcada inativa:', sessionId);
 
             // 2. Dar tempo aos clientes para processarem
             await new Promise(function(r) { setTimeout(r, waitMs); });
 
             // 3. Ler clients
             var clientsData = await readClientsOnce({ rtdb: rtdb, fm: fm, sessionId: sessionId });
+            console.log('[archiveSession] Passo 3 OK — clients lidos:', Object.keys(clientsData).length);
 
             // 4. Aplicar enrich (se fornecido)
             var enriched = history;
@@ -253,13 +255,17 @@
                 timestamp: Date.now(),
                 archived:  true
             });
+            console.log('[archiveSession] Passo 5 — a escrever payload:', JSON.stringify(payload));
             await fm.set(fm.ref(rtdb, 'sessionHistory/' + archiveId), payload);
+            console.log('[archiveSession] Passo 5 OK — escrito em sessionHistory/', archiveId);
 
             // 6. Remover sessions/<id>
             await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId));
+            console.log('[archiveSession] Passo 6 OK — sessão removida');
 
             return { ok: true, archiveId: archiveId };
         } catch(e) {
+            console.error('[archiveSession] ERRO:', e);
             return { ok: false, error: e };
         }
     }
