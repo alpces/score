@@ -84,22 +84,30 @@
         };
 
         function renderSecretInfo(role, si) {
-            if (role === 'assassino' && si && (si.blueCard || si.redCard)) {
-                return h('div', { className: 'mt-3 grid grid-cols-2 gap-3' },
-                    h('div', { className: 'rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-2.5 text-center' },
-                        h('div', { className: 'text-xs text-blue-400 mb-1' }, '🔵 Carta Azul'),
-                        h('div', { className: 'font-bold text-blue-200' }, si.blueCard || '—')
+            if (role === 'assassino' && si) {
+                return h('div', { className: 'mt-3 flex flex-col gap-3' },
+                    (si.blueCard || si.redCard) && h('div', { className: 'grid grid-cols-2 gap-3' },
+                        h('div', { className: 'rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-2.5 text-center' },
+                            h('div', { className: 'text-xs text-blue-400 mb-1' }, '🔵 Carta Azul'),
+                            h('div', { className: 'font-bold text-blue-200' }, si.blueCard || '—')
+                        ),
+                        h('div', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2.5 text-center' },
+                            h('div', { className: 'text-xs text-rose-400 mb-1' }, '🔴 Carta Vermelha'),
+                            h('div', { className: 'font-bold text-rose-200' }, si.redCard || '—')
+                        )
                     ),
-                    h('div', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2.5 text-center' },
-                        h('div', { className: 'text-xs text-rose-400 mb-1' }, '🔴 Carta Vermelha'),
-                        h('div', { className: 'font-bold text-rose-200' }, si.redCard || '—')
+                    si.cumpliceTable && h('div', { className: 'rounded-xl border border-orange-500/30 bg-orange-950/40 p-3' },
+                        h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-1' }, '🤝 O teu Cúmplice'),
+                        h('div', { className: 'font-bold text-white' }, si.cumpliceTeamName || ('Mesa ' + si.cumpliceTable)),
+                        h('div', { className: 'text-xs text-orange-300 mt-0.5' }, 'Mesa ' + si.cumpliceTable)
                     )
                 );
             }
             if (role === 'cumplice' && si && si.assassinTable) {
                 return h('div', { className: 'mt-3 rounded-xl border border-orange-500/30 bg-orange-950/40 p-3' },
                     h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-2' }, '🔐 Informação secreta'),
-                    h('div', { className: 'text-sm text-slate-300 mb-2' }, 'Assassino: ', h('span', { className: 'font-bold text-white' }, si.assassinTeamName || ('Mesa ' + si.assassinTable))),
+                    h('div', { className: 'text-sm text-slate-300 mb-0.5' }, 'Assassino: ', h('span', { className: 'font-bold text-white' }, si.assassinTeamName || ('Mesa ' + si.assassinTable))),
+                    h('div', { className: 'text-xs text-orange-300 mb-2' }, 'Mesa ' + si.assassinTable),
                     h('div', { className: 'grid grid-cols-2 gap-2' },
                         h('div', { className: 'rounded-lg border border-blue-500/30 bg-blue-950/30 px-2 py-2 text-center' },
                             h('div', { className: 'text-xs text-blue-400' }, '🔵 Azul'),
@@ -301,6 +309,7 @@
             var usedAccusations   = gameData ? (gameData.usedAccusations || {}) : {};
             var accusationSent    = !!myAccusation || (accusing && !myAccusation) || !!usedAccusations[tableId];
             var roundResult    = gameData ? (gameData.roundResult || null) : null;
+            var witnessHunt    = gameData ? (gameData.witnessHunt  || null) : null;
 
             /* ── JOIN FORM ───────────────────────────────────────── */
             if (!connected) {
@@ -364,7 +373,11 @@
                                     (roundResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') +
                                     ' p-6 text-center flex flex-col gap-2' },
                                     h('div', { className: 'text-5xl' }, roundResult.winner === 'accusers' ? '🎉' : '🔪'),
-                                    h('div', { className: 'text-2xl font-black mt-1' }, roundResult.winner === 'accusers' ? (roundResult.winnerTeam || 'Investigadores') + ' acertaram!' : 'Assassino impune!')
+                                    h('div', { className: 'text-2xl font-black mt-1' },
+                                    roundResult.winner === 'accusers'
+                                        ? (roundResult.winnerTeam || 'Investigadores') + ' acertaram!'
+                                        : (roundResult.escaped ? 'Assassino escapou identificando a Testemunha!' : 'Assassino impune!')
+                                )
                                 ),
                                 /* assassin reveal — shown to ALL clients after round ends */
                                 roundResult.assassinTable && h('div', { className: 'rounded-3xl border border-rose-500/30 bg-rose-950/30 p-5 flex flex-col gap-3' },
@@ -436,6 +449,16 @@
                         ),
                         h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, roleText),
                         renderSecretInfo(myRoleEntry.role, myRoleEntry.secretInfo)
+                    ),
+
+                    /* RUNNING — witness hunt notification */
+                    phase === 'running' && witnessHunt && h('div', { className: 'rounded-3xl border border-orange-500/40 bg-orange-950/30 p-5 flex flex-col gap-3 fade-in' },
+                        h('div', { className: 'text-xl font-black text-orange-200' }, '🎯 Assassino Descoberto!'),
+                        (myRoleEntry && myRoleEntry.role === 'assassino')
+                            ? h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, 'Foste descoberto! Ainda podes escapar se identificares a Testemunha. Comunica verbalmente ao anfitrião qual das equipas pensas ser a Testemunha — se acertares, tu e o cúmplice vencem a ronda!')
+                            : (myRoleEntry && myRoleEntry.role === 'cumplice')
+                                ? h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, 'O assassino foi descoberto! Ainda pode escapar se identificar a Testemunha. Se acertar, os dois vencem a ronda!')
+                                : h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, h('span', { className: 'font-bold text-white' }, witnessHunt.pendingWinnerTeam), ' acertou no assassino! O assassino ainda pode tentar identificar a Testemunha para escapar. Aguarda a confirmação do anfitrião...')
                     ),
 
                     /* RUNNING — accuse button */

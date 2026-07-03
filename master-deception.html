@@ -121,8 +121,10 @@
             var roles = {};
             shuffled.forEach(function (tNum, i) {
                 var role = seq[i], si = {};
-                if (role === 'assassino')  si = { blueCard: aBlue, redCard: aRed };
-                else if (role === 'cumplice') si = { assassinTable: aTable, assassinTeamName: aName, blueCard: aBlue, redCard: aRed };
+                if (role === 'assassino') {
+                    si = { blueCard: aBlue, redCard: aRed };
+                    if (apTable) { si.cumpliceTable = apTable; si.cumpliceTeamName = apName || ('Mesa ' + apTable); }
+                } else if (role === 'cumplice') si = { assassinTable: aTable, assassinTeamName: aName, blueCard: aBlue, redCard: aRed };
                 else if (role === 'testemunha') {
                     var inv = [aName, apName || ('Mesa ' + apTable)];
                     if (Math.random() < 0.5) inv.reverse();
@@ -146,8 +148,9 @@
             var ci = useState('');           var codeInput = ci[0];    var setCodeInput = ci[1];
             var bn = useState('Acusar');     var buzzerName = bn[0];   var setBuzzerName = bn[1];
             var ap = useState('5');          var accusePts = ap[0];    var setAccusePts = ap[1];
-            var vp = useState('5');          var victoryPts = vp[0];   var setVictoryPts = vp[1];
-            var rt = useState(loadRoleTexts); var roleTexts = rt[0];   var setRoleTexts = rt[1];
+            var vp = useState('5');          var victoryPts = vp[0];        var setVictoryPts = vp[1];
+            var pp = useState('2');          var participationPts = pp[0];  var setParticipationPts = pp[1];
+            var rt = useState(loadRoleTexts); var roleTexts = rt[0];        var setRoleTexts = rt[1];
 
             /* session */
             var sc = useState('');   var sessionCode = sc[0]; var setSessionCode = sc[1];
@@ -272,8 +275,10 @@
             var confirmedCorrect  = gameData ? !!gameData.confirmedCorrect : false;
             var roundResult       = gameData ? (gameData.roundResult || null) : null;
             var usedAccusations   = gameData ? (gameData.usedAccusations || {}) : {};
-            var accusePtsNow      = (gameData && gameData.config && gameData.config.accusationPoints)  || parseInt(accusePts)  || 5;
-            var victoryPtsNow     = (gameData && gameData.config && gameData.config.roleVictoryPoints) || parseInt(victoryPts) || 5;
+            var accusePtsNow        = (gameData && gameData.config && gameData.config.accusationPoints)    || parseInt(accusePts)        || 5;
+            var victoryPtsNow       = (gameData && gameData.config && gameData.config.roleVictoryPoints)   || parseInt(victoryPts)       || 5;
+            var participationPtsNow = (gameData && gameData.config && gameData.config.participationPoints) || parseInt(participationPts) || 2;
+            var witnessHunt         = gameData ? (gameData.witnessHunt || null) : null;
 
             var sortedClients = Object.values(clients)
                 .filter(function (c) { return c && c.tableNumber; })
@@ -290,14 +295,14 @@
             useEffect(function () {
                 if (phase !== 'running' || !clientCount || !gameData) return;
                 if (confirmedCorrect || autoEndedRef.current) return;
-                if (usedAccusationCount >= clientCount && accusationCount === 0) {
+                if (usedAccusationCount >= clientCount && accusationCount === 0 && !witnessHunt) {
                     autoEndedRef.current = true;
                     doEndRound(null);
                 }
             }, [usedAccusationCount, accusationCount, clientCount, phase, confirmedCorrect]);
 
             /* ── actions ─────────────────────────────────────────── */
-            function doEndRound(winnerTable) {
+            function doEndRound(winnerTable, escaped) {
                 if (!sessionCode || !gameData) return;
                 var s = Object.assign({}, gameData.scores || {});
                 var result;
@@ -311,6 +316,15 @@
 
                 if (winnerTable !== null) {
                     s[winnerTable] = (s[winnerTable] || 0) + accusePtsNow;
+                    /* participation points for investigators who did not accuse */
+                    if (participationPtsNow > 0) {
+                        Object.keys(roles).forEach(function (tNum) {
+                            var r = roles[tNum] && roles[tNum].role;
+                            if (r === 'investigador' && String(tNum) !== String(winnerTable)) {
+                                s[tNum] = (s[tNum] || 0) + participationPtsNow;
+                            }
+                        });
+                    }
                     var wc = clients[winnerTable] || {};
                     result = { winner: 'accusers', winnerTable: winnerTable, winnerTeam: wc.teamName || ('Mesa ' + winnerTable),
                                assassinTable: aTable, assassinTeamName: aName, assassinCards: aCards };
@@ -319,12 +333,13 @@
                         var r = roles[tNum] && roles[tNum].role;
                         if (r === 'assassino' || r === 'cumplice') s[tNum] = (s[tNum] || 0) + victoryPtsNow;
                     });
-                    result = { winner: 'killers', assassinTable: aTable, assassinTeamName: aName, assassinCards: aCards };
+                    result = { winner: 'killers', assassinTable: aTable, assassinTeamName: aName, assassinCards: aCards, escaped: !!escaped };
                 }
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
                     phase: 'waiting', scores: s,
                     confirmedCorrect: winnerTable !== null,
                     roundResult: result,
+                    witnessHunt: null,
                     timestamp: Date.now()
                 });
             }
@@ -341,10 +356,10 @@
                 var gs = {
                     gameType: GAME_TYPE, active: true, phase: 'waiting', round: 0,
                     buzzerName: buzzerName.trim() || 'Acusar',
-                    config: { accusationPoints: parseInt(accusePts) || 5, roleVictoryPoints: parseInt(victoryPts) || 5 },
+                    config: { accusationPoints: parseInt(accusePts) || 5, roleVictoryPoints: parseInt(victoryPts) || 5, participationPoints: parseInt(participationPts) || 2 },
                     roleTexts: roleTexts,
                     roles: {}, assassinTable: null, accusations: {}, usedAccusations: {}, scores: {},
-                    confirmedCorrect: false, roundResult: null, timestamp: Date.now()
+                    confirmedCorrect: false, roundResult: null, witnessHunt: null, timestamp: Date.now()
                 };
                 await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), gs);
                 setSessionCode(code); setShowExistDialog(false);
@@ -370,7 +385,7 @@
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
                     phase: 'setup', round: next,
                     roles: {}, assassinTable: null, accusations: {}, usedAccusations: {},
-                    confirmedCorrect: false, roundResult: null, timestamp: Date.now()
+                    confirmedCorrect: false, roundResult: null, witnessHunt: null, timestamp: Date.now()
                 });
                 setShowNewRound(false);
             };
@@ -381,11 +396,22 @@
                 if (!result) { alert('Não há mesas ligadas.'); return; }
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
                     phase: 'running', roles: result.roles, assassinTable: result.assassinTable,
-                    accusations: {}, usedAccusations: {}, confirmedCorrect: false, roundResult: null, timestamp: Date.now()
+                    accusations: {}, usedAccusations: {}, confirmedCorrect: false, roundResult: null, witnessHunt: null, timestamp: Date.now()
                 });
             };
 
-            var markCorrect = function (tNum) { doEndRound(tNum); };
+            var markCorrect = function (tNum) {
+                var hasWitness = Object.values(roles).some(function (r) { return r && r.role === 'testemunha'; });
+                if (hasWitness) {
+                    var wc = clients[tNum] || {};
+                    fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState/accusations/' + tNum));
+                    fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
+                        witnessHunt: { pendingWinnerTable: tNum, pendingWinnerTeam: wc.teamName || ('Mesa ' + tNum) }
+                    });
+                } else {
+                    doEndRound(tNum);
+                }
+            };
             var markWrong   = function (tNum) {
                 if (!sessionCode) return;
                 /* remove pending accusation but record that this table used their button */
@@ -602,20 +628,25 @@
                             h('details', { className: 'text-sm' },
                                 h('summary', { className: 'cursor-pointer font-semibold text-slate-400 hover:text-slate-200 select-none py-1' }, 'Configuração ▾'),
                                 h('div', { className: 'mt-3 flex flex-col gap-4' },
-                                    h('div', { className: 'grid grid-cols-2 gap-3' },
+                                    h('label', { className: 'flex flex-col gap-1' },
+                                        h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Nome do botão de acusação'),
+                                        h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400', value: buzzerName, onChange: function (e) { setBuzzerName(e.target.value); } })
+                                    ),
+                                    h('div', { className: 'grid grid-cols-3 gap-2' },
                                         h('label', { className: 'flex flex-col gap-1' },
-                                            h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Nome do botão de acusação'),
-                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400', value: buzzerName, onChange: function (e) { setBuzzerName(e.target.value); } })
+                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, 'Pts equipa acertou'),
+                                            h('div', { className: 'text-[10px] text-slate-500' }, 'Quem identificou o assassino'),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: accusePts, onChange: function (e) { setAccusePts(e.target.value); } })
                                         ),
-                                        h('div', { className: 'grid grid-cols-2 gap-2' },
-                                            h('label', { className: 'flex flex-col gap-1' },
-                                                h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Pts acusação'),
-                                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold', type: 'number', min: '0', value: accusePts, onChange: function (e) { setAccusePts(e.target.value); } })
-                                            ),
-                                            h('label', { className: 'flex flex-col gap-1' },
-                                                h('span', { className: 'text-xs font-semibold text-slate-300' }, 'Pts vitória'),
-                                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold', type: 'number', min: '0', value: victoryPts, onChange: function (e) { setVictoryPts(e.target.value); } })
-                                            )
+                                        h('label', { className: 'flex flex-col gap-1' },
+                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, 'Pts assassino/cúmplice'),
+                                            h('div', { className: 'text-[10px] text-slate-500' }, 'Quando o assassino vence'),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: victoryPts, onChange: function (e) { setVictoryPts(e.target.value); } })
+                                        ),
+                                        h('label', { className: 'flex flex-col gap-1' },
+                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, 'Pts restantes investigadores'),
+                                            h('div', { className: 'text-[10px] text-slate-500' }, 'Quando investigadores vencem'),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: participationPts, onChange: function (e) { setParticipationPts(e.target.value); } })
                                         )
                                     ),
                                     /* role texts */
@@ -758,8 +789,16 @@
                         phase === 'waiting' && h('div', { className: 'flex flex-col items-center justify-center flex-1 gap-6 py-12' },
                             roundResult && h('div', { className: 'w-full max-w-sm rounded-3xl border ' + (roundResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') + ' p-6 text-center mb-2' },
                                 h('div', { className: 'text-5xl mb-3' }, roundResult.winner === 'accusers' ? '🎉' : '🔪'),
-                                h('div', { className: 'text-xl font-black' }, roundResult.winner === 'accusers' ? (roundResult.winnerTeam || 'Mesa ' + roundResult.winnerTable) + ' acertou!' : 'Assassino impune!'),
-                                h('div', { className: 'text-sm text-slate-400 mt-1' }, roundResult.winner === 'accusers' ? '+' + accusePtsNow + ' pts para os investigadores' : '+' + victoryPtsNow + ' pts para assassino e cúmplice')
+                                h('div', { className: 'text-xl font-black' },
+                                    roundResult.winner === 'accusers'
+                                        ? (roundResult.winnerTeam || 'Mesa ' + roundResult.winnerTable) + ' acertou!'
+                                        : (roundResult.escaped ? 'Assassino escapou!' : 'Assassino impune!')
+                                ),
+                                h('div', { className: 'text-sm text-slate-400 mt-1' },
+                                    roundResult.winner === 'accusers'
+                                        ? '+' + accusePtsNow + ' pts para a equipa acusadora' + (participationPtsNow > 0 ? ' · +' + participationPtsNow + ' pts para os restantes investigadores' : '')
+                                        : '+' + victoryPtsNow + ' pts para assassino e cúmplice'
+                                )
                             ),
                             h('div', { className: 'text-center' },
                                 h('div', { className: 'text-2xl font-black' }, gameData && gameData.round > 0 ? 'Pronto para mais uma ronda?' : 'Sessão pronta'),
@@ -786,6 +825,19 @@
                                 h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700', onClick: resetAllAccusations }, '↺ Resetar botões'),
                                 h('button', { className: 'rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm font-semibold text-rose-300 hover:bg-rose-500/20', onClick: endRoundManual }, '🔪 Terminar ronda'),
                                 h('button', { className: 'rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/20', onClick: function () { setShowNewRound(true); } }, '▶ Nova ronda')
+                            ),
+                            /* witness hunt sub-phase */
+                            witnessHunt && h('div', { className: 'rounded-2xl border border-orange-500/40 bg-orange-950/25 p-4 slide-in flex flex-col gap-3' },
+                                h('div', { className: 'font-black text-orange-200 text-lg' }, '🎯 Caça à Testemunha'),
+                                h('div', { className: 'text-sm text-slate-300' },
+                                    h('span', { className: 'font-bold text-white' }, witnessHunt.pendingWinnerTeam),
+                                    ' acertou no assassino! O assassino ainda pode escapar se identificar a testemunha.'
+                                ),
+                                h('div', { className: 'text-xs text-orange-200/70' }, 'Pede ao assassino para revelar verbalmente quem pensa ser a testemunha e confirma o resultado:'),
+                                h('div', { className: 'flex flex-col gap-2 mt-1' },
+                                    h('button', { className: 'rounded-xl bg-rose-700 px-4 py-3 text-sm font-bold text-white hover:bg-rose-600 active:scale-95 transition-all', onClick: function () { doEndRound(null, true); } }, '🔪 Assassino acertou → Assassino/Cúmplice vencem (+' + victoryPtsNow + ' pts)'),
+                                    h('button', { className: 'rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-600 active:scale-95 transition-all', onClick: function () { doEndRound(witnessHunt.pendingWinnerTable); } }, '🎉 Assassino errou → ' + witnessHunt.pendingWinnerTeam + ' vence (+' + accusePtsNow + ' pts)')
+                                )
                             ),
                             h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' },
                                 'Acusações pendentes (' + accusationList.length + ') — responde a cada uma'
