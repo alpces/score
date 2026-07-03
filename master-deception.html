@@ -439,6 +439,10 @@
                 s[tNum] = Math.max(0, (s[tNum] || 0) + delta);
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { scores: s });
             };
+            var removeClient     = function (tNum) {
+                if (!confirm('Remover Mesa ' + tNum + ' da sessão?')) return;
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tNum));
+            };
 
             var closeSession = async function () {
                 setClosing(true);
@@ -751,7 +755,8 @@
                                     h('div', { className: 'flex items-center gap-1 flex-shrink-0' },
                                         h('button', { className: 'w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold flex items-center justify-center', onClick: function () { adjustScore(tNum, -1); } }, '−'),
                                         h('span', { className: 'text-sm font-bold text-amber-300 min-w-[2rem] text-center' }, sc_val + 'pts'),
-                                        h('button', { className: 'w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold flex items-center justify-center', onClick: function () { adjustScore(tNum, 1); } }, '+')
+                                        h('button', { className: 'w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold flex items-center justify-center', onClick: function () { adjustScore(tNum, 1); } }, '+'),
+                                        h('button', { className: 'w-5 h-5 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-600 hover:text-rose-300 text-[10px] font-bold flex items-center justify-center ml-0.5', title: 'Remover mesa', onClick: function () { removeClient(tNum); } }, '✕')
                                     )
                                 ),
                                 /* card info: setup phase shows status; running shows assassin cards */

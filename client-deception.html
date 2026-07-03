@@ -224,7 +224,17 @@
                     /* first load: check if stored cards belong to this round */
                     var fresh = loadSavedCards(r);
                     setBlueCard(fresh.blue); setRedCard(fresh.red);
-                    if (!fresh.blue && !fresh.red) setCardsSaved(false);
+                    if (fresh.blue || fresh.red) {
+                        setCardsSaved(true);
+                        /* joinSession uses set() which wipes blueCard/redCard — re-submit silently */
+                        if (gameData.phase === 'setup' && sessionCode && tableId) {
+                            fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableId),
+                                { blueCard: fresh.blue, redCard: fresh.red }
+                            ).catch(function () {});
+                        }
+                    } else {
+                        setCardsSaved(false);
+                    }
                 } else if (r !== prevRoundRef.current) {
                     /* round changed mid-session */
                     setBlueCard(''); setRedCard('');
@@ -407,9 +417,13 @@
 
                     /* SETUP — card selection */
                     phase === 'setup' && h('div', { className: 'flex flex-col gap-4 fade-in' },
-                        h('div', { className: 'rounded-2xl border border-amber-500/30 bg-amber-950/30 px-4 py-3 text-sm text-amber-200 leading-relaxed' },
-                            '📋 ', h('strong', {}, 'Escolhe as tuas cartas:'), ' Olha para as 8 cartas da tua mesa. Escolhe uma carta azul e uma carta vermelha e escreve os nomes abaixo.'
-                        ),
+                        cardsSaved
+                            ? h('div', { className: 'rounded-2xl border border-emerald-500/30 bg-emerald-950/30 px-4 py-4 text-sm text-emerald-200 text-center leading-relaxed' },
+                                '✓ Cartas enviadas ao anfitrião! Aguarda que o anfitrião dê início ao sorteio do personagem de cada equipa.'
+                              )
+                            : h('div', { className: 'rounded-2xl border border-amber-500/30 bg-amber-950/30 px-4 py-3 text-sm text-amber-200 leading-relaxed' },
+                                '📋 ', h('strong', {}, 'Escolhe as tuas cartas:'), ' Olha para as 8 cartas da tua mesa. Escolhe uma carta azul e uma carta vermelha e escreve os nomes abaixo.'
+                              ),
                         h('div', { className: 'grid grid-cols-2 gap-3' },
                             h('div', { className: 'flex flex-col gap-2' },
                                 h('label', { className: 'text-sm font-bold text-blue-300' }, '🔵 Carta Azul'),
@@ -425,12 +439,7 @@
                         h('button', {
                             className: 'rounded-xl py-3 font-bold text-sm transition-colors disabled:opacity-50 ' + (cardsSaved ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'),
                             disabled: savingCards, onClick: saveCards
-                        }, savingCards ? 'A guardar...' : cardsSaved ? '✓ Guardado!' : 'Guardar escolhas'),
-                        cardsSaved
-                            ? h('div', { className: 'rounded-2xl border border-emerald-500/30 bg-emerald-950/30 px-4 py-4 text-sm text-emerald-200 text-center leading-relaxed' },
-                                '✓ Cartas guardadas! Agora aguarda que o anfitrião dê início ao sorteio do personagem de cada equipa.'
-                              )
-                            : h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-4 text-sm text-slate-400 text-center' }, 'Escolhe as cartas e carrega em "Guardar escolhas".')
+                        }, savingCards ? 'A guardar...' : cardsSaved ? '✓ Enviado' : 'Guardar escolhas')
                     ),
 
                     /* RUNNING — waiting for role */
