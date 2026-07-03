@@ -153,8 +153,15 @@
             var pp = useState('2');          var participationPts = pp[0];  var setParticipationPts = pp[1];
             var rt = useState(loadRoleTexts); var roleTexts = rt[0];        var setRoleTexts = rt[1];
 
-            /* session */
-            var sc = useState('');   var sessionCode = sc[0]; var setSessionCode = sc[1];
+            /* session — lazy init trata ?mode=public&session=CODE diretamente */
+            var sc = useState(function() {
+                var params = new URLSearchParams(window.location.search);
+                var urlMode = params.get('mode');
+                var urlSession = params.get('session');
+                if (urlMode === 'public' && urlSession) return urlSession.toUpperCase();
+                return '';
+            });
+            var sessionCode = sc[0]; var setSessionCode = sc[1];
             var gd = useState(null); var gameData = gd[0];    var setGameData = gd[1];
             var cl = useState({});   var clients = cl[0];     var setClients = cl[1];
             var ls = useState({});   var lastSeen = ls[0];    var setLastSeen = ls[1];
@@ -178,9 +185,24 @@
             var ub = useState({});    var flashingTables = ub[0];   var setFlashingTables = ub[1];
             var uc = useState(false); var closing = uc[0];          var setClosing = uc[1];
 
-            /* master mode */
-            var mm  = useState(null);  var masterMode    = mm[0];    var setMasterMode    = mm[1];
-            var mc2 = useState(false); var modeChosen    = mc2[0];   var setModeChosen    = mc2[1];
+            /* master mode — lazy init lê URL e sessionStorage no primeiro render */
+            var mm  = useState(function() {
+                var params = new URLSearchParams(window.location.search);
+                var urlMode = params.get('mode');
+                if (urlMode === 'public' || urlMode === 'console') return urlMode;
+                var saved; try { saved = sessionStorage.getItem(MASTER_MODE_KEY); } catch(e) {}
+                return (saved === 'console' || saved === 'public') ? saved : null;
+            });
+            var masterMode = mm[0]; var setMasterMode = mm[1];
+
+            var mc2 = useState(function() {
+                var params = new URLSearchParams(window.location.search);
+                var urlMode = params.get('mode');
+                if (urlMode === 'public' || urlMode === 'console') return true;
+                var saved; try { saved = sessionStorage.getItem(MASTER_MODE_KEY); } catch(e) {}
+                return saved === 'console' || saved === 'public';
+            });
+            var modeChosen = mc2[0]; var setModeChosen = mc2[1];
             /* projector state (read-only) */
             var pb1 = useState(null);  var publicState   = pb1[0];   var setPublicState   = pb1[1];
             var pb2 = useState({});    var publicClients = pb2[0];   var setPublicClients = pb2[1];
@@ -196,36 +218,25 @@
                 return function () { clearInterval(iv); };
             }, []);
 
-            /* URL restore + mode resolution */
+            /* URL restore — só preenche o campo de código da consola se tiver ?session= sem ?mode=public */
             useEffect(function () {
                 var params = new URLSearchParams(window.location.search);
                 var urlSession = params.get('session');
                 var urlMode = params.get('mode');
-                if (urlMode === 'public' && urlSession) {
-                    setSessionCode(urlSession.toUpperCase());
-                    setMasterMode('public');
-                    try { localStorage.setItem(MASTER_MODE_KEY, 'public'); } catch(e) {}
-                    setModeChosen(true);
-                    return;
+                if (urlSession && !(urlMode === 'public' && urlSession)) {
+                    setCodeInput(urlSession.toUpperCase());
                 }
-                if (urlSession) setCodeInput(urlSession.toUpperCase());
-                if (urlMode === 'public' || urlMode === 'console') {
-                    setMasterMode(urlMode);
-                    try { localStorage.setItem(MASTER_MODE_KEY, urlMode); } catch(e) {}
-                    setModeChosen(true);
-                    return;
-                }
-                var saved; try { saved = localStorage.getItem(MASTER_MODE_KEY); } catch(e) {}
-                if (saved === 'console' || saved === 'public') { setMasterMode(saved); setModeChosen(true); }
+                /* migração: limpar localStorage antigo se existir */
+                try { localStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
             }, []);
 
             var switchMode = function () {
                 setMasterMode(null); setModeChosen(false);
-                try { localStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
+                try { sessionStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
             };
             var chooseMode = function (mode) {
                 setMasterMode(mode); setModeChosen(true);
-                try { localStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
+                try { sessionStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
             };
 
             /* subscribe active sessions (setup only) */
