@@ -192,6 +192,9 @@ sessions/{sessionId}/
     tableNumber, teamName, emails
     connectedAt, lastSeen         # lastSeen = heartbeat (15s) via ClientCore
     clientId                      # UUID persistente em localStorage
+  publicState/                    # projeção sanitizada — escrito SÓ pela Consola (Dual-Mode)
+    # Just One:  phase, guesserTableId, visibleClues, publicShowScores, scores, timestamp
+    # Deception: phase, round, scores, roundResult, timestamp
   textResponses/{tableNumber}/    # game-específico (Hitster)
   histerJokers/{tableNumber}/     # game-específico (Hitster)
   diamantVotes/{tableNumber}/     # game-específico (Diamant)
@@ -230,6 +233,22 @@ Estes padrões surgiram após bugs reais em produção. Manter ao adicionar nova
 
 **Solução**: no callback `onGameState`, usar `setGameData(prev => ...)` e fazer fallback aos valores anteriores se vierem vazios inesperadamente.
 
+### Valores `undefined` em `fm.set` (Firebase) — sempre usar fallback
+**Porquê**: Firebase RTDB trata `{}` (objeto vazio) como `null` — ao ler de volta, campos inicializados com `{}` (ex: `scores: {}`) aparecem como `undefined` se nunca foram escritos com dados reais. `fm.set` rejeita `undefined` com erro "Database.set failed: First argument contains undefined in property '...'". Este erro é apanhado pelo `try/catch` de `archiveSession`, que devolve `{ok: false}` — se o caller não verificar `res.ok`, o erro é completamente silencioso e a sessão não é arquivada.
+
+**Solução**: ao construir o payload de arquivo, usar sempre fallback nos campos numéricos e de objeto:
+```javascript
+var history = {
+    round:  gameData ? (gameData.round  || 0)  : 0,
+    scores: gameData ? (gameData.scores || {}) : {}
+};
+```
+E verificar `res.ok` após `archiveSession` em TODOS os pontos de chamada:
+```javascript
+var res = await SessionCore.archiveSession({ ... });
+if (!res.ok) { alert('Erro ao arquivar: ' + (res.error && res.error.message || res.error)); setClosing(false); return; }
+```
+
 ### React-sem-JSX
 Todas as apps usam `var h = React.createElement;`. Sem build step. Listas de elementos passam-se como rest args ou arrays com `key`:
 ```javascript
@@ -248,11 +267,17 @@ Para jogos com um ecrã de projetor/placar partilhado (ex: Mega Just One), o
 `master-X.html` pode oferecer dois modos por dispositivo em vez de uma única UI.
 Referência completa: `master-justone.html`. Ao adicionar este padrão a um novo jogo:
 
-- **`masterMode`** (`null|'console'|'public'`), persistido em
-  `localStorage['<jogo>MasterMode']`. Override via `?mode=console|public`; entrada
-  direta `?mode=public&session=CODE` salta o ecrã de setup. Botão "Trocar modo" no
-  header de ambos os modos limpa o estado e volta ao ecrã de escolha. `masterMode`
-  é local ao dispositivo — NUNCA sincronizado via Firebase.
+- **`masterMode`** (`null|'console'|'public'`), persistido em storage com a chave
+  `'<jogo>MasterMode'`. `masterMode` é local ao dispositivo — NUNCA sincronizado
+  via Firebase. Override via `?mode=console|public`; entrada direta
+  `?mode=public&session=CODE` salta o ecrã de setup. Botão "Trocar modo" no header
+  de ambos os modos limpa o estado e volta ao ecrã de escolha de modo.
+  - **`localStorage`** (Just One): o modo escolhido persiste entre tabs e sessões —
+    recomendado quando o mesmo dispositivo é sempre Consola ou sempre Público.
+  - **`sessionStorage`** (Deception): o modo NÃO persiste para novos tabs — ao
+    abrir um segundo tab (ex: o projetor no PC enquanto a Consola fica no
+    telemóvel), esse tab começa do ecrã de escolha sem configuração extra.
+    Usar `sessionStorage` quando fizer sentido cada tab escolher o seu próprio modo.
 - **`publicState`**: nó Firebase próprio, projeção sanitizada escrita SÓ pela
   Consola (mesmo `useEffect` debounced 200ms que o `gameState`). É o nó principal
   que o modo Público subscreve — nunca subscreve nós com dados sensíveis (no Just
@@ -401,7 +426,7 @@ choosing_difficulty → ...`
   standalone).
 
 ### Deception Murder in Hong Kong (`master-deception.html`, `client-deception.html`)
-Jogo de papéis secretos inspirado no Deception: Murder in HK. Fases: `setup → running`.
+Jogo de papéis secretos inspirado no Deception: Murder in HK. Fases: `waiting → running`.
 - **Setup**: cada mesa escolhe uma carta azul e uma carta vermelha (inputs de texto, guardados em Firebase + localStorage)
 - **Distribuição de papéis** (master): aleatória; sequência por nº de mesas — `assassino` (sempre), `cumplice` (N≥3), `testemunha` (N≥4), resto `investigador`/`detetive`. `secretInfo` por papel:
   - `assassino`: `{ blueCard, redCard }` (as suas próprias cartas, como confirmação)
@@ -410,8 +435,10 @@ Jogo de papéis secretos inspirado no Deception: Murder in HK. Fases: `setup →
   - `investigador`/`detetive`: `{}`
 - **Running**: cada cliente vê o seu papel + secretInfo; botão de acusação (uso único, bloqueado após envio, reposto pelo master individualmente ou em bloco)
 - **Master**: vê papel de cada mesa; cartas visíveis **apenas** da mesa assassina; painel de acusações com "Acusação correta (+N pts)" e "Repor botão"; pontuação acumula entre rondas; "Nova ronda" limpa papéis+acusações mas mantém scores; "Confirmar vitória assassino+cúmplice" atribui roleVictoryPoints a ambos
-- Firebase: `gameState.roles[tableNumber]={role,secretInfo}`, `gameState.accusations[tableNumber]={tableNumber,teamName,timestamp}`, `gameState.scores[tableNumber]=number`; sem archiveSession (jogo informal sem histórico)
-- Sem `games/deception-*.js` em runtime — tudo inline nos HTMLs; os ficheiros `games/deception-client.js` / `games/deception-master.js` são artefactos da implementação inicial (ignorar)
+- **Dual-Mode (Consola/Projeção)**: usa `sessionStorage['decMasterMode']` (não localStorage — permite que cada novo tab mostre o ecrã de escolha de modo, útil para abrir o projetor num segundo dispositivo sem configuração extra). Override via `?mode=console|public`; entrada directa `?mode=public&session=CODE` salta o setup. Modo Projeção mostra ranking via `publicState`. QR code só no modo Projeção.
+- **Arquivo**: usa `archiveSession` com `attachClientsField` enricher. CloseModal com 3 opções: "📦 Sair e arquivar" / "🚪 Sair sem arquivar" / "Cancelar". HistoryModal com painel expansível por sessão (ranking com teamName+emails por nº de mesa), reabertura e eliminação de entradas.
+- Firebase: `gameState.roles[tableNumber]={role,secretInfo}`, `gameState.accusations[tableNumber]={tableNumber,teamName,timestamp}`, `gameState.scores[tableNumber]=number`, `gameState.usedAccusations[tableNumber]=true`; `publicState={phase,round,scores,roundResult,timestamp}` (escrito pela Consola, lido só pelo modo Projeção)
+- Sem `games/deception-*.js` em runtime — tudo inline nos HTMLs; ficheiros `games/deception-*.js` são artefactos da implementação inicial (ignorar)
 - Cor de identidade: **rose** (🔪)
 
 ### Contador Genérico (`master.html` + `client.html` + `games/generic.js`)
@@ -466,8 +493,9 @@ Carregar `shared/firebase-config.js` + `shared/session-core.js`. Usar:
 - `subscribeActiveSessions` no setup
 - `subscribeSessionHistory` no histórico
 - `subscribeClients` (com `onLastSeen` num ref) no jogo
-- `archiveSession` com enricher apropriado nos 3 fluxos (terminar, criar nova sobre activa, fechar sem abrir)
+- `archiveSession` com enricher apropriado nos 3 fluxos (terminar, criar nova sobre activa, fechar sem abrir); verificar **sempre** `res.ok` em cada chamada e mostrar alerta se `!res.ok`
 - `archivingRef` para o sync useEffect
+- Campos numéricos e de objeto em `history` com fallback `|| 0` / `|| {}` (ver padrão "Valores undefined")
 
 ### Adicionar URL pública
 Em `shared/firebase-config.js`, adicionar ao `AppConfig`:

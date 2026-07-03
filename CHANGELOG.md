@@ -4,6 +4,37 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Deception Murder in Hong Kong] - 2026-07
+
+### Adicionado
+- **Novo jogo standalone "Deception Murder in Hong Kong"** (`master-deception.html` +
+  `client-deception.html`): papéis secretos — assassino, cúmplice, testemunha,
+  investigadores. Fases `waiting → running` com distribuição de papéis aleatória.
+- **Cartas azul/vermelha por mesa**: cada equipa escolhe 2 cartas no setup (guardadas
+  em Firebase + localStorage); assassino usa-as como identificação secreta.
+- **Papéis com `secretInfo` diferenciado**: assassino vê as próprias cartas;
+  cúmplice vê identidade + cartas do assassino; testemunha vê dois nomes em ordem
+  aleatória (não sabe qual é qual); investigadores não recebem info extra.
+- **Sistema de acusações**: uso único por ronda, bloqueado após envio, reposto pelo
+  master individualmente ou em bloco. "Acusação correta" atribui pontos; "Confirmar
+  vitória assassino+cúmplice" atribui `roleVictoryPoints` a ambos.
+- **Dual-Mode Consola/Projeção** com `sessionStorage` (cada tab começa no ecrã de
+  escolha de modo — permite abrir projetor e consola em tabs independentes). Modo
+  Projeção mostra ranking em tempo real via `publicState`. QR code só no modo Projeção.
+- **Arquivo de sessões**: `archiveSession` com `attachClientsField` enricher. CloseModal
+  com 3 opções (Sair e arquivar / Sair sem arquivar / Cancelar). HistoryModal com
+  painel de detalhe expansível (ranking + emails), reabrir e eliminar entradas.
+- Novo cartão "Deception Murder" (rose / 🔪) em `masters.html` e `jogar.html`.
+
+### Corrigido
+- **Arquivo silencioso quando `scores` é `undefined`**: Firebase omite objetos
+  vazios na leitura; `gameData.scores` pode ser `undefined` se nenhum ponto foi
+  marcado. `fm.set` rejeita `undefined`, `archiveSession` falha silenciosamente
+  sem `res.ok` no caller. Corrigido com `gameData.scores || {}` e verificação de
+  `res.ok` — padrão documentado em `CLAUDE_CONTEXT.md`.
+
+---
+
 ## [Mega Just One — Ajustes] - 2026-06-15
 
 ### Adicionado

@@ -4,6 +4,40 @@ Registo de desenvolvimento do Sistema de Pontuação Modular.
 
 ---
 
+## 🔪 Deception Murder in Hong Kong (Julho 2026)
+
+Novo jogo standalone de papéis secretos. Decisões de arquitetura específicas, para referência futura:
+
+- **`sessionStorage` em vez de `localStorage` para `masterMode`**: abre naturalmente o
+  ecrã de escolha de modo em cada novo tab. Útil quando o anfitrião abre o master
+  no PC (projetor) e no telemóvel (consola) — cada tab escolhe o seu modo sem
+  coordenação extra. Just One usou `localStorage` (modo persiste entre tabs, bom
+  quando sempre é o mesmo dispositivo a ser Consola ou Projetor).
+
+- **`publicState` com dados mínimos**: o modo Projeção subscreve apenas
+  `publicState` (phase, round, scores, roundResult) e `clients` (presença). Nunca
+  subscreve `gameState.roles` nem `gameState.accusations` — isolamento por desenho,
+  não por ocultação na UI.
+
+- **Bug `undefined` em `fm.set`**: Firebase RTDB trata `{}` como null e omite
+  objetos vazios na leitura. `gameData.scores` (inicializado como `{}`) volta como
+  `undefined` se nenhum ponto foi marcado. `fm.set` rejeita `undefined` e lança
+  exceção apanhada pelo `try/catch` de `archiveSession` → `{ok: false}`. Sem
+  `res.ok` no caller, o erro era completamente silencioso. Corrigido com
+  `gameData.scores || {}` e verificação de `res.ok`. **Aplicar este padrão a todos
+  os jogos futuros.**
+
+- **CloseModal com 3 opções**: "Sair e arquivar" / "Sair sem arquivar" /
+  "Cancelar". `exitWithoutArchive` limpa apenas estado local React — a sessão Firebase
+  continua activa (comportamento "pausa"). Padrão recomendado para todos os jogos.
+
+- **HistoryModal com painel de detalhe expandível**: toggle ℹ️ por entrada mostra
+  ranking com teamName+emails (via `attachClientsField` enricher). Botões ↩
+  (reabrir) e 🗑️ (eliminar) por entrada. Reabertura cria novo `gameState` com os
+  scores arquivados e remove a entrada do histórico.
+
+---
+
 ## 🤫 Mega Just One (Junho 2026)
 
 Novo jogo standalone, adaptação competitiva (mesa vs. mesa) do "Just One". Decisões
