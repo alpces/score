@@ -4,6 +4,46 @@ Todas as alterações notáveis deste projeto serão documentadas neste ficheiro
 
 ---
 
+## [Deception Murder — auditoria, i18n e correções] - 2026-07-05
+
+### Adicionado
+- **i18n completo (PT/EN)** em `master-deception.html` e `client-deception.html`: seletor de
+  língua com bandeira (PT sempre pré-definido), ~170 strings novas em `shared/i18n-pt.js` e
+  `shared/i18n-en.js` (`dec_*`/`m_dec_*`), idioma do master isolado do cliente
+  (`score_lang_master` vs `score_lang`).
+- **Textos dos papéis partilhados entre masters**: guardados em
+  `sessions/_deceptionConfig/roleTexts` (chave reservada — ver nota abaixo), lidos ao abrir o
+  master e escritos pelo botão "Guardar"; qualquer anfitrião, em qualquer dispositivo, passa a
+  herdar os últimos textos personalizados como valor por defeito ao criar sessão.
+
+### Corrigido
+- **Corrida na Caça à Testemunha**: com Testemunha em jogo, outras acusações já na fila
+  continuavam clicáveis enquanto uma caça à testemunha estava pendente — resolver a 2ª
+  acusação sobrepunha/perdia o resultado da 1ª. Agora bloqueado: `markCorrect`/`markWrong`
+  saem cedo se `witnessHunt` estiver activo, os botões ficam desativados na UI, e o cliente
+  deixa de mostrar o botão de acusação durante a caça.
+- **Persistência global dos textos de papéis não funcionava**: a primeira tentativa gravava em
+  `gameConfig/deception/roleTexts`, um caminho bloqueado pelas regras de segurança do Firebase
+  deste projeto (só `sessions/` e `sessionHistory/` são permitidos) — o erro "Permission
+  denied" era engolido silenciosamente por um `.catch(() => {})`, por isso parecia funcionar
+  (só persistia em `localStorage` no mesmo browser). Só detectado testando com Playwright num
+  contexto de browser novo. Corrigido para `sessions/_deceptionConfig/roleTexts`; os dois
+  `.catch()` passam a logar o erro em vez de o engolir.
+
+### Auditoria (reportado, não corrigido — arquitectural, afecta possivelmente outros jogos)
+- Colisão de código de sessão entre jogos diferentes (`sessions/<code>` é partilhado por
+  todos os jogos; criar sessão não verifica códigos usados por outro `gameType`).
+- Corrida de "último a escrever ganha" entre dois masters a criar a mesma sessão em simultâneo.
+- Lost-update em `scores`/`usedAccusations` com dois masters a controlar a mesma sessão ao
+  mesmo tempo (sem `runTransaction`).
+- `games/deception-master.js` e `games/deception-client.js` confirmados como código morto
+  (não referenciados por nenhum HTML — a implementação real está inline).
+
+Ver `CLAUDE_CONTEXT.md` (secções "🌐 I18n", "⚠️ regras do Firebase" e "🧪 Testar Localmente")
+para os padrões generalizados a partir desta ronda.
+
+---
+
 ## [Deception Murder in Hong Kong] - 2026-07
 
 ### Adicionado

@@ -36,6 +36,37 @@ Novo jogo standalone de papéis secretos. Decisões de arquitetura específicas,
   (reabrir) e 🗑️ (eliminar) por entrada. Reabertura cria novo `gameState` com os
   scores arquivados e remove a entrada do histórico.
 
+### Auditoria, i18n e correções (2026-07-05)
+
+- **i18n completo (PT/EN)** adicionado a ambos os HTMLs, seguindo exactamente o padrão do
+  Hitster (chaves `dec_*`/`m_dec_*`, seletor com `flag-icons`, idioma do master isolado via
+  `score_lang_master`). Generalizado como secção própria "🌐 I18n" em `CLAUDE_CONTEXT.md` —
+  primeira vez que o motor de i18n fica documentado centralmente (já era usado por Hitster,
+  Diamant e Just One, mas sem nenhuma referência no ficheiro canónico até agora).
+- **Textos dos papéis partilhados entre masters/dispositivos**: tentativa inicial gravava em
+  `gameConfig/deception/roleTexts`, caminho bloqueado pelas regras do Firebase deste projeto
+  (só `sessions/` e `sessionHistory/` são permitidos na raiz — confirmado por teste directo via
+  REST, não visível lendo código, já que não há `database.rules.json` no repo). O erro
+  "Permission denied" era engolido por um `.catch(() => {})`, por isso o bug só apareceu ao
+  testar num browser com um contexto novo (sem `localStorage` a mascarar). Corrigido para
+  `sessions/_deceptionConfig/roleTexts` — chave reservada dentro da árvore já permitida,
+  inofensiva para os listeners de sessões activas. **Padrão a reutilizar por qualquer jogo
+  futuro que precise de configuração partilhada entre sessões** — ver `CLAUDE_CONTEXT.md`.
+- **Corrida na Caça à Testemunha corrigida**: acusações em fila ficavam clicáveis durante uma
+  caça à testemunha pendente, permitindo perder/sobrepor o resultado da caça em curso ao
+  resolver uma 2ª acusação. Agora bloqueadas (guarda em `markCorrect`/`markWrong` + UI
+  desativada) até a caça ser resolvida.
+- **Auditoria de concorrência/resiliência** identificou três problemas arquitecturais ainda por
+  resolver (fora do âmbito desta ronda, prováveis noutros jogos standalone também): colisão de
+  código de sessão entre `gameType`s diferentes (`sessions/<code>` é um espaço partilhado, sem
+  verificação cross-game), corrida "último a escrever ganha" entre dois masters a criar a mesma
+  sessão em simultâneo, e lost-update em `scores`/`usedAccusations` com dois masters activos na
+  mesma sessão (sem `runTransaction`). `games/deception-master.js`/`deception-client.js`
+  confirmados como código morto, não referenciado por nenhum HTML.
+- **Testado com Playwright num browser real** (não só leitura de código) — infra documentada em
+  "🧪 Testar Localmente com um Browser Real" em `CLAUDE_CONTEXT.md`, incluindo o alerta de que a
+  base de dados usada é a de produção partilhada (sem staging).
+
 ---
 
 ## 🤫 Mega Just One (Junho 2026)

@@ -19,6 +19,7 @@ pelo anfitrião):
 | 💎 **Mega Diamant** — adaptação do Diamant/Incan Gold com votação secreta e apostas | [client](https://alpces.github.io/score/client-diamant.html) |
 | 🤫 **Mega Just One** — pistas de uma só palavra, mesa contra mesa, com validação pelo anfitrião | [client](https://alpces.github.io/score/client-justone.html) |
 | ❓ **Mega Concept** — adivinha conceitos a partir de pistas (sistema modular genérico) | [client](https://alpces.github.io/score/client.html) |
+| 🕵️ **Deception Murder** — cada mesa escolhe cartas, recebe um papel secreto e tenta acusar corretamente o assassino | [client](https://alpces.github.io/score/client-deception.html) |
 
 > O acesso de anfitrião (`masters.html` e os `master-*.html` correspondentes) não é divulgado
 > publicamente — é partilhado diretamente com quem organiza a sessão. Ver [`robots.txt`](robots.txt).
@@ -44,6 +45,7 @@ score/
 │   ├── firebase-config.js        # Config Firebase + URLs públicas
 │   ├── client-core.js            # Lifecycle de cliente reutilizável
 │   ├── session-core.js           # Lifecycle de sessão reutilizável
+│   ├── i18n.js / i18n-pt.js / i18n-en.js   # Sistema de traduções (PT/EN) reutilizável
 │   └── home-common.js            # Lógica partilhada das páginas de entrada
 │
 ├── games/
@@ -73,6 +75,7 @@ A infraestrutura repetível (Firebase listeners, heartbeat, reconexão, fluxo de
 
 - **`shared/client-core.js`** (`window.ClientCore`): UUID persistente, store local com expiry, listener de gameState/clientes/connection com forceRefresh em background-resume, heartbeat, joinSession com deteção de colisão, submitWithVerify, wake lock.
 - **`shared/session-core.js`** (`window.SessionCore`): subscribers a sessões activas/históricas/clientes (com optimização anti-flicker), one-shot reads, archiveSession (fluxo de 6 passos seguros) com enrichers configuráveis.
+- **`shared/i18n.js`** (`window.I18n`): traduções PT/EN partilhadas por todos os jogos, com seletor de língua por dispositivo (PT sempre pré-definido).
 
 Lógica game-específica (regras de pontuação, fases, modais de configuração) fica nos ficheiros do jogo.
 

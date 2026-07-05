@@ -37,6 +37,9 @@ score/
 │   ├── firebase-config.js        # FirebaseConfig + AppConfig (URLs públicas)
 │   ├── client-core.js            # API de cliente reutilizável (ClientCore)
 │   ├── session-core.js           # API de sessão reutilizável (SessionCore)
+│   ├── i18n.js                   # Motor de i18n reutilizável (I18n) — ver secção própria
+│   ├── i18n-pt.js                # Strings PT-PT (idioma por defeito) — todos os jogos
+│   ├── i18n-en.js                # Strings EN — todos os jogos
 │   └── home-common.js            # Lógica partilhada de masters.html/jogar.html
 │
 ├── games/
@@ -174,6 +177,76 @@ var connState = ClientCore.computeConnState(sinceSeen, !!connectedClients[table.
 
 ---
 
+## 🌐 I18n — API completa
+
+Em `shared/i18n.js` (motor) + `shared/i18n-pt.js` + `shared/i18n-en.js` (strings). Disponível em
+`window.I18n`. Usado por Hitster, Diamant, Just One e Deception — **todos os jogos novos devem
+usá-lo**, não inventar tradução própria.
+
+| Função | Devolve | Para quê |
+|---|---|---|
+| `t(key, vars?)` | `string` | Resolve uma chave na língua activa. Interpola `{{var}}`. Fallback: PT → a própria chave em bruto (se aparecer uma chave tipo `m_dec_xxx` literal no ecrã, é sinal de chave em falta num dos dois ficheiros de strings). |
+| `setLang(lang)` | — | Muda língua, persiste em `localStorage['score_lang']`, dispara `window.dispatchEvent(new CustomEvent('i18n:change', {detail:{lang}}))`. |
+| `getCurrentLang()` | `'pt' \| 'en'` | Língua activa. |
+| `getFlag(lang?)` / `getName(lang?)` / `getCountryCode(lang?)` | `string` | Emoji, nome no próprio idioma (`Português`/`English`), código ISO para `flag-icons` (`pt`/`gb`). |
+| `getLanguages()` | `string[]` | `['pt', 'en']`. |
+| `registerStrings(lang, data)` | — | Chamado pelos ficheiros `i18n-pt.js`/`i18n-en.js`; não chamar directamente num jogo. |
+
+### Convenção de chaves (`shared/i18n-pt.js` / `i18n-en.js` — ficheiro único partilhado por todos os jogos)
+- Prefixo `<jogo>_` para strings do **cliente**/partilhadas (`h_*` Hitster, `d_*` Diamant, `j_*` Just One, `dec_*` Deception).
+- Prefixo `m_<jogo>_` para strings **só do master** (`m_h_*`, `m_d_*`, `m_j_*`, `m_dec_*`).
+- Chaves sem prefixo de jogo (`session_code`, `table_n`, `err_*`, `m_cancel`, `m_save`, `close`, ...) são **comuns** — reutilizar em vez de duplicar quando o texto for exactamente igual (mesmo emoji/pontuação); se o texto do jogo for ligeiramente diferente, criar uma chave nova prefixada — não forçar reuso que mude o texto visível de outro jogo.
+- Adicionar a chave a **ambos** os ficheiros (`i18n-pt.js` e `i18n-en.js`) sempre no mesmo commit; nunca deixar uma língua sem a chave (cai no fallback PT, o que é aceitável mas não deve ser o plano).
+
+### Padrão no master (idioma do anfitrião isolado do dos clientes)
+```javascript
+// no <head>, depois de carregar i18n.js + i18n-pt.js + i18n-en.js:
+<script>
+(function() {
+    var MASTER_LANG_KEY = 'score_lang_master';   // chave própria — NUNCA reaproveitar 'score_lang'
+    var savedLang; try { savedLang = localStorage.getItem(MASTER_LANG_KEY); } catch(e) {}
+    var masterLang = savedLang || 'pt';
+    var _origSetLang = I18n.setLang;
+    I18n.setLang = function(lang) {
+        _origSetLang(lang);
+        try { localStorage.setItem(MASTER_LANG_KEY, lang); } catch(e) {}
+    };
+    I18n.setLang(masterLang);
+})();
+</script>
+```
+O cliente usa `localStorage['score_lang']` directamente (sem override) — cada dispositivo/mesa
+escolhe a sua língua independentemente do anfitrião.
+
+### Padrão dentro do `App()` (forçar re-render quando a língua muda)
+```javascript
+var T = I18n.t;   // alias, declarado uma vez fora do App()
+
+// dentro de App():
+var lg1 = useState(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
+var lg2 = useState(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
+useEffect(function () {
+    var handler = function (e) { setLang(e.detail.lang); };
+    window.addEventListener('i18n:change', handler);
+    return function () { window.removeEventListener('i18n:change', handler); };
+}, []);
+```
+Objectos de UI construídos com strings traduzidas (ex.: rótulos de papéis/categorias com
+ícone+cor) **não podem ser constantes de módulo** — têm de ser funções (`buildRoleLabels()`,
+`buildDefaultRoleTexts()`) chamadas dentro do `App()` a cada render, para reflectirem a língua
+activa. Conteúdo editável pelo utilizador (texto de papéis, pool de palavras) só deve usar a
+tradução como **valor por defeito inicial/reset** — nunca sobrescrever silenciosamente uma
+edição já existente só porque a língua da UI mudou.
+
+### Seletor de língua (dropdown com bandeira, via `flag-icons` CDN)
+Replicar a função `LangSelector()` de `master-hitster.html`/`client-hitster.html`/
+`master-deception.html`/`client-deception.html` (ajustar só as cores Tailwind ao tema do jogo).
+Carregar `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">`
+no `<head>`. Chamar como função (`LangSelector()`), nunca `h(LangSelector, null)` — mesmo motivo
+dos modais persistentes (ver padrões defensivos).
+
+---
+
 ## 🔥 Estrutura de Dados Firebase (RTDB)
 
 ```
@@ -206,6 +279,13 @@ sessionHistory/{archiveId}/       # sessões arquivadas
 ```
 
 Caminho especial: `.info/connected` — boolean WebSocket. Usado por `connectClient` para mostrar banner offline e disparar `forceRefresh` ao reconectar.
+
+### ⚠️ As regras de segurança do Firebase só permitem `sessions/` e `sessionHistory/`
+Confirmado por teste directo (`curl <databaseURL>/<qualquer-outro-caminho>.json` → `{"error":"Permission denied"}`). Não há `database.rules.json` neste repo — as regras vivem só na consola do Firebase, por isso **não dá para confirmar isto lendo código**, só testando contra a base de dados real. Isto significa:
+
+- **Nunca criar um nó de topo novo** (ex.: `gameConfig/...`, `appSettings/...`) para guardar configuração partilhada entre sessões/dispositivos — vai falhar silenciosamente se o `.catch()` não tratar o erro (ver padrão abaixo).
+- Para configuração partilhada entre masters/dispositivos que precise de sobreviver a uma sessão individual (ex.: textos de papéis personalizados, pools de perguntas), usar uma **chave reservada dentro de `sessions/`**, ex. `sessions/_deceptionConfig/roleTexts`. Códigos de sessão reais são sempre maiúsculos (`.toUpperCase()`) e nunca começam por `_`, por isso esta chave nunca colide; `SessionCore.subscribeActiveSessions` já ignora com segurança entradas sem `gameState` (ver `master-deception.html` para o padrão completo: `fm.get`/`fm.set` num `ROLE_TEXTS_PATH` constante, lido num `useEffect` de mount e escrito na acção de "Guardar").
+- **Nunca deixar um `.catch()` do Firebase vazio** (`.catch(function () {})`). Um `Permission denied` engolido silenciosamente é indistinguível de "funcionou" ao ler o código — só se nota testando num browser real com um contexto novo (sem `localStorage` a mascarar o problema). Logar sempre o erro: `.catch(function (e) { console.error('...', e); })`.
 
 ---
 
@@ -434,10 +514,13 @@ Jogo de papéis secretos inspirado no Deception: Murder in HK. Fases: `waiting �
   - `testemunha`: `{ involvedTables: [nomeA, nomeB] }` (duas equipas em ordem aleatória — não sabe qual é qual)
   - `investigador`/`detetive`: `{}`
 - **Running**: cada cliente vê o seu papel + secretInfo; botão de acusação (uso único, bloqueado após envio, reposto pelo master individualmente ou em bloco)
+- **Caça à Testemunha (`witnessHunt`)**: quando há Testemunha em jogo e o master marca uma acusação como correta, a ronda não termina logo — abre um sub-estado `gameState.witnessHunt={pendingWinnerTable,pendingWinnerTeam}` em que o assassino pode escapar identificando verbalmente a Testemunha. **Enquanto `witnessHunt` estiver definido, outras acusações já na fila ficam bloqueadas** (`markCorrect`/`markWrong` saem cedo, botões da UI desativados com nota "Resolve primeiro a Caça à Testemunha acima") e o cliente deixa de mostrar o botão de acusação — corrige uma corrida real em que resolver uma 2ª acusação em fila sobrepunha/perdia o resultado da caça em curso.
 - **Master**: vê papel de cada mesa; cartas visíveis **apenas** da mesa assassina; painel de acusações com "Acusação correta (+N pts)" e "Repor botão"; pontuação acumula entre rondas; "Nova ronda" limpa papéis+acusações mas mantém scores; "Confirmar vitória assassino+cúmplice" atribui roleVictoryPoints a ambos
 - **Dual-Mode (Consola/Projeção)**: usa `sessionStorage['decMasterMode']` (não localStorage — permite que cada novo tab mostre o ecrã de escolha de modo, útil para abrir o projetor num segundo dispositivo sem configuração extra). Override via `?mode=console|public`; entrada directa `?mode=public&session=CODE` salta o setup. Modo Projeção mostra ranking via `publicState`. QR code só no modo Projeção.
 - **Arquivo**: usa `archiveSession` com `attachClientsField` enricher. CloseModal com 3 opções: "📦 Sair e arquivar" / "🚪 Sair sem arquivar" / "Cancelar". HistoryModal com painel expansível por sessão (ranking com teamName+emails por nº de mesa), reabertura e eliminação de entradas.
-- Firebase: `gameState.roles[tableNumber]={role,secretInfo}`, `gameState.accusations[tableNumber]={tableNumber,teamName,timestamp}`, `gameState.scores[tableNumber]=number`, `gameState.usedAccusations[tableNumber]=true`; `publicState={phase,round,scores,roundResult,timestamp}` (escrito pela Consola, lido só pelo modo Projeção)
+- **i18n completo (PT/EN)**: seletor de língua no master (`score_lang_master`, isolado do cliente) e no cliente (`score_lang`), chaves `dec_*`/`m_dec_*` em `shared/i18n-pt.js`/`i18n-en.js`. Ver secção "🌐 I18n — API completa".
+- **Textos dos papéis partilhados entre masters** (`sessions/_deceptionConfig/roleTexts`, chave reservada — ver "⚠️ regras do Firebase" acima): lido num `useEffect` de mount e escrito por "Guardar" no painel de configuração; qualquer master, em qualquer dispositivo, herda o último texto guardado como valor pré-definido ao criar uma nova sessão. Cópia local em `localStorage['dec_roleTexts']` como fallback/cache.
+- Firebase: `gameState.roles[tableNumber]={role,secretInfo}`, `gameState.accusations[tableNumber]={tableNumber,teamName,timestamp}`, `gameState.scores[tableNumber]=number`, `gameState.usedAccusations[tableNumber]=true`, `gameState.witnessHunt={pendingWinnerTable,pendingWinnerTeam}|null`; `publicState={phase,round,scores,roundResult,timestamp}` (escrito pela Consola, lido só pelo modo Projeção)
 - Sem `games/deception-*.js` em runtime — tudo inline nos HTMLs; ficheiros `games/deception-*.js` são artefactos da implementação inicial (ignorar)
 - Cor de identidade: **rose** (🔪)
 
@@ -497,6 +580,21 @@ Carregar `shared/firebase-config.js` + `shared/session-core.js`. Usar:
 - `archivingRef` para o sync useEffect
 - Campos numéricos e de objeto em `history` com fallback `|| 0` / `|| {}` (ver padrão "Valores undefined")
 
+### i18n (PT/EN) — recomendado desde já, não deixar para depois
+Carregar no `<head>`, depois do firebase-config: `shared/i18n.js`, `shared/i18n-pt.js`,
+`shared/i18n-en.js` (e o `<link>` do `flag-icons` se for usar o seletor com bandeira). No
+master, adicionar o snippet de override de `I18n.setLang` com `score_lang_master` (ver secção
+"🌐 I18n"). Adicionar as chaves novas (`meujogo_*`/`m_meujogo_*`) a **ambos** os ficheiros de
+strings no mesmo commit. Replicar `LangSelector()` de `master-hitster.html`/`client-hitster.html`.
+
+### Nunca guardar configuração partilhada fora de `sessions/`
+Se o jogo precisar de algo que sobreviva a uma sessão individual e seja partilhado entre
+masters/dispositivos (pool de perguntas, textos configuráveis, etc.), usar uma chave reservada
+dentro de `sessions/` (ex.: `sessions/_meujogoConfig/...`), **nunca** um nó de topo novo — as
+regras do Firebase deste projeto só permitem `sessions/` e `sessionHistory/` (ver "⚠️ regras de
+segurança do Firebase" acima). Testar sempre num contexto de browser novo (sem `localStorage`
+partilhado) antes de dar como concluído.
+
 ### Adicionar URL pública
 Em `shared/firebase-config.js`, adicionar ao `AppConfig`:
 ```javascript
@@ -552,10 +650,68 @@ Seguir o padrão visual dos cards existentes (ícone 6xl, título `font-black`, 
 4. **Logos**: `logo1.png`–`logo4.png` existem; o código carrega até 5 com fallback (`onerror`).
 5. **Retrocompatibilidade**: sessões e arquivos existentes devem continuar a funcionar após mudanças. Não remover campos de Firebase sem migração.
 6. **Modais persistentes** (NewRoundModal, ReviewModal): chamar como função `Modal()`, não `h(Modal, null)`. Ver secção de padrões defensivos.
-7. **Testes**: não há suite automatizada. Validar manualmente em browser e em GitHub Pages após push (preview ≠ produção em alguns casos de cache).
+7. **Testes**: não há suite automatizada. Validar manualmente em browser e em GitHub Pages após push (preview ≠ produção em alguns casos de cache). Ver secção "🧪 Testar Localmente com um Browser Real" para o procedimento de testar com Playwright antes de dar uma alteração como concluída.
 8. **Língua**: PT-PT em UI, comentários e mensagens de erro. Inglês em nomes de funções e variáveis.
 9. **Commits e push**: fazer sempre commit + push automáticos após qualquer alteração de código pedida, sem necessidade de pedir confirmação. Mensagens em PT, formato Conventional Commits (`feat(...)`, `fix(...)`, `refactor(...)`, `docs(...)`, ...). Co-Author: `Claude Sonnet 4.6 <noreply@anthropic.com>`.
 10. **Landing pages**: sempre que um novo jogo for adicionado ou removido, atualizar `jogar.html` e `masters.html` no mesmo commit, sem esperar instruções explícitas para o fazer.
+
+---
+
+## 🧪 Testar Localmente com um Browser Real
+
+Não há build step nem suite automatizada — mas "ler o código e parecer correto" **não é
+suficiente** para validar Firebase/i18n/UI: um bug real (nó novo bloqueado pelas regras do
+Firebase, `.catch()` a engolir o erro) só foi apanhado testando num browser real, não lendo o
+código. Repetir este procedimento sempre que a alteração mexer em persistência Firebase, i18n
+reactivo, ou fluxos multi-cliente.
+
+⚠️ **A base de dados é a de produção partilhada por utilizadores reais — não há staging.**
+Qualquer sessão criada durante o teste escreve lá. Usar sempre um código de sessão descartável
+pouco provável de colidir (ex.: `TESTQA`, `TESTWH` + sufixo aleatório) e **limpar no fim**
+(arquivar + eliminar do histórico pela UI, ou `curl -X DELETE <databaseURL>/sessions/<CODE>.json`
+como rede de segurança se o teste falhar a meio). Nunca gravar em nós partilhados entre jogos
+(ex.: `sessions/_deceptionConfig`) sem repor o valor original a seguir.
+
+### Servir localmente
+Este ambiente pode não ter Python real instalado (só o stub da Microsoft Store, que falha
+silenciosamente). Alternativa Node sem dependências, guardar como `static-server.js`:
+```javascript
+const http = require('http'), fs = require('fs'), path = require('path');
+const root = process.argv[2] || process.cwd(), port = parseInt(process.argv[3] || '8765', 10);
+const mime = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8' };
+http.createServer((req, res) => {
+  const p = path.join(root, decodeURIComponent(req.url.split('?')[0]) === '/' ? '/index.html' : decodeURIComponent(req.url.split('?')[0]));
+  fs.readFile(p, (err, data) => {
+    if (err) { res.writeHead(404); return res.end('Not found'); }
+    res.writeHead(200, { 'Content-Type': mime[path.extname(p)] || 'application/octet-stream' });
+    res.end(data);
+  });
+}).listen(port, () => console.log('http://localhost:' + port));
+```
+Correr em background: `node static-server.js <repo-root> 8765`. Testar sempre com um servidor
+HTTP real (não `file://`) — os módulos `<script type="module">` do Firebase são bloqueados por
+CORS em `file://`.
+
+### Pilotar um browser real (Playwright)
+Sem instalação prévia neste ambiente. Instalar isolado (não no repo do utilizador):
+```bash
+cd <pasta-scratch-da-sessão>
+npm init -y && npm install playwright
+npx playwright install chromium   # ~200MB, demora
+```
+Depois, um script Node com `require('playwright').chromium.launch()` — abrir página, `fill`/
+`click` nos elementos (React controlado: usar `fill`/`type`/`click`, nunca `el.value = ...` via
+`eval`, que não dispara o `onChange` do React), `page.on('console', ...)`/`page.on('pageerror',
+...)` para apanhar erros JS, `page.on('dialog', d => d.accept())` para os `confirm()`/`alert()`
+nativos do jogo, `page.screenshot(...)` para verificar visualmente. Usar `browser.newContext()`
+por "dispositivo" simulado (contextos diferentes = `localStorage` isolado — essencial para
+confirmar que algo persiste **entre dispositivos** e não só num reload da mesma aba). Envolver
+o fluxo principal em `try { ... } finally { /* arquivar+eliminar a sessão de teste */ }` para
+garantir limpeza mesmo se um passo falhar a meio.
+
+Para confirmar directamente o que está gravado no Firebase (sem passar pela UI):
+`curl -s "<databaseURL>/<caminho>.json"` — útil para verificar que um write chegou mesmo ao
+servidor, ou que as regras bloqueiam um caminho novo (`{"error":"Permission denied"}`).
 
 ---
 
