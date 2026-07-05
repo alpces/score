@@ -495,6 +495,40 @@ I18n.registerStrings('pt', {
     // ── Master Just One — Gestão de mesas ────────────────────────────────────────
     m_j_remove_table_guesser_warning : 'Esta mesa está a adivinhar nesta ronda. Recomenda-se Recomeçar Ronda antes de remover.',
 
+    // ── Master Just One — Variante Melhor Pista ───────────────────────────────────
+    m_j_scoring_mode_label          : 'Variante de Pontuação',
+    m_j_scoring_mode_difficulty     : 'Por Dificuldade',
+    m_j_scoring_mode_best_clue      : 'Melhor Pista',
+    m_j_scoring_mode_hint_diff      : 'A equipa adivinhadora escolhe Fácil/Médio/Difícil; os pontos variam por dificuldade.',
+    m_j_scoring_mode_hint_bc        : 'Sem escolha de dificuldade. Depois de acertar, a equipa indica qual foi a melhor pista.',
+    m_j_best_clue_config_title      : 'Pontuação (Melhor Pista)',
+    m_j_best_clue_guesser           : 'Equipa que acerta',
+    m_j_best_clue_best              : 'Melhor pista',
+    m_j_best_clue_other             : 'Outras pistas válidas',
+    m_j_best_clue_penalty           : 'Penalização por erro',
+    m_j_phase_best_clue_selection   : 'A escolher melhor pista',
+    m_j_best_clue_select_title      : 'Qual foi a melhor pista?',
+    m_j_best_clue_select_hint       : 'A equipa que adivinhou indica qual pista mais ajudou.',
+    m_j_best_clue_select_btn        : '⭐ Melhor pista',
+    m_j_best_clue_skip              : 'Saltar (sem melhor pista)',
+
+    // ── Master Just One — Aprovação de palavra ────────────────────────────────────
+    m_j_word_approval_title         : 'Palavra sorteada',
+    m_j_word_approval_hint          : 'Aprova a palavra, sorteia outra, ou escreve uma à tua escolha.',
+    m_j_word_approval_approve       : '✅ Aprovar',
+    m_j_word_approval_redraw        : '🔄 Nova palavra',
+    m_j_word_approval_custom        : '✏️ Escrever palavra',
+    m_j_word_approval_placeholder   : 'Escreve a palavra...',
+
+    // ── Cliente Just One — Melhor Pista ───────────────────────────────────────────
+    j_best_clue_select_title        : 'Qual pista vos ajudou mais?',
+    j_best_clue_select_hint         : 'Escolham a pista que mais ajudou a adivinhar.',
+    j_best_clue_vote_sent           : 'Voto enviado!',
+    j_best_clue_waiting             : 'A equipa {{name}} está a escolher a melhor pista...',
+    j_best_clue_won                 : 'A vossa pista foi a melhor! +{{points}} pontos',
+    j_best_clue_valid               : 'A vossa pista foi válida. +{{points}} pontos',
+    j_result_correct_bc             : 'A equipa {{name}} acertou! +{{points}} pontos',
+
     // ── Deception Murder — comum (master + cliente) ──────────────────────────────
     dec_title                   : 'Deception Murder',
     dec_pts                     : 'pts',

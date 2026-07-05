@@ -495,6 +495,40 @@ I18n.registerStrings('en', {
     // ── Master Just One — Table management ───────────────────────────────────────
     m_j_remove_table_guesser_warning : 'This table is guessing this round. Restarting the round before removing it is recommended.',
 
+    // ── Master Just One — Best Clue variant ──────────────────────────────────────
+    m_j_scoring_mode_label          : 'Scoring Variant',
+    m_j_scoring_mode_difficulty     : 'By Difficulty',
+    m_j_scoring_mode_best_clue      : 'Best Clue',
+    m_j_scoring_mode_hint_diff      : 'The guessing team picks Easy/Medium/Hard; points vary by difficulty.',
+    m_j_scoring_mode_hint_bc        : 'No difficulty choice. After a correct guess, the team picks the best clue.',
+    m_j_best_clue_config_title      : 'Scoring (Best Clue)',
+    m_j_best_clue_guesser           : 'Guessing team (if correct)',
+    m_j_best_clue_best              : 'Best clue giver',
+    m_j_best_clue_other             : 'Other valid clue givers',
+    m_j_best_clue_penalty           : 'Penalty for wrong guess',
+    m_j_phase_best_clue_selection   : 'Choosing best clue',
+    m_j_best_clue_select_title      : 'Which was the best clue?',
+    m_j_best_clue_select_hint       : 'The guessing team picks the clue that helped most.',
+    m_j_best_clue_select_btn        : '⭐ Best clue',
+    m_j_best_clue_skip              : 'Skip (no best clue)',
+
+    // ── Master Just One — Word approval ──────────────────────────────────────────
+    m_j_word_approval_title         : 'Drawn word',
+    m_j_word_approval_hint          : 'Approve the word, draw another, or type one yourself.',
+    m_j_word_approval_approve       : '✅ Approve',
+    m_j_word_approval_redraw        : '🔄 New word',
+    m_j_word_approval_custom        : '✏️ Type a word',
+    m_j_word_approval_placeholder   : 'Type the word...',
+
+    // ── Client Just One — Best Clue ───────────────────────────────────────────────
+    j_best_clue_select_title        : 'Which clue helped you most?',
+    j_best_clue_select_hint         : 'Pick the clue that helped you guess the word.',
+    j_best_clue_vote_sent           : 'Vote sent!',
+    j_best_clue_waiting             : 'Team {{name}} is choosing the best clue...',
+    j_best_clue_won                 : 'Your clue was the best! +{{points}} points',
+    j_best_clue_valid               : 'Your clue was valid. +{{points}} points',
+    j_result_correct_bc             : 'Team {{name}} got it right! +{{points}} points',
+
     // ── Deception Murder — common (master + client) ──────────────────────────────
     dec_title                   : 'Deception Murder',
     dec_pts                     : 'pts',

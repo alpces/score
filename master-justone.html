@@ -217,6 +217,41 @@
             try { localStorage.setItem('justoneTimerSeconds', String(n)); return true; } catch(e) { return false; }
         }
 
+        var DEFAULT_BEST_CLUE_CONFIG = { guesser: 3, bestClue: 3, otherClue: 1, penalty: 1 };
+        function getDefaultBestClueConfig() { return Object.assign({}, DEFAULT_BEST_CLUE_CONFIG); }
+        function loadBestClueConfig() {
+            try {
+                var raw = localStorage.getItem('justoneBestClueConfig');
+                if (!raw) return getDefaultBestClueConfig();
+                var cfg = JSON.parse(raw);
+                var def = getDefaultBestClueConfig();
+                ['guesser', 'bestClue', 'otherClue', 'penalty'].forEach(function(k) {
+                    if (typeof cfg[k] !== 'number') cfg[k] = def[k];
+                });
+                return cfg;
+            } catch(e) { return getDefaultBestClueConfig(); }
+        }
+        function saveBestClueConfig(cfg) {
+            try { localStorage.setItem('justoneBestClueConfig', JSON.stringify(cfg)); return true; } catch(e) { return false; }
+        }
+        function loadScoringMode() {
+            try { var v = localStorage.getItem('justoneScoringMode'); return v === 'best_clue' ? 'best_clue' : 'difficulty'; } catch(e) { return 'difficulty'; }
+        }
+        function saveScoringMode(mode) {
+            try { localStorage.setItem('justoneScoringMode', mode); } catch(e) {}
+        }
+
+        function drawWordFromAllTiers(pool, wordPoolLang2, usedWords2) {
+            var combined = [];
+            ['easy', 'medium', 'hard'].forEach(function(t) {
+                getTierPool(pool, wordPoolLang2, t).forEach(function(w) {
+                    if ((usedWords2 || []).indexOf(w) < 0) combined.push(w);
+                });
+            });
+            if (combined.length === 0) return null;
+            return combined[Math.floor(Math.random() * combined.length)];
+        }
+
         var DIFFICULTY_BUTTON_COLORS = {
             easy:   'bg-green-500 hover:bg-green-600',
             medium: 'bg-amber-500 hover:bg-amber-600',
@@ -305,6 +340,13 @@
             var tm1 = _s(0);       var timerSeconds = tm1[0];      var setTimerSeconds = tm1[1];
             var tm2 = _s(false);   var timerSaved = tm2[0];        var setTimerSaved = tm2[1];
 
+            /* —— SETUP: VARIANTE DE PONTUAÇÃO —— */
+            var sm1 = _s('difficulty'); var scoringMode = sm1[0];        var setScoringMode = sm1[1];
+            var bc1 = _s(getDefaultBestClueConfig());
+            var bestClueConfig = bc1[0]; var setBestClueConfig = bc1[1];
+            var bc2 = _s(false);   var showBestClueEdit = bc2[0];  var setShowBestClueEdit = bc2[1];
+            var bc3 = _s(false);   var bestClueSaved = bc3[0];     var setBestClueSaved = bc3[1];
+
             /* —— JOGO —— */
             var g1  = _s([]);             var tables = g1[0];               var setTables = g1[1];
             var g2  = _s('waiting');      var phase = g2[0];                var setPhase = g2[1];
@@ -320,6 +362,12 @@
             var g12 = _s(true);           var showScores = g12[0];          var setShowScores = g12[1];
             var g13 = _s(false);          var tablesLocked = g13[0];        var setTablesLocked = g13[1];
             var g14 = _s(false);          var publicShowScores = g14[0];    var setPublicShowScores = g14[1];
+            var g15 = _s(null);           var bestClueTableId = g15[0];     var setBestClueTableId = g15[1];
+            var g16 = _s(null);           var pendingWord = g16[0];         var setPendingWord = g16[1];
+            var g17 = _s(null);           var pendingWordDiff = g17[0];     var setPendingWordDiff = g17[1];
+            var g18 = _s(false);          var showWordApproval = g18[0];    var setShowWordApproval = g18[1];
+            var g19 = _s('');             var customWordInput = g19[0];     var setCustomWordInput = g19[1];
+            var g20 = _s(false);          var showCustomWordInput = g20[0]; var setShowCustomWordInput = g20[1];
 
             /* —— PÚBLICO (só leitura) —— */
             var pb1 = _s(null);    var publicState = pb1[0];       var setPublicState = pb1[1];
@@ -330,6 +378,7 @@
             var u1  = _s({});      var connectedClients = u1[0];        var setConnectedClients = u1[1];
             var u2  = _s({});      var justoneClues = u2[0];             var setJustoneClues = u2[1];
             var u3  = _s(null);    var justoneDifficultyChoice = u3[0];  var setJustoneDifficultyChoice = u3[1];
+            var u3b = _s(null);    var justoneBestClueVote = u3b[0];     var setJustoneBestClueVote = u3b[1];
             var u4  = _s({});      var justoneStats = u4[0];             var setJustoneStats = u4[1];
             var u5  = _s(false);   var showReview = u5[0];               var setShowReview = u5[1];
             var u6  = _s(false);   var showLeaderboard = u6[0];          var setShowLeaderboard = u6[1];
@@ -349,6 +398,8 @@
             var publicSyncTimerRef = useRef(null);
             var lastSeenMapRef = useRef({});
             var processedDifficultyChoiceRef = useRef(null);
+            var processedBestClueVoteRef = useRef(null);
+            var pendingDrawRef = useRef(null);
 
             /* —— RESOLUÇÃO DE MODO (Consola/Público) E PRÉ-PREENCHIMENTO DO CÓDIGO —— */
             useEffect(function() {
@@ -404,10 +455,12 @@
                 try { localStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
             };
 
-            /* —— CARREGAR CONFIG DE PONTUAÇÃO E TIMER (localStorage, no mount) —— */
+            /* —— CARREGAR CONFIG DE PONTUAÇÃO, TIMER E VARIANTE (localStorage, no mount) —— */
             useEffect(function() {
                 setScoringConfig(loadScoringConfig());
                 setTimerSeconds(loadTimerSeconds());
+                setScoringMode(loadScoringMode());
+                setBestClueConfig(loadBestClueConfig());
             }, []);
 
             /* —— POOL DE PALAVRAS: carregar no mount e quando wordPoolLang muda —— */
@@ -506,6 +559,9 @@
                         roundNumber: roundNumber,
                         guesserTableId: guesserTableId,
                         secretWordDifficulty: secretWordDifficulty,
+                        scoringMode: scoringMode,
+                        bestClueConfig: bestClueConfig,
+                        bestClueTableId: bestClueTableId,
                         usedWords: usedWords,
                         wordPool: wordPool,
                         wordPoolLang: wordPoolLang,
@@ -525,7 +581,8 @@
                     }).catch(function(e) { console.error('Sync gameState:', e); });
                 }, 200);
                 return function() { clearTimeout(syncTimerRef.current); };
-            }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, usedWords,
+            }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, scoringMode,
+                bestClueConfig, bestClueTableId, usedWords,
                 wordPool, wordPoolLang, scoringConfig, timerSeconds, clueDeadline, clueStatus, revealAll,
                 guessResult, tables, showScores, publicShowScores, tablesLocked, selectedLogos, secretWord, justoneClues]);
 
@@ -538,7 +595,7 @@
                         .catch(function(e) { console.error('Sync publicState:', e); });
                 }, 200);
                 return function() { clearTimeout(publicSyncTimerRef.current); };
-            }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, tables,
+            }, [sessionId, masterMode, phase, roundNumber, guesserTableId, secretWordDifficulty, scoringMode, bestClueTableId, tables,
                 justoneClues, clueStatus, guessResult, secretWord, revealAll, clueDeadline, publicShowScores]);
 
             /* —— LISTENER: CLIENTES (Consola) —— */
@@ -597,6 +654,25 @@
                 processedDifficultyChoiceRef.current = justoneDifficultyChoice.timestamp;
                 confirmDifficultyAndDrawWord(justoneDifficultyChoice.difficulty);
             }, [justoneDifficultyChoice, phase, masterMode]);
+
+            /* —— LISTENER: VOTO MELHOR PISTA (Consola) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console') return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneBestClueVote'), function(snap) {
+                    setJustoneBestClueVote(snap.val() || null);
+                });
+                return function() { unsub(); };
+            }, [sessionId, masterMode]);
+
+            /* —— PROCESSAR VOTO MELHOR PISTA (auto-confirma) —— */
+            useEffect(function() {
+                if (masterMode !== 'console') return;
+                if (phase !== 'best_clue_selection') return;
+                if (!justoneBestClueVote) return;
+                if (processedBestClueVoteRef.current === justoneBestClueVote.timestamp) return;
+                processedBestClueVoteRef.current = justoneBestClueVote.timestamp;
+                confirmBestClue(justoneBestClueVote.tableId);
+            }, [justoneBestClueVote, phase, masterMode]);
 
             /* —— LISTENER: ESTATÍSTICAS (Consola, só quando o painel está aberto) —— */
             useEffect(function() {
@@ -668,6 +744,9 @@
                             wordPool: wordPool,
                             wordPoolLang: wordPoolLang,
                             scoringConfig: scoringConfig,
+                            scoringMode: scoringMode,
+                            bestClueConfig: bestClueConfig,
+                            bestClueTableId: null,
                             timerSeconds: timerSeconds,
                             clueDeadline: null,
                             clueStatus: {},
@@ -710,6 +789,9 @@
                     }
                     if (data.wordPoolLang) setWordPoolLang(data.wordPoolLang);
                     if (data.scoringConfig) setScoringConfig(data.scoringConfig);
+                    if (data.scoringMode) setScoringMode(data.scoringMode);
+                    if (data.bestClueConfig) setBestClueConfig(data.bestClueConfig);
+                    setBestClueTableId(data.bestClueTableId != null ? data.bestClueTableId : null);
                     if (typeof data.timerSeconds === 'number') setTimerSeconds(data.timerSeconds);
                     setClueDeadline(data.clueDeadline || null);
                     setClueStatus(data.clueStatus || {});
@@ -800,12 +882,15 @@
                 setSecretWord(null); setSecretWordDifficulty(null); setUsedWords([]);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null); setClueDeadline(null);
                 setShowScores(true); setPublicShowScores(false); setTablesLocked(false);
-                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneStats({});
+                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null); setJustoneStats({});
+                setBestClueTableId(null); setPendingWord(null); setPendingWordDiff(null);
+                setShowWordApproval(false); setCustomWordInput(''); setShowCustomWordInput(false);
                 setConnectedClients({}); setPublicState(null);
                 setShowReview(false); setShowLeaderboard(false); setShowQR(false);
                 setShowEndModal(false); setShowManage(false); setShowStats(false);
                 setCodeInput(''); setCodeError(''); setHistInfoClients({});
                 processedDifficultyChoiceRef.current = null;
+                processedBestClueVoteRef.current = null;
             };
 
             /* —— REMOVER MESA —— */
@@ -845,14 +930,26 @@
                 setSecretWordDifficulty(null);
                 setClueDeadline(null);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null);
-                setJustoneClues({}); setJustoneDifficultyChoice(null);
+                setBestClueTableId(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null);
                 processedDifficultyChoiceRef.current = null;
+                processedBestClueVoteRef.current = null;
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneDifficultyChoice')).catch(function(){});
-                setPhase('choosing_difficulty');
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneBestClueVote')).catch(function(){});
+                if (scoringMode === 'best_clue') {
+                    var drawn = drawWordFromAllTiers(wordPool, wordPoolLang, usedWords);
+                    if (!drawn) { alert(T('m_j_all_tiers_exhausted')); return; }
+                    setPendingWord(drawn);
+                    setPendingWordDiff(null);
+                    setCustomWordInput(''); setShowCustomWordInput(false);
+                    setShowWordApproval(true);
+                } else {
+                    setPhase('choosing_difficulty');
+                }
             };
 
-            /* —— RONDA: PRÓXIMA (reveal -> choosing_difficulty) —— */
+            /* —— RONDA: PRÓXIMA (reveal -> choosing_difficulty / best_clue_selection -> ...) —— */
             var nextRound = function() {
                 var next = getNextGuesser(tables, guesserTableId);
                 setRoundNumber(function(n) { return n + 1; });
@@ -862,23 +959,92 @@
                 setSecretWordDifficulty(null);
                 setClueDeadline(null);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null);
-                setJustoneClues({}); setJustoneDifficultyChoice(null);
+                setBestClueTableId(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null);
                 processedDifficultyChoiceRef.current = null;
+                processedBestClueVoteRef.current = null;
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneDifficultyChoice')).catch(function(){});
-                setPhase('choosing_difficulty');
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneBestClueVote')).catch(function(){});
+                if (scoringMode === 'best_clue') {
+                    var drawn = drawWordFromAllTiers(wordPool, wordPoolLang, usedWords);
+                    if (!drawn) { alert(T('m_j_all_tiers_exhausted')); return; }
+                    setPendingWord(drawn);
+                    setPendingWordDiff(null);
+                    setCustomWordInput(''); setShowCustomWordInput(false);
+                    setShowWordApproval(true);
+                } else {
+                    setPhase('choosing_difficulty');
+                }
             };
 
-            /* —— DIFICULDADE ESCOLHIDA: SORTEAR PALAVRA (choosing_difficulty -> clue_giving) —— */
+            /* —— DIFICULDADE ESCOLHIDA: SORTEAR PALAVRA, MOSTRAR APROVAÇÃO —— */
             var confirmDifficultyAndDrawWord = function(difficulty) {
                 var draw = drawSecretWord(wordPool, wordPoolLang, usedWords, difficulty);
                 if (!draw) return; // nível esgotado — botão devia estar desativado
-                setSecretWord(draw.word);
-                fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/secret'), { word: draw.word }).catch(function(){});
-                setSecretWordDifficulty(difficulty);
-                setUsedWords(draw.usedWords);
+                setPendingWord(draw.word);
+                setPendingWordDiff(difficulty);
+                setCustomWordInput(''); setShowCustomWordInput(false);
+                setShowWordApproval(true);
+                // usedWords só é atualizado em commitPendingWord — palavras rejeitadas não ficam gastas
+                // guardamos o draw.usedWords temporariamente via closure da função commitPendingWord
+                // mas como o state não atualizou, precisamos passar o word resultado ao commit:
+                // para simplificar, guardamos a ref do draw.usedWords via pendingDrawRef
+                pendingDrawRef.current = draw;
+            };
+
+            /* —— COMMIT DA PALAVRA APROVADA (pendingWord -> clue_giving) —— */
+            var commitPendingWord = function(word, difficulty) {
+                var draw = pendingDrawRef.current;
+                var newUsedWords;
+                if (draw && draw.word === (pendingWord || word) && difficulty === pendingWordDiff) {
+                    // palavra sorteada: usar usedWords do draw
+                    newUsedWords = draw.usedWords;
+                } else {
+                    // palavra customizada ou re-aprovada: adicionar manualmente
+                    newUsedWords = usedWords.concat([word]);
+                }
+                pendingDrawRef.current = null;
+                setSecretWord(word);
+                fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/secret'), { word: word }).catch(function(){});
+                setSecretWordDifficulty(difficulty || 'medium');
+                setUsedWords(newUsedWords);
                 setClueDeadline(timerSeconds > 0 ? (Date.now() + timerSeconds * 1000) : null);
+                setShowWordApproval(false);
+                setPendingWord(null); setPendingWordDiff(null);
+                setCustomWordInput(''); setShowCustomWordInput(false);
                 setPhase('clue_giving');
+            };
+
+            /* —— NOVO SORTEIO (sem adicionar a palavra atual a usedWords) —— */
+            var redrawPendingWord = function() {
+                var excludeWord = pendingWord;
+                var diff = pendingWordDiff;
+                var newDraw;
+                if (scoringMode === 'best_clue') {
+                    // combinar todos os tiers, excluindo a palavra atual
+                    var combined = [];
+                    ['easy', 'medium', 'hard'].forEach(function(t2) {
+                        getTierPool(wordPool, wordPoolLang, t2).forEach(function(w) {
+                            if (usedWords.indexOf(w) < 0 && w !== excludeWord) combined.push(w);
+                        });
+                    });
+                    if (combined.length === 0) { alert(T('m_j_all_tiers_exhausted')); return; }
+                    var picked = combined[Math.floor(Math.random() * combined.length)];
+                    newDraw = { word: picked, usedWords: usedWords.concat([picked]) };
+                    pendingDrawRef.current = newDraw;
+                    setPendingWord(picked);
+                    setPendingWordDiff(null);
+                } else {
+                    var tier = getTierPool(wordPool, wordPoolLang, diff);
+                    var avail = tier.filter(function(w) { return usedWords.indexOf(w) < 0 && w !== excludeWord; });
+                    if (avail.length === 0) { alert(T('m_j_tier_exhausted')); return; }
+                    var picked2 = avail[Math.floor(Math.random() * avail.length)];
+                    newDraw = { word: picked2, usedWords: usedWords.concat([picked2]) };
+                    pendingDrawRef.current = newDraw;
+                    setPendingWord(picked2);
+                }
+                setCustomWordInput(''); setShowCustomWordInput(false);
             };
 
             /* —— VER PISTAS: ABRE MODAL DE VALIDAÇÃO (clue_giving -> reviewing) —— */
@@ -935,31 +1101,63 @@
                 }).catch(function(){});
             };
 
-            /* —— RESULTADO: ACERTOU / ERROU (guessing -> reveal) —— */
+            /* —— RESULTADO: ACERTOU / ERROU (guessing -> reveal ou best_clue_selection) —— */
             var resolveGuess = function(correct) {
-                var cfg = scoringConfig[secretWordDifficulty];
                 var validIds = Object.keys(clueStatus)
                     .filter(function(tid) { return clueStatus[tid] === 'valid'; })
                     .map(Number);
                 var annulledCount = Object.keys(clueStatus)
                     .filter(function(tid) { return clueStatus[tid] === 'annulled'; }).length;
-                setTables(function(prev) {
-                    return prev.map(function(t) {
-                        var next = t;
-                        if (correct) {
-                            if (t.id === guesserTableId) next = Object.assign({}, t, { score: t.score + cfg.guesser });
-                            else if (validIds.indexOf(t.id) >= 0) next = Object.assign({}, t, { score: t.score + cfg.clueGiver });
-                        } else if (t.id === guesserTableId) {
-                            next = Object.assign({}, t, { score: Math.max(0, t.score - cfg.penalty) });
-                        }
-                        if (t.id === guesserTableId) next = Object.assign({}, next, { timesGuessed: (next.timesGuessed || 0) + 1 });
-                        return next;
+
+                if (scoringMode === 'best_clue') {
+                    if (correct) {
+                        // sem pontuação ainda — vai para best_clue_selection
+                        setTables(function(prev) {
+                            return prev.map(function(t) {
+                                if (t.id === guesserTableId) return Object.assign({}, t, { timesGuessed: (t.timesGuessed || 0) + 1 });
+                                return t;
+                            });
+                        });
+                        setGuessResult('correct');
+                        logRoundStats('correct', validIds.length, annulledCount);
+                        setPhase('best_clue_selection');
+                    } else {
+                        // errou: penalização imediata, vai para reveal
+                        var bcPenalty = bestClueConfig.penalty || 1;
+                        setTables(function(prev) {
+                            return prev.map(function(t) {
+                                var next = t;
+                                if (t.id === guesserTableId) {
+                                    next = Object.assign({}, t, { score: Math.max(0, t.score - bcPenalty), timesGuessed: (t.timesGuessed || 0) + 1 });
+                                }
+                                return next;
+                            });
+                        });
+                        setGuessResult('incorrect');
+                        setRevealAll(true);
+                        logRoundStats('incorrect', validIds.length, annulledCount);
+                        setPhase('reveal');
+                    }
+                } else {
+                    var cfg = scoringConfig[secretWordDifficulty];
+                    setTables(function(prev) {
+                        return prev.map(function(t) {
+                            var next = t;
+                            if (correct) {
+                                if (t.id === guesserTableId) next = Object.assign({}, t, { score: t.score + cfg.guesser });
+                                else if (validIds.indexOf(t.id) >= 0) next = Object.assign({}, t, { score: t.score + cfg.clueGiver });
+                            } else if (t.id === guesserTableId) {
+                                next = Object.assign({}, t, { score: Math.max(0, t.score - cfg.penalty) });
+                            }
+                            if (t.id === guesserTableId) next = Object.assign({}, next, { timesGuessed: (next.timesGuessed || 0) + 1 });
+                            return next;
+                        });
                     });
-                });
-                setGuessResult(correct ? 'correct' : 'incorrect');
-                setRevealAll(true);
-                logRoundStats(correct ? 'correct' : 'incorrect', validIds.length, annulledCount);
-                setPhase('reveal');
+                    setGuessResult(correct ? 'correct' : 'incorrect');
+                    setRevealAll(true);
+                    logRoundStats(correct ? 'correct' : 'incorrect', validIds.length, annulledCount);
+                    setPhase('reveal');
+                }
             };
 
             /* —— RESULTADO: PASSAR (guessing -> reveal) —— */
@@ -967,6 +1165,7 @@
                 var validCount = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'valid'; }).length;
                 var annulledCount = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'annulled'; }).length;
                 incrementTimesGuessed(guesserTableId);
+                setBestClueTableId(null);
                 setGuessResult('passed');
                 setRevealAll(true);
                 logRoundStats('passed', validCount, annulledCount);
@@ -1001,6 +1200,8 @@
                     roundNumber: roundNumber,
                     guesserTableId: guesserTableId,
                     secretWordDifficulty: secretWordDifficulty,
+                    scoringMode: scoringMode,
+                    bestClueTableId: bestClueTableId,
                     tables: tables.map(function(t) { return { id: t.id, name: t.name, score: t.score }; }),
                     cluesSubmitted: Object.keys(justoneClues).length,
                     cluesTotal: Math.max(0, tables.length - 1),
@@ -1093,24 +1294,77 @@
                 downloadBlob(JSON.stringify(justoneStats, null, 2), 'justone-stats-' + sessionId + '-' + Date.now() + '.json', 'application/json');
             };
 
+            /* —— MELHOR PISTA: CONFIRMAR (best_clue_selection -> reveal) —— */
+            var confirmBestClue = function(tableId) {
+                // tableId = null → "saltar" (sem melhor pista)
+                var bcc = bestClueConfig;
+                var validIds = Object.keys(clueStatus)
+                    .filter(function(tid) { return clueStatus[tid] === 'valid'; })
+                    .map(Number);
+                setBestClueTableId(tableId || null);
+                setTables(function(prev) {
+                    return prev.map(function(t) {
+                        if (t.id === guesserTableId) return Object.assign({}, t, { score: t.score + bcc.guesser });
+                        if (tableId && t.id === tableId) return Object.assign({}, t, { score: t.score + bcc.bestClue });
+                        if (validIds.indexOf(t.id) >= 0 && t.id !== guesserTableId && t.id !== tableId) {
+                            return Object.assign({}, t, { score: t.score + bcc.otherClue });
+                        }
+                        return t;
+                    });
+                });
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneBestClueVote')).catch(function(){});
+                setJustoneBestClueVote(null);
+                setRevealAll(true);
+                setPhase('reveal');
+            };
+
+            /* —— VARIANTE: MUDAR MODO DE PONTUAÇÃO —— */
+            var changeScoringMode = function(mode) {
+                setScoringMode(mode);
+                saveScoringMode(mode);
+            };
+
+            /* —— MELHOR PISTA CONFIG: editar/guardar/repor —— */
+            var updateBestClueField = function(field, value) {
+                var n = Math.max(0, Math.round(Number(value) || 0));
+                setBestClueConfig(function(prev) {
+                    return Object.assign({}, prev, { [field]: n });
+                });
+            };
+
+            var saveBestClueConfigHandler = function() {
+                if (saveBestClueConfig(bestClueConfig)) {
+                    setBestClueSaved(true);
+                    setTimeout(function() { setBestClueSaved(false); }, 2000);
+                }
+            };
+
+            var resetBestClueConfig = function() {
+                var def = getDefaultBestClueConfig();
+                setBestClueConfig(def);
+                saveBestClueConfig(def);
+            };
+
             /* ====================== RENDER ====================== */
 
             var phaseLabel = {
-                'waiting':             T('m_j_phase_waiting'),
-                'choosing_difficulty': T('m_j_phase_choosing_difficulty'),
-                'clue_giving':         T('m_j_phase_clue_giving'),
-                'reviewing':           T('m_j_phase_reviewing'),
-                'guessing':            T('m_j_phase_guessing'),
-                'reveal':              T('m_j_phase_reveal')
+                'waiting':              T('m_j_phase_waiting'),
+                'choosing_difficulty':  T('m_j_phase_choosing_difficulty'),
+                'clue_giving':          T('m_j_phase_clue_giving'),
+                'reviewing':            T('m_j_phase_reviewing'),
+                'guessing':             T('m_j_phase_guessing'),
+                'best_clue_selection':  T('m_j_phase_best_clue_selection'),
+                'reveal':               T('m_j_phase_reveal')
             }[phase] || phase;
 
             var phaseColor = {
-                'waiting':             'bg-slate-700 text-slate-300',
-                'choosing_difficulty': 'bg-amber-500 text-amber-900',
-                'clue_giving':         'bg-blue-600 text-white',
-                'reviewing':           'bg-purple-600 text-white',
-                'guessing':            'bg-teal-600 text-white',
-                'reveal':              'bg-green-600 text-white'
+                'waiting':              'bg-slate-700 text-slate-300',
+                'choosing_difficulty':  'bg-amber-500 text-amber-900',
+                'clue_giving':          'bg-blue-600 text-white',
+                'reviewing':            'bg-purple-600 text-white',
+                'guessing':             'bg-teal-600 text-white',
+                'best_clue_selection':  'bg-pink-600 text-white',
+                'reveal':               'bg-green-600 text-white'
             }[phase] || 'bg-slate-700 text-slate-300';
 
             var guesserTable = tables.find(function(t) { return t.id === guesserTableId; });
@@ -1248,6 +1502,53 @@
                             h('button', { onClick: exportStatsJson, className: 'flex-1 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-lg font-bold text-sm' }, T('m_j_stats_export_json'))
                         ),
                         h('button', { onClick: function() { setShowStats(false); }, className: 'w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, T('m_j_stats_close'))
+                    )
+                );
+            };
+
+            /* —— MODAL: APROVAÇÃO DE PALAVRA —— */
+            var WordApprovalModal = function() {
+                var displayWord = showCustomWordInput ? customWordInput : (pendingWord || '');
+                var diff = pendingWordDiff;
+                return h('div', { className: 'fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4' },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in' },
+                        h('h3', { className: 'text-lg font-black text-gray-800 text-center mb-1' }, T('m_j_word_approval_title')),
+                        h('p', { className: 'text-xs text-gray-500 text-center mb-4' }, T('m_j_word_approval_hint')),
+                        h('div', { className: 'text-4xl font-black text-center text-teal-700 py-4 bg-teal-50 rounded-xl mb-4 tracking-wide' }, displayWord || '—'),
+                        diff && h('div', { className: 'text-center mb-3' },
+                            h('span', { className: 'px-3 py-1 rounded-full text-xs font-bold ' + (DIFFICULTY_BADGE_COLORS[diff] || '') }, T('m_j_difficulty_' + diff))
+                        ),
+                        showCustomWordInput
+                            ? h('div', { className: 'mb-3' },
+                                h('input', {
+                                    type: 'text',
+                                    value: customWordInput,
+                                    autoFocus: true,
+                                    placeholder: T('m_j_word_approval_placeholder'),
+                                    onChange: function(e) { setCustomWordInput(e.target.value); },
+                                    className: 'w-full px-3 py-2 border-2 border-teal-400 rounded-xl text-center font-bold text-lg outline-none focus:border-teal-600'
+                                })
+                              )
+                            : null,
+                        h('div', { className: 'space-y-2' },
+                            h('button', {
+                                onClick: function() {
+                                    var word = showCustomWordInput ? customWordInput.trim() : pendingWord;
+                                    if (!word) return;
+                                    commitPendingWord(word, diff);
+                                },
+                                disabled: showCustomWordInput && !customWordInput.trim(),
+                                className: 'w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-base active:scale-95 transition-transform disabled:opacity-50'
+                            }, T('m_j_word_approval_approve')),
+                            h('button', {
+                                onClick: function() { setShowCustomWordInput(false); redrawPendingWord(); },
+                                className: 'w-full py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-xl font-bold text-sm active:scale-95 transition-transform'
+                            }, T('m_j_word_approval_redraw')),
+                            h('button', {
+                                onClick: function() { setShowCustomWordInput(true); setCustomWordInput(''); },
+                                className: 'w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm active:scale-95 transition-transform'
+                            }, T('m_j_word_approval_custom'))
+                        )
                     )
                 );
             };
@@ -1466,8 +1767,24 @@
                                 )
                             ),
 
-                            /* —— PONTUAÇÃO POR DIFICULDADE —— */
+                            /* —— VARIANTE DE PONTUAÇÃO —— */
                             h('div', null,
+                                h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_j_scoring_mode_label')),
+                                h('div', { className: 'flex gap-2 flex-wrap' },
+                                    h('button', {
+                                        onClick: function() { changeScoringMode('difficulty'); },
+                                        className: 'flex-1 py-2 px-3 rounded-xl border-2 font-bold text-sm transition-all ' + (scoringMode === 'difficulty' ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 text-gray-500 hover:border-gray-400')
+                                    }, T('m_j_scoring_mode_difficulty')),
+                                    h('button', {
+                                        onClick: function() { changeScoringMode('best_clue'); },
+                                        className: 'flex-1 py-2 px-3 rounded-xl border-2 font-bold text-sm transition-all ' + (scoringMode === 'best_clue' ? 'border-pink-500 bg-pink-50 text-pink-700' : 'border-gray-200 text-gray-500 hover:border-gray-400')
+                                    }, T('m_j_scoring_mode_best_clue'))
+                                ),
+                                h('p', { className: 'text-xs text-gray-400 mt-1' }, scoringMode === 'best_clue' ? T('m_j_scoring_mode_hint_bc') : T('m_j_scoring_mode_hint_diff'))
+                            ),
+
+                            /* —— PONTUAÇÃO POR DIFICULDADE (só no modo difficulty) —— */
+                            scoringMode === 'difficulty' && h('div', null,
                                 h('div', { className: 'flex items-center justify-between mb-2' },
                                     h('label', { className: 'block text-sm font-bold text-gray-700' }, T('m_j_scoring_config_title')),
                                     h('div', { className: 'flex items-center gap-2' },
@@ -1511,6 +1828,37 @@
                                     )
                                 ),
                                 h('p', { className: 'text-xs text-gray-400 mt-1' }, T('m_j_scoring_penalty_note'))
+                            ),
+
+                            /* —— PONTUAÇÃO MELHOR PISTA (só no modo best_clue) —— */
+                            scoringMode === 'best_clue' && h('div', null,
+                                h('div', { className: 'flex items-center justify-between mb-2' },
+                                    h('label', { className: 'block text-sm font-bold text-gray-700' }, T('m_j_best_clue_config_title')),
+                                    h('div', { className: 'flex items-center gap-2' },
+                                        h('button', {
+                                            onClick: resetBestClueConfig,
+                                            className: 'text-xs text-pink-600 hover:text-pink-800 font-semibold'
+                                        }, T('m_j_scoring_reset')),
+                                        h('button', {
+                                            onClick: saveBestClueConfigHandler,
+                                            className: 'text-xs px-3 py-1 rounded-lg font-bold transition-colors ' + (bestClueSaved ? 'bg-green-100 text-green-700' : 'bg-pink-600 text-white hover:bg-pink-700')
+                                        }, bestClueSaved ? T('m_j_scoring_saved') : T('m_j_scoring_save'))
+                                    )
+                                ),
+                                h('div', { className: 'space-y-1' },
+                                    [['guesser', 'm_j_best_clue_guesser'], ['bestClue', 'm_j_best_clue_best'], ['otherClue', 'm_j_best_clue_other'], ['penalty', 'm_j_best_clue_penalty']].map(function(pair) {
+                                        var field = pair[0], key = pair[1];
+                                        return h('div', { key: field, className: 'flex items-center justify-between' },
+                                            h('span', { className: 'text-sm text-gray-700' }, T(key)),
+                                            h('input', {
+                                                type: 'number', min: 0, step: 1,
+                                                value: bestClueConfig[field],
+                                                onChange: function(e) { updateBestClueField(field, e.target.value); },
+                                                className: 'w-16 px-2 py-1 border border-gray-300 rounded text-center font-bold focus:border-pink-500 outline-none'
+                                            })
+                                        );
+                                    })
+                                )
                             ),
 
                             /* —— TIMER DE PISTAS —— */
@@ -1647,21 +1995,23 @@
                 var psRevealWordTextSize = 'text-5xl';
 
                 var psPhaseLabel = {
-                    'waiting':             T('m_j_phase_waiting'),
-                    'choosing_difficulty': T('m_j_phase_choosing_difficulty'),
-                    'clue_giving':         T('m_j_phase_clue_giving'),
-                    'reviewing':           T('m_j_phase_reviewing'),
-                    'guessing':            T('m_j_phase_guessing'),
-                    'reveal':              T('m_j_phase_reveal')
+                    'waiting':              T('m_j_phase_waiting'),
+                    'choosing_difficulty':  T('m_j_phase_choosing_difficulty'),
+                    'clue_giving':          T('m_j_phase_clue_giving'),
+                    'reviewing':            T('m_j_phase_reviewing'),
+                    'guessing':             T('m_j_phase_guessing'),
+                    'best_clue_selection':  T('m_j_phase_best_clue_selection'),
+                    'reveal':               T('m_j_phase_reveal')
                 }[ps.phase] || ps.phase;
 
                 var psPhaseColor = {
-                    'waiting':             'bg-slate-700 text-slate-300',
-                    'choosing_difficulty': 'bg-amber-500 text-amber-900',
-                    'clue_giving':         'bg-blue-600 text-white',
-                    'reviewing':           'bg-purple-600 text-white',
-                    'guessing':            'bg-teal-600 text-white',
-                    'reveal':              'bg-green-600 text-white'
+                    'waiting':              'bg-slate-700 text-slate-300',
+                    'choosing_difficulty':  'bg-amber-500 text-amber-900',
+                    'clue_giving':          'bg-blue-600 text-white',
+                    'reviewing':            'bg-purple-600 text-white',
+                    'guessing':             'bg-teal-600 text-white',
+                    'best_clue_selection':  'bg-pink-600 text-white',
+                    'reveal':               'bg-green-600 text-white'
                 }[ps.phase] || 'bg-slate-700 text-slate-300';
 
                 var psTimerRemaining = ps.clueDeadline ? Math.max(0, Math.ceil((ps.clueDeadline - nowTick) / 1000)) : null;
@@ -1699,6 +2049,11 @@
                             })
                         ),
                         h('div', { className: 'text-sm text-slate-400' }, T('m_j_annulled_count', { n: ps.annulledClueCount || 0 }))
+                    );
+                } else if (ps.phase === 'best_clue_selection') {
+                    psBody = h('div', { className: 'text-center space-y-3' },
+                        h('div', { className: 'text-2xl font-black text-pink-300' }, T('m_j_phase_best_clue_selection')),
+                        psGuesser && h('div', { className: 'text-lg text-slate-300' }, T('m_j_pub_choosing_difficulty', { name: teamLabel(psGuesser) }))
                     );
                 } else if (ps.phase === 'reveal') {
                     var psVisibleAll = ps.visibleClues || {};
@@ -2019,19 +2374,43 @@
                         }, T('m_j_restart_round'))
                     ),
 
-                    phase === 'guessing' && secretWordDifficulty && h('div', { className: 'flex-1 flex gap-2' },
+                    phase === 'guessing' && (scoringMode === 'best_clue' || secretWordDifficulty) && h('div', { className: 'flex-1 flex gap-2' },
                         h('button', {
                             onClick: function() { resolveGuess(true); },
                             className: 'flex-1 py-3 bg-green-600 hover:bg-green-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
-                        }, T('m_j_guess_correct', { points: scoringConfig[secretWordDifficulty].guesser })),
+                        }, scoringMode === 'best_clue'
+                            ? T('m_j_guess_correct', { points: bestClueConfig.guesser })
+                            : T('m_j_guess_correct', { points: scoringConfig[secretWordDifficulty] ? scoringConfig[secretWordDifficulty].guesser : 0 })),
                         h('button', {
                             onClick: function() { resolveGuess(false); },
                             className: 'flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
-                        }, T('m_j_guess_incorrect', { points: scoringConfig[secretWordDifficulty].penalty })),
+                        }, scoringMode === 'best_clue'
+                            ? T('m_j_guess_incorrect', { points: bestClueConfig.penalty })
+                            : T('m_j_guess_incorrect', { points: scoringConfig[secretWordDifficulty] ? scoringConfig[secretWordDifficulty].penalty : 0 })),
                         h('button', {
                             onClick: passGuess,
                             className: 'px-6 py-3 bg-slate-600 hover:bg-slate-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
                         }, T('m_j_guess_pass'))
+                    ),
+
+                    phase === 'best_clue_selection' && h('div', { className: 'flex-1' },
+                        h('div', { className: 'text-sm font-bold text-pink-300 mb-2' }, T('m_j_best_clue_select_title')),
+                        h('p', { className: 'text-xs text-slate-400 mb-3' }, T('m_j_best_clue_select_hint')),
+                        h('div', { className: 'flex flex-wrap gap-2' },
+                            Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'valid'; }).map(function(tid) {
+                                var t2 = tables.find(function(t3) { return t3.id === Number(tid); });
+                                var clue = justoneClues[tid];
+                                return clue && h('button', {
+                                    key: tid,
+                                    onClick: function() { confirmBestClue(Number(tid)); },
+                                    className: 'px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-xl font-bold text-sm shadow active:scale-95 transition-transform'
+                                }, T('m_j_best_clue_select_btn') + ' ' + (t2 ? t2.name : 'Mesa ' + tid) + ': "' + clue.text + '"');
+                            }),
+                            h('button', {
+                                onClick: function() { confirmBestClue(null); },
+                                className: 'px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-xl font-bold text-sm shadow active:scale-95 transition-transform'
+                            }, T('m_j_best_clue_skip'))
+                        )
                     ),
 
                     phase === 'reveal' && h('div', { className: 'flex items-center gap-3' },
@@ -2131,7 +2510,8 @@
                 ),
 
                 showReview && ClueReviewModal(),
-                showStats && StatsModal()
+                showStats && StatsModal(),
+                showWordApproval && masterMode === 'console' && WordApprovalModal()
             );
         }
 

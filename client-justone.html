@@ -128,6 +128,8 @@
             var c4 = _s('');     var submitError = c4[0];        var setSubmitError = c4[1];
             var c5 = _s('');     var lastSubmittedClue = c5[0];  var setLastSubmittedClue = c5[1];
             var c6 = _s(false);  var choosingDifficulty = c6[0]; var setChoosingDifficulty = c6[1];
+            var c7 = _s(false);  var bestClueVoted = c7[0];      var setBestClueVoted = c7[1];
+            var c8 = _s(null);   var bestClueVoteTableId = c8[0]; var setBestClueVoteTableId = c8[1];
 
             // — i18n —
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -143,6 +145,9 @@
             var difficulty    = gameData ? gameData.secretWordDifficulty : null;
             var scoringConfig = gameData ? gameData.scoringConfig : null;
             var cfg           = (scoringConfig && difficulty) ? scoringConfig[difficulty] : null;
+            var scoringMode   = gameData ? (gameData.scoringMode || 'difficulty') : 'difficulty';
+            var bestClueConfig = gameData ? (gameData.bestClueConfig || { guesser: 3, bestClue: 3, otherClue: 1, penalty: 1 }) : { guesser: 3, bestClue: 3, otherClue: 1, penalty: 1 };
+            var bestClueTableId = gameData ? (gameData.bestClueTableId || null) : null;
             var clueDeadline  = gameData ? gameData.clueDeadline : null;
             var clueLocked    = !!(clueDeadline && nowTick > clueDeadline);
             var clueStatus    = gameData ? (gameData.clueStatus || {}) : {};
@@ -244,13 +249,16 @@
             useEffect(function() {
                 if (!gameData) return;
                 var rn = gameData.roundNumber;
+                var ph = gameData.phase;
                 if (prevRoundNumberRef.current === null) {
                     prevRoundNumberRef.current = rn;
                     return;
                 }
-                if (rn !== prevRoundNumberRef.current && gameData.phase === 'choosing_difficulty') {
+                // reset em choosing_difficulty (modo difficulty) ou clue_giving (modo best_clue)
+                if (rn !== prevRoundNumberRef.current && (ph === 'choosing_difficulty' || ph === 'clue_giving')) {
                     setClueInput(''); setClueSubmitted(false); setLastSubmittedClue('');
                     setChoosingDifficulty(false); setSubmitError('');
+                    setBestClueVoted(false); setBestClueVoteTableId(null);
                 }
                 prevRoundNumberRef.current = rn;
             }, [gameData ? gameData.roundNumber : null, gameData ? gameData.phase : null]);
@@ -308,6 +316,19 @@
                     rtdb: rtdb, fm: fm,
                     path: 'sessions/' + sessionCode + '/justoneDifficultyChoice',
                     payload: payload, clientId: CLIENT_ID, verifyKey: 'difficulty'
+                });
+            };
+
+            // — votar na melhor pista (só mesa adivinhadora em best_clue_selection) —
+            var chooseBestClue = async function(bestTableId) {
+                if (bestClueVoted) return;
+                setBestClueVoted(true);
+                setBestClueVoteTableId(bestTableId);
+                var payload = { tableId: bestTableId, timestamp: Date.now(), clientId: CLIENT_ID };
+                await ClientCore.submitWithVerify({
+                    rtdb: rtdb, fm: fm,
+                    path: 'sessions/' + sessionCode + '/justoneBestClueVote',
+                    payload: payload, clientId: CLIENT_ID, verifyKey: 'tableId'
                 });
             };
 
@@ -492,7 +513,7 @@
 
                     // — choosing_difficulty —
                     phase === 'choosing_difficulty' && gameData && (
-                        isGuesser
+                        isGuesser && scoringMode !== 'best_clue'
                             ? h('div', { className: 'w-full max-w-sm space-y-3' },
                                 h('div', { className: 'text-center text-white' },
                                     h('div', { className: 'text-3xl mb-2' }, '🎯'),
@@ -520,6 +541,38 @@
                             : h('div', { className: 'text-center text-white' },
                                 h('div', { className: 'text-5xl mb-3' }, '🎯'),
                                 h('div', { className: 'text-lg font-semibold' }, T('j_team_choosing_difficulty', { name: teamLabel(guesserTable || { id: gameData.guesserTableId }) }))
+                              )
+                    ),
+
+                    // — best_clue_selection —
+                    phase === 'best_clue_selection' && (
+                        isGuesser
+                            ? h('div', { className: 'w-full max-w-sm space-y-3' },
+                                h('div', { className: 'text-center text-white' },
+                                    h('div', { className: 'text-3xl mb-2' }, '⭐'),
+                                    h('h2', { className: 'text-lg font-black' }, T('j_best_clue_select_title')),
+                                    h('p', { className: 'text-sm opacity-80 mt-1' }, T('j_best_clue_select_hint'))
+                                ),
+                                bestClueVoted
+                                    ? h('div', { className: 'text-center text-white font-bold text-lg' }, T('j_best_clue_vote_sent'))
+                                    : h('div', { className: 'space-y-2' },
+                                        Object.keys(gameData && gameData.clueStatus || {})
+                                            .filter(function(tid) { return (gameData.clueStatus || {})[tid] === 'valid'; })
+                                            .map(function(tid) {
+                                                var clues = gameData && gameData.visibleClues || {};
+                                                var tbl = allTables.find(function(t) { return t.id === parseInt(tid, 10); });
+                                                var clue = clues[tid];
+                                                return clue && h('button', {
+                                                    key: tid,
+                                                    onClick: function() { chooseBestClue(parseInt(tid, 10)); },
+                                                    className: 'w-full py-2 px-4 bg-pink-600 hover:bg-pink-500 text-white rounded-xl font-bold text-sm shadow active:scale-95 transition-transform'
+                                                }, T('m_j_best_clue_select_btn') + ': ' + teamLabel(tbl || { id: parseInt(tid,10) }) + ' — "' + clue.text + '"');
+                                            })
+                                      )
+                              )
+                            : h('div', { className: 'text-center text-white' },
+                                h('div', { className: 'text-5xl mb-3' }, '⭐'),
+                                h('div', { className: 'text-lg font-semibold' }, T('j_best_clue_waiting', { name: teamLabel(guesserTable || { id: gameData && gameData.guesserTableId }) }))
                               )
                     ),
 
@@ -632,12 +685,24 @@
                                 })
                             )
                         ),
+                        bestClueTableId && h('div', { className: 'text-center' },
+                            h('span', { className: 'inline-block px-3 py-1 rounded-full bg-pink-600 text-white text-xs font-bold' },
+                                '⭐ ' + (function() { var t2 = allTables.find(function(t3) { return t3.id === bestClueTableId; }); return t2 ? teamLabel(t2) : 'Mesa ' + bestClueTableId; })()
+                            )
+                        ),
                         h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 text-center text-white' },
-                            guessResult === 'correct' && h('div', null,
+                            guessResult === 'correct' && scoringMode === 'best_clue' && h('div', null,
+                                h('div', { className: 'font-bold text-lg' }, T('j_result_correct_bc', { name: teamLabel(guesserTable), points: bestClueConfig.guesser })),
+                                myClueStatus === 'valid' && tableId === bestClueTableId && h('div', { className: 'text-pink-300 mt-1' }, T('j_best_clue_won', { points: bestClueConfig.bestClue })),
+                                myClueStatus === 'valid' && tableId !== bestClueTableId && !isGuesser && h('div', { className: 'text-green-300 mt-1' }, T('j_best_clue_valid', { points: bestClueConfig.otherClue }))
+                            ),
+                            guessResult === 'correct' && scoringMode !== 'best_clue' && h('div', null,
                                 h('div', { className: 'font-bold text-lg' }, T('j_result_correct', { name: teamLabel(guesserTable), points: cfg ? cfg.guesser : 0 })),
                                 myClueStatus === 'valid' && h('div', { className: 'text-green-300 mt-1' }, T('j_clue_bonus_earned', { points: cfg ? cfg.clueGiver : 0 }))
                             ),
-                            guessResult === 'incorrect' && h('div', { className: 'font-bold text-lg' }, T('j_result_incorrect', { name: teamLabel(guesserTable), points: cfg ? cfg.penalty : 0 })),
+                            guessResult === 'incorrect' && h('div', { className: 'font-bold text-lg' },
+                                T('j_result_incorrect', { name: teamLabel(guesserTable), points: scoringMode === 'best_clue' ? bestClueConfig.penalty : (cfg ? cfg.penalty : 0) })
+                            ),
                             guessResult === 'passed' && h('div', { className: 'font-bold text-lg' }, isGuesser ? T('j_result_passed') : T('j_team_passed', { name: teamLabel(guesserTable) }))
                         ),
                         h('div', { className: 'text-center text-white text-opacity-70 text-sm' }, T('j_waiting_next_round'))
