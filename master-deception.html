@@ -513,6 +513,11 @@
                 if (!code) return;
                 var existing = activeSessions.find(function (s) { return s.sessionId === code; });
                 if (existing) { setExistingData({ code: code, session: existing }); setShowExistDialog(true); return; }
+                var foreignSession = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: code });
+                if (foreignSession && foreignSession.active !== false && foreignSession.gameType && foreignSession.gameType !== GAME_TYPE) {
+                    alert('Código "' + code + '" está em uso por outro jogo. Usa um código diferente.');
+                    return;
+                }
                 await doCreateSession(code);
             };
 

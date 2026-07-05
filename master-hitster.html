@@ -427,6 +427,10 @@
                     }
                     var existing = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: code });
                     if (existing && existing.active !== false) {
+                        if (existing.gameType && existing.gameType !== GAME_TYPE) {
+                            setCodeError('Código "' + code + '" está em uso por outro jogo. Usa um código diferente.');
+                            return;
+                        }
                         setExistingData({ code: code, data: existing });
                         setShowExistDialog(true); return;
                     }

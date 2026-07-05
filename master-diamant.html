@@ -309,7 +309,13 @@
                         if (!/^[A-Z0-9]+$/.test(fc)) { setCodeError('Apenas letras e números'); return; }
                         if (fc.length > 10) { setCodeError('Máximo 10 caracteres'); return; }
                         var ad = await SessionCore.readGameStateOnce({ rtdb: rtdb, fm: fm, sessionId: fc });
-                        if (ad && ad.active) { setExistingSessionData({ code: fc, data: ad }); setShowExistingSessionDialog(true); return; }
+                        if (ad && ad.active) {
+                            if (ad.gameType && ad.gameType !== GAME_TYPE) {
+                                setCodeError('Código "' + fc + '" está em uso por outro jogo. Usa um código diferente.');
+                                return;
+                            }
+                            setExistingSessionData({ code: fc, data: ad }); setShowExistingSessionDialog(true); return;
+                        }
                     } else fc = genCode();
                     await proceedCreate(fc);
                 };
