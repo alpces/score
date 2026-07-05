@@ -525,6 +525,8 @@ I18n.registerStrings('en', {
     dec_secret_info              : '🔐 Secret information',
     dec_accomplice_label         : 'Murderer:',
     dec_involved_teams           : 'Teams involved in the crime:',
+    dec_no_stare_warning_one     : '👀 Avoid staring at this table during the game — you might give yourselves away.',
+    dec_no_stare_warning_two     : '👀 Avoid staring at these tables during the game — you might give away who is who.',
 
     // ── Deception Murder — client ─────────────────────────────────────────────────
     dec_subtitle                 : 'in Hong Kong',

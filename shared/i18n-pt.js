@@ -525,6 +525,8 @@ I18n.registerStrings('pt', {
     dec_secret_info             : '🔐 Informação secreta',
     dec_accomplice_label        : 'Assassino:',
     dec_involved_teams          : 'Equipas envolvidas no crime:',
+    dec_no_stare_warning_one     : '👀 Evita olhar de forma óbvia para esta mesa durante o jogo — podes denunciar-vos aos dois.',
+    dec_no_stare_warning_two     : '👀 Evita olhar de forma óbvia para estas mesas durante o jogo — podes denunciar quem é quem.',
 
     // ── Deception Murder — cliente ────────────────────────────────────────────────
     dec_subtitle                : 'in Hong Kong',
