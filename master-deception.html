@@ -250,11 +250,13 @@
             /* projector state (read-only) */
             var pb1 = useState(null);  var publicState   = pb1[0];   var setPublicState   = pb1[1];
             var pb2 = useState({});    var publicClients = pb2[0];   var setPublicClients = pb2[1];
+            var pb3 = useState(false); var qrFullscreen  = pb3[0];   var setQrFullscreen  = pb3[1];
 
             var prevClientCountRef    = useRef(0);
             var prevAccusationsRef    = useRef({});
             var autoEndedRef          = useRef(false);
             var publicSyncTimerRef    = useRef(null);
+            var qrFullscreenRef       = useRef(null);
 
             /* presence tick */
             useEffect(function () {
@@ -294,6 +296,19 @@
             var chooseMode = function (mode) {
                 setMasterMode(mode); setModeChosen(true);
                 try { sessionStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
+            };
+
+            var toggleQrFullscreen = function () {
+                if (qrFullscreen) {
+                    setQrFullscreen(false);
+                    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+                    return;
+                }
+                setQrFullscreen(true);
+                setTimeout(function () {
+                    var el = qrFullscreenRef.current;
+                    if (el && el.requestFullscreen) el.requestFullscreen().catch(function () {});
+                }, 0);
             };
 
             /* subscribe active sessions (setup only) */
@@ -359,6 +374,16 @@
                 });
                 return function () { u1(); u2(); setPublicState(null); setPublicClients({}); };
             }, [sessionCode, masterMode]);
+
+            /* sai do modo QR ecrã inteiro se o browser sair de fullscreen (ex: tecla Esc) */
+            useEffect(function () {
+                var handler = function () { if (!document.fullscreenElement) setQrFullscreen(false); };
+                document.addEventListener('fullscreenchange', handler);
+                return function () { document.removeEventListener('fullscreenchange', handler); };
+            }, []);
+            useEffect(function () {
+                if (masterMode !== 'public') setQrFullscreen(false);
+            }, [masterMode, sessionCode]);
 
             /* auto-manage useRoles toggle */
             useEffect(function () {
@@ -895,6 +920,24 @@
                 }).sort(function (a, b) { return b.score - a.score; });
                 var medals = ['🥇','🥈','🥉'];
                 var projQrUrl = CLIENT_URL + '?session=' + sessionCode;
+
+                /* modo QR maximizado — ecrã inteiro para as mesas digitalizarem */
+                if (qrFullscreen) {
+                    return h('div', { ref: qrFullscreenRef, className: 'min-h-screen w-full bg-white flex flex-col items-center justify-center gap-8 p-8' },
+                        h('div', { className: 'text-slate-800 font-black text-2xl md:text-3xl text-center' }, T('dec_join_game')),
+                        h('img', {
+                            src: 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(projQrUrl),
+                            alt: 'QR', className: 'rounded-2xl w-[70vmin] h-[70vmin] max-w-[600px] max-h-[600px]', width: 600, height: 600
+                        }),
+                        h('div', { className: 'font-mono font-black text-4xl md:text-5xl text-slate-800 tracking-widest' }, sessionCode),
+                        h('div', { className: 'text-slate-500 text-sm md:text-base' }, T('m_dec_qr_fullscreen_hint')),
+                        h('button', {
+                            className: 'mt-4 rounded-xl border border-slate-300 bg-slate-100 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200',
+                            onClick: toggleQrFullscreen
+                        }, T('m_dec_back_to_ranking'))
+                    );
+                }
+
                 return h('div', { className: 'min-h-screen bg-slate-950 flex flex-col' },
                     /* header */
                     h('div', { className: 'flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800 bg-slate-900/90' },
@@ -911,6 +954,7 @@
                             )
                         ),
                         h('div', { className: 'flex items-center gap-2' },
+                            h('button', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-sm font-semibold text-rose-300 hover:bg-rose-900/40', onClick: toggleQrFullscreen }, T('m_dec_qr_fullscreen')),
                             LangSelector(),
                             h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: switchMode }, T('m_dec_switch_mode'))
                         )
