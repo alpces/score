@@ -8,8 +8,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Deception Murder — Mesa</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Bandeiras SVG via flag-icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
     <script src="shared/firebase-config.js"></script>
     <script src="shared/client-core.js"></script>
+    <script src="shared/i18n.js"></script>
+    <script src="shared/i18n-pt.js"></script>
+    <script src="shared/i18n-en.js"></script>
     <style>
         input, textarea { font-size: 16px !important; }
         html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
@@ -19,6 +24,7 @@
         .accuse-pulse { animation: pulseRose 1.8s ease-in-out infinite; }
         @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
         .fade-in { animation: fadeIn .25s ease-out; }
+        .lang-flag { display: inline-block; width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
     </style>
 </head>
 <body>
@@ -44,6 +50,7 @@
         var HEARTBEAT_MS = 15000;
         var localStore   = ClientCore.createLocalStore('deception');
         var CLIENT_ID    = ClientCore.getClientId('deception_clientId');
+        var T = I18n.t;
 
         /* ── daily warning (replaces showDedicatedWarning) ─────────── */
         function showDailyWarning() {
@@ -56,10 +63,10 @@
             var card = document.createElement('div');
             card.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:1rem;padding:1.5rem;max-width:22rem;width:100%;text-align:center;box-shadow:0 25px 50px -12px rgba(0,0,0,.4)';
             card.innerHTML = '<div style="font-size:2.5rem;margin-bottom:.75rem">📱</div>'
-                + '<h2 style="font-size:1.1rem;font-weight:700;color:#f1f5f9;margin-bottom:.75rem">Atenção</h2>'
-                + '<p style="color:#cbd5e1;margin-bottom:.5rem;line-height:1.5">Este telemóvel deve ficar <strong>ligado e exclusivamente nesta app</strong> durante todo o jogo.</p>'
-                + '<p style="color:#94a3b8;font-size:.875rem;margin-bottom:1.25rem;line-height:1.5">Se não for possível, sai da sessão e passa a outro telemóvel do grupo.</p>'
-                + '<button style="width:100%;background:#e11d48;color:#fff;padding:.75rem;border-radius:.75rem;font-weight:700;border:none;cursor:pointer;font-size:1rem">Percebido!</button>';
+                + '<h2 style="font-size:1.1rem;font-weight:700;color:#f1f5f9;margin-bottom:.75rem">' + T('dec_warning_title') + '</h2>'
+                + '<p style="color:#cbd5e1;margin-bottom:.5rem;line-height:1.5">' + T('dec_warning_body1') + '</p>'
+                + '<p style="color:#94a3b8;font-size:.875rem;margin-bottom:1.25rem;line-height:1.5">' + T('dec_warning_body2') + '</p>'
+                + '<button style="width:100%;background:#e11d48;color:#fff;padding:.75rem;border-radius:.75rem;font-weight:700;border:none;cursor:pointer;font-size:1rem">' + T('dec_warning_ok') + '</button>';
             overlay.appendChild(card);
             document.body.appendChild(overlay);
             card.querySelector('button').addEventListener('click', function () {
@@ -69,52 +76,56 @@
         }
 
         /* ── role display ───────────────────────────────────────────── */
-        var DEFAULT_ROLE_TEXTS = {
-            assassino:    'Cometeste o crime. As tuas cartas são as pistas que o Forense (o anfitrião) apresenta aos investigadores. Não deixes que te descubram!',
-            cumplice:     'Ajuda o assassino a não ser descoberto. Conheces a identidade do assassino e as suas cartas escolhidas.',
-            testemunha:   'Viste o crime acontecer! Sabes quais as equipas envolvidas, mas não sabes quem é o assassino e quem é o cúmplice. Atenção: se o assassino for apanhado mas descobrirem que foste testemunha, serás eliminado e o assassino e cúmplice ganham o jogo!',
-            investigador: 'Investiga o crime! O Forense (o anfitrião) apresenta as cartas do assassino como pistas. Tenta identificar o assassino e as suas cartas. Podes usar o botão de acusação uma única vez!'
-        };
+        function buildDefaultRoleTexts() {
+            return {
+                assassino:    T('dec_role_text_assassino'),
+                cumplice:     T('dec_role_text_cumplice'),
+                testemunha:   T('dec_role_text_testemunha'),
+                investigador: T('dec_role_text_investigador')
+            };
+        }
 
-        var ROLES = {
-            assassino:   { label: 'Assassino',    icon: '🔪', border: 'border-rose-500/50',   bg: 'bg-rose-950/50'   },
-            cumplice:    { label: 'Cúmplice',     icon: '🤝', border: 'border-orange-500/50', bg: 'bg-orange-950/50' },
-            testemunha:  { label: 'Testemunha',   icon: '👁️', border: 'border-yellow-500/50', bg: 'bg-yellow-950/50' },
-            investigador:{ label: 'Investigador', icon: '🔍', border: 'border-blue-500/50',   bg: 'bg-blue-950/50'   }
-        };
+        function buildRoles() {
+            return {
+                assassino:   { label: T('dec_role_assassino'),    icon: '🔪', border: 'border-rose-500/50',   bg: 'bg-rose-950/50'   },
+                cumplice:    { label: T('dec_role_cumplice'),     icon: '🤝', border: 'border-orange-500/50', bg: 'bg-orange-950/50' },
+                testemunha:  { label: T('dec_role_testemunha'),   icon: '👁️', border: 'border-yellow-500/50', bg: 'bg-yellow-950/50' },
+                investigador:{ label: T('dec_role_investigador'), icon: '🔍', border: 'border-blue-500/50',   bg: 'bg-blue-950/50'   }
+            };
+        }
 
         function renderSecretInfo(role, si) {
             if (role === 'assassino' && si) {
                 return h('div', { className: 'mt-3 flex flex-col gap-3' },
                     (si.blueCard || si.redCard) && h('div', { className: 'grid grid-cols-2 gap-3' },
                         h('div', { className: 'rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-2.5 text-center' },
-                            h('div', { className: 'text-xs text-blue-400 mb-1' }, '🔵 Carta Azul'),
+                            h('div', { className: 'text-xs text-blue-400 mb-1' }, T('dec_blue_card')),
                             h('div', { className: 'font-bold text-blue-200' }, si.blueCard || '—')
                         ),
                         h('div', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2.5 text-center' },
-                            h('div', { className: 'text-xs text-rose-400 mb-1' }, '🔴 Carta Vermelha'),
+                            h('div', { className: 'text-xs text-rose-400 mb-1' }, T('dec_red_card')),
                             h('div', { className: 'font-bold text-rose-200' }, si.redCard || '—')
                         )
                     ),
                     si.cumpliceTable && h('div', { className: 'rounded-xl border border-orange-500/30 bg-orange-950/40 p-3' },
-                        h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-1' }, '🤝 O teu Cúmplice'),
-                        h('div', { className: 'font-bold text-white' }, si.cumpliceTeamName || ('Mesa ' + si.cumpliceTable)),
-                        h('div', { className: 'text-xs text-orange-300 mt-0.5' }, 'Mesa ' + si.cumpliceTable)
+                        h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-1' }, T('dec_your_accomplice')),
+                        h('div', { className: 'font-bold text-white' }, si.cumpliceTeamName || T('table_n', { n: si.cumpliceTable })),
+                        h('div', { className: 'text-xs text-orange-300 mt-0.5' }, T('table_n', { n: si.cumpliceTable }))
                     )
                 );
             }
             if (role === 'cumplice' && si && si.assassinTable) {
                 return h('div', { className: 'mt-3 rounded-xl border border-orange-500/30 bg-orange-950/40 p-3' },
-                    h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-2' }, '🔐 Informação secreta'),
-                    h('div', { className: 'text-sm text-slate-300 mb-0.5' }, 'Assassino: ', h('span', { className: 'font-bold text-white' }, si.assassinTeamName || ('Mesa ' + si.assassinTable))),
-                    h('div', { className: 'text-xs text-orange-300 mb-2' }, 'Mesa ' + si.assassinTable),
+                    h('div', { className: 'text-xs font-semibold text-orange-400 uppercase tracking-wide mb-2' }, T('dec_secret_info')),
+                    h('div', { className: 'text-sm text-slate-300 mb-0.5' }, T('dec_accomplice_label') + ' ', h('span', { className: 'font-bold text-white' }, si.assassinTeamName || T('table_n', { n: si.assassinTable }))),
+                    h('div', { className: 'text-xs text-orange-300 mb-2' }, T('table_n', { n: si.assassinTable })),
                     h('div', { className: 'grid grid-cols-2 gap-2' },
                         h('div', { className: 'rounded-lg border border-blue-500/30 bg-blue-950/30 px-2 py-2 text-center' },
-                            h('div', { className: 'text-xs text-blue-400' }, '🔵 Azul'),
+                            h('div', { className: 'text-xs text-blue-400' }, T('dec_blue_card')),
                             h('div', { className: 'font-bold text-blue-200 text-sm mt-0.5' }, si.blueCard || '—')
                         ),
                         h('div', { className: 'rounded-lg border border-rose-500/30 bg-rose-950/30 px-2 py-2 text-center' },
-                            h('div', { className: 'text-xs text-rose-400' }, '🔴 Vermelha'),
+                            h('div', { className: 'text-xs text-rose-400' }, T('dec_red_card')),
                             h('div', { className: 'font-bold text-rose-200 text-sm mt-0.5' }, si.redCard || '—')
                         )
                     )
@@ -122,8 +133,8 @@
             }
             if (role === 'testemunha' && si && si.involvedTables && si.involvedTables.length) {
                 return h('div', { className: 'mt-3 rounded-xl border border-yellow-500/30 bg-yellow-950/40 p-3' },
-                    h('div', { className: 'text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-2' }, '🔐 Informação secreta'),
-                    h('div', { className: 'text-sm text-slate-300 mb-1' }, 'Equipas envolvidas no crime:'),
+                    h('div', { className: 'text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-2' }, T('dec_secret_info')),
+                    h('div', { className: 'text-sm text-slate-300 mb-1' }, T('dec_involved_teams')),
                     h('div', { className: 'flex flex-col gap-1 mt-1' },
                         si.involvedTables.map(function (t, i) { return h('div', { key: i, className: 'font-bold text-white text-sm' }, '• ' + t); })
                     )
@@ -167,6 +178,16 @@
             var g4 = useState(false);  var cardsSaved = g4[0];   var setCardsSaved = g4[1];
             var g5 = useState(false);  var savingCards = g5[0];  var setSavingCards = g5[1];
             var g6 = useState(false);  var accusing = g6[0];     var setAccusing = g6[1];
+
+            /* i18n: estado de língua para forçar re-render quando a língua muda */
+            var lg1 = useState(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
+            var lg2 = useState(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
+            useEffect(function () {
+                var handler = function (e) { setLang(e.detail.lang); };
+                window.addEventListener('i18n:change', handler);
+                return function () { window.removeEventListener('i18n:change', handler); };
+            }, []);
+            var ROLES = buildRoles();
 
             var prevRoundRef = useRef(null);
             var tableId = parseInt(tableNumber || '0');
@@ -262,13 +283,13 @@
                     setAutoRecon(false); setConnError(''); setSessionLost(false);
                 } else {
                     if (result.clearLocal) localStore.clear();
-                    setConnError(result.error || 'Erro ao entrar na sessão.');
+                    setConnError(result.error || T('connect_error'));
                     setAutoRecon(false);
                 }
             };
 
             var handleDisconnect = async function () {
-                if (!confirm('Tens a certeza que queres sair da sessão?')) return;
+                if (!confirm(T('dec_exit_confirm'))) return;
                 try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber)); } catch (e) {}
                 localStore.clear();
                 setConnected(false); setGameData(null);
@@ -285,15 +306,15 @@
                     persistCards(b, r, gameData && gameData.round);
                     setCardsSaved(true); /* stays green until text changes */
                 } catch (e) {
-                    alert('Erro ao guardar as cartas. Tenta novamente.');
+                    alert(T('dec_cards_save_error'));
                 } finally {
                     setSavingCards(false);
                 }
             };
 
             var handleAccuse = async function () {
-                if (!sessionCode || !tableId || accusing) return;
-                if (!confirm('Confirmas a acusação? O botão ficará bloqueado nesta ronda.')) return;
+                if (!sessionCode || !tableId || accusing || witnessHunt) return;
+                if (!confirm(T('dec_accuse_confirm'))) return;
                 setAccusing(true);
                 try {
                     await ClientCore.withTimeout(
@@ -302,7 +323,7 @@
                         }), 6000
                     );
                 } catch (e) {
-                    alert('Erro ao enviar acusação. Tenta novamente.');
+                    alert(T('dec_accuse_error'));
                     setAccusing(false);
                 }
             };
@@ -311,46 +332,80 @@
             var phase          = gameData ? (gameData.phase || 'waiting') : 'waiting';
             var myRoleEntry    = gameData && gameData.roles ? gameData.roles[tableId] : null;
             var myAccusation   = gameData && gameData.accusations ? gameData.accusations[tableId] : null;
-            var buzzerName     = (gameData && gameData.buzzerName) || 'Acusar';
+            var buzzerName     = (gameData && gameData.buzzerName) || T('dec_buzzer_default');
             var myScore        = gameData && gameData.scores ? (gameData.scores[tableId] || 0) : 0;
             var roleConf       = myRoleEntry ? (ROLES[myRoleEntry.role] || ROLES.investigador) : null;
             var roleText       = (gameData && gameData.roleTexts && myRoleEntry && gameData.roleTexts[myRoleEntry.role])
-                                 || (myRoleEntry && DEFAULT_ROLE_TEXTS[myRoleEntry.role]) || '';
+                                 || (myRoleEntry && buildDefaultRoleTexts()[myRoleEntry.role]) || '';
             var usedAccusations   = gameData ? (gameData.usedAccusations || {}) : {};
             var accusationSent    = !!myAccusation || (accusing && !myAccusation) || !!usedAccusations[tableId];
             var roundResult    = gameData ? (gameData.roundResult || null) : null;
             var witnessHunt    = gameData ? (gameData.witnessHunt  || null) : null;
 
+            /* ── seletor de língua ─────────────────────────────────── */
+            function LangSelector() {
+                var cc = I18n.getCountryCode();
+                var cn = I18n.getName();
+                return h('div', { className: 'relative' },
+                    h('button', {
+                        onClick: function () { setShowLangDrop(function (v) { return !v; }); },
+                        className: 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 text-xs font-semibold hover:border-rose-400/50 hover:text-white transition-all active:scale-95'
+                    },
+                        h('span', { className: 'fi fi-' + cc + ' fi-circle lang-flag' }),
+                        h('span', null, cn),
+                        h('span', { className: 'text-slate-500 text-xs ml-0.5' }, showLangDrop ? '▲' : '▼')
+                    ),
+                    showLangDrop && h('div', {
+                        className: 'absolute top-full right-0 mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-xl z-50 overflow-hidden min-w-max'
+                    },
+                        I18n.getLanguages().map(function (l) {
+                            var isActive = l === lang;
+                            return h('button', {
+                                key: l,
+                                onClick: function () { I18n.setLang(l); setShowLangDrop(false); },
+                                className: 'flex items-center gap-2 px-4 py-2.5 w-full text-left text-sm font-semibold transition-colors ' + (
+                                    isActive ? 'bg-rose-500/15 text-rose-300' : 'text-slate-300 hover:bg-slate-800'
+                                )
+                            },
+                                h('span', { className: 'fi fi-' + I18n.getCountryCode(l) + ' fi-circle lang-flag' }),
+                                h('span', null, I18n.getName(l))
+                            );
+                        })
+                    )
+                );
+            }
+
             /* ── JOIN FORM ───────────────────────────────────────── */
             if (!connected) {
                 return h('div', { className: 'min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center px-4 py-8' },
                     h('div', { className: 'w-full max-w-sm flex flex-col gap-6' },
+                        h('div', { className: 'flex justify-end' }, LangSelector()),
                         h('div', { className: 'text-center' },
                             h('div', { className: 'text-6xl mb-3' }, '🔪'),
-                            h('h1', { className: 'text-2xl font-black' }, 'Deception Murder'),
-                            h('p', { className: 'text-slate-400 text-sm mt-1' }, 'in Hong Kong')
+                            h('h1', { className: 'text-2xl font-black' }, T('dec_title')),
+                            h('p', { className: 'text-slate-400 text-sm mt-1' }, T('dec_subtitle'))
                         ),
-                        sessionLost && h('div', { className: 'rounded-2xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-sm text-rose-300 text-center' }, 'A sessão terminou ou foi reiniciada.'),
-                        autoRecon && !connError && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-400 text-center' }, 'A reconectar...'),
+                        sessionLost && h('div', { className: 'rounded-2xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-sm text-rose-300 text-center' }, T('dec_session_over')),
+                        autoRecon && !connError && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-400 text-center' }, T('reconnecting')),
                         h('div', { className: 'rounded-3xl border border-slate-800 bg-slate-900/80 p-6 flex flex-col gap-4' },
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
-                                h('span', { className: 'font-semibold text-slate-300' }, 'Código da sessão'),
+                                h('span', { className: 'font-semibold text-slate-300' }, T('session_code')),
                                 h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400 font-mono tracking-widest', placeholder: 'Ex: HK01', value: sessionCode, onChange: function (e) { setSessionCode(e.target.value.toUpperCase()); } })
                             ),
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
-                                h('span', { className: 'font-semibold text-slate-300' }, 'Número da mesa'),
+                                h('span', { className: 'font-semibold text-slate-300' }, T('dec_join_table')),
                                 h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400', type: 'number', min: '1', max: '12', placeholder: '—', value: tableNumber, onChange: function (e) { setTableNumber(e.target.value); } })
                             ),
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
-                                h('span', { className: 'font-semibold text-slate-300' }, 'Nome da equipa'),
+                                h('span', { className: 'font-semibold text-slate-300' }, T('dec_join_team')),
                                 h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400', placeholder: 'Equipa A', value: teamName, onChange: function (e) { setTeamName(e.target.value); } })
                             ),
                             h('label', { className: 'flex flex-col gap-1.5 text-sm' },
-                                h('span', { className: 'font-semibold text-slate-300' }, 'Email(s) do grupo'),
-                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400 text-sm', placeholder: 'email1@ex.com, email2@ex.com', value: emails, onChange: function (e) { setEmails(e.target.value); } })
+                                h('span', { className: 'font-semibold text-slate-300' }, T('dec_join_emails')),
+                                h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 outline-none focus:border-rose-400 text-sm', placeholder: T('dec_join_emails_ph'), value: emails, onChange: function (e) { setEmails(e.target.value); } })
                             ),
                             connError && h('div', { className: 'rounded-xl border border-rose-500/30 bg-rose-950/40 px-3 py-2.5 text-sm text-rose-300' }, connError),
-                            h('button', { className: 'rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-500 disabled:opacity-50 active:scale-95 transition-all', disabled: joining, onClick: function () { handleConnect(false); } }, joining ? 'A entrar...' : 'Entrar na sessão')
+                            h('button', { className: 'rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-500 disabled:opacity-50 active:scale-95 transition-all', disabled: joining, onClick: function () { handleConnect(false); } }, joining ? T('dec_join_loading') : T('dec_join_btn'))
                         )
                     )
                 );
@@ -362,13 +417,14 @@
                 /* header */
                 h('div', { className: 'flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800 bg-slate-900/80 sticky top-0 z-10' },
                     h('div', {},
-                        h('div', { className: 'font-bold text-sm' }, '🔪 Mesa ' + tableId + (teamName ? ' · ' + teamName : '')),
+                        h('div', { className: 'font-bold text-sm' }, '🔪 ' + T('table_n', { n: tableId }) + (teamName ? ' · ' + teamName : '')),
                         h('div', { className: 'text-xs text-slate-500 font-mono' }, sessionCode)
                     ),
                     h('div', { className: 'flex items-center gap-2' },
-                        !fbOk && h('span', { className: 'text-xs text-rose-400' }, '⚠ offline'),
-                        myScore > 0 && h('span', { className: 'rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-sm font-bold text-amber-300' }, myScore + ' pts'),
-                        h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold hover:bg-slate-700', onClick: handleDisconnect }, 'Sair')
+                        LangSelector(),
+                        !fbOk && h('span', { className: 'text-xs text-rose-400' }, T('dec_offline')),
+                        myScore > 0 && h('span', { className: 'rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-sm font-bold text-amber-300' }, myScore + ' ' + T('dec_pts')),
+                        h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold hover:bg-slate-700', onClick: handleDisconnect }, T('dec_exit'))
                     )
                 ),
 
@@ -385,32 +441,32 @@
                                     h('div', { className: 'text-5xl' }, roundResult.winner === 'accusers' ? '🎉' : '🔪'),
                                     h('div', { className: 'text-2xl font-black mt-1' },
                                     roundResult.winner === 'accusers'
-                                        ? (roundResult.winnerTeam || 'Investigadores') + ' acertaram!'
-                                        : (roundResult.escaped ? 'Assassino escapou identificando a Testemunha!' : 'Assassino impune!')
+                                        ? (roundResult.winnerTeam ? T('dec_winner_accusers', { team: roundResult.winnerTeam }) : T('dec_winner_accusers_generic'))
+                                        : (roundResult.escaped ? T('dec_winner_escaped_witness') : T('dec_winner_unpunished'))
                                 )
                                 ),
                                 /* assassin reveal — shown to ALL clients after round ends */
                                 roundResult.assassinTable && h('div', { className: 'rounded-3xl border border-rose-500/30 bg-rose-950/30 p-5 flex flex-col gap-3' },
-                                    h('div', { className: 'text-xs font-semibold text-rose-400 uppercase tracking-wide' }, '🔪 Revelação — O Assassino era'),
-                                    h('div', { className: 'text-xl font-black' }, roundResult.assassinTeamName || ('Mesa ' + roundResult.assassinTable)),
+                                    h('div', { className: 'text-xs font-semibold text-rose-400 uppercase tracking-wide' }, T('dec_reveal_title')),
+                                    h('div', { className: 'text-xl font-black' }, roundResult.assassinTeamName || T('table_n', { n: roundResult.assassinTable })),
                                     roundResult.assassinCards && h('div', { className: 'grid grid-cols-2 gap-3 mt-1' },
                                         h('div', { className: 'rounded-xl border border-blue-500/40 bg-blue-950/40 px-3 py-2.5 text-center' },
-                                            h('div', { className: 'text-xs text-blue-400 mb-1' }, '🔵 Carta Azul'),
+                                            h('div', { className: 'text-xs text-blue-400 mb-1' }, T('dec_blue_card')),
                                             h('div', { className: 'font-bold text-blue-200' }, roundResult.assassinCards.blue || '—')
                                         ),
                                         h('div', { className: 'rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2.5 text-center' },
-                                            h('div', { className: 'text-xs text-rose-400 mb-1' }, '🔴 Carta Vermelha'),
+                                            h('div', { className: 'text-xs text-rose-400 mb-1' }, T('dec_red_card')),
                                             h('div', { className: 'font-bold text-rose-200' }, roundResult.assassinCards.red || '—')
                                         )
                                     )
                                 ),
-                                h('div', { className: 'text-sm text-slate-500 text-center' }, 'Aguarda que o anfitrião inicie a próxima ronda...')
+                                h('div', { className: 'text-sm text-slate-500 text-center' }, T('dec_wait_next_round'))
                             )
                             : h('div', { className: 'flex flex-col items-center gap-3' },
                                 h('div', { className: 'text-6xl' }, '⏳'),
                                 h('div', { className: 'text-center' },
-                                    h('div', { className: 'text-lg font-bold' }, 'Sessão ativa'),
-                                    h('div', { className: 'text-slate-400 text-sm mt-1' }, 'Aguarda que o master inicie uma nova ronda...')
+                                    h('div', { className: 'text-lg font-bold' }, T('dec_session_active')),
+                                    h('div', { className: 'text-slate-400 text-sm mt-1' }, T('dec_wait_master_round'))
                                 )
                             )
                     ),
@@ -419,31 +475,31 @@
                     phase === 'setup' && h('div', { className: 'flex flex-col gap-4 fade-in' },
                         cardsSaved
                             ? h('div', { className: 'rounded-2xl border border-emerald-500/30 bg-emerald-950/30 px-4 py-4 text-sm text-emerald-200 text-center leading-relaxed' },
-                                '✓ Cartas enviadas ao anfitrião! Aguarda que o anfitrião dê início ao sorteio do personagem de cada equipa.'
+                                T('dec_cards_sent')
                               )
                             : h('div', { className: 'rounded-2xl border border-amber-500/30 bg-amber-950/30 px-4 py-3 text-sm text-amber-200 leading-relaxed' },
-                                '📋 ', h('strong', {}, 'Escolhe as tuas cartas:'), ' Olha para as 8 cartas da tua mesa. Escolhe uma carta azul e uma carta vermelha e escreve os nomes abaixo.'
+                                '📋 ', h('strong', {}, T('dec_choose_cards_title')), ' ' + T('dec_choose_cards_hint')
                               ),
                         h('div', { className: 'grid grid-cols-2 gap-3' },
                             h('div', { className: 'flex flex-col gap-2' },
-                                h('label', { className: 'text-sm font-bold text-blue-300' }, '🔵 Carta Azul'),
-                                h('input', { className: 'rounded-xl border border-blue-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-blue-400', placeholder: 'Nome da carta', value: blueCard,
+                                h('label', { className: 'text-sm font-bold text-blue-300' }, T('dec_blue_card')),
+                                h('input', { className: 'rounded-xl border border-blue-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-blue-400', placeholder: T('dec_card_placeholder'), value: blueCard,
                                     onChange: function (e) { setBlueCard(e.target.value); setCardsSaved(false); } })
                             ),
                             h('div', { className: 'flex flex-col gap-2' },
-                                h('label', { className: 'text-sm font-bold text-rose-300' }, '🔴 Carta Vermelha'),
-                                h('input', { className: 'rounded-xl border border-rose-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400', placeholder: 'Nome da carta', value: redCard,
+                                h('label', { className: 'text-sm font-bold text-rose-300' }, T('dec_red_card')),
+                                h('input', { className: 'rounded-xl border border-rose-500/40 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400', placeholder: T('dec_card_placeholder'), value: redCard,
                                     onChange: function (e) { setRedCard(e.target.value); setCardsSaved(false); } })
                             )
                         ),
                         h('button', {
                             className: 'rounded-xl py-3 font-bold text-sm transition-colors disabled:opacity-50 ' + (cardsSaved ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'),
                             disabled: savingCards, onClick: saveCards
-                        }, savingCards ? 'A guardar...' : cardsSaved ? '✓ Enviado' : 'Guardar escolhas')
+                        }, savingCards ? T('dec_saving') : cardsSaved ? T('dec_sent_ok') : T('dec_save_choices'))
                     ),
 
                     /* RUNNING — waiting for role */
-                    phase === 'running' && !myRoleEntry && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-6 text-sm text-slate-400 text-center fade-in' }, 'A aguardar atribuição de papel...'),
+                    phase === 'running' && !myRoleEntry && h('div', { className: 'rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-6 text-sm text-slate-400 text-center fade-in' }, T('dec_waiting_role')),
 
                     /* RUNNING — role card */
                     phase === 'running' && myRoleEntry && roleConf && h('div', {
@@ -452,7 +508,7 @@
                         h('div', { className: 'flex items-center gap-3' },
                             h('span', { className: 'text-5xl' }, roleConf.icon),
                             h('div', {},
-                                h('div', { className: 'text-xs font-semibold text-slate-400 uppercase tracking-wider' }, 'O teu papel'),
+                                h('div', { className: 'text-xs font-semibold text-slate-400 uppercase tracking-wider' }, T('dec_your_role')),
                                 h('div', { className: 'text-3xl font-black mt-0.5' }, roleConf.label)
                             )
                         ),
@@ -462,22 +518,22 @@
 
                     /* RUNNING — witness hunt notification */
                     phase === 'running' && witnessHunt && h('div', { className: 'rounded-3xl border border-orange-500/40 bg-orange-950/30 p-5 flex flex-col gap-3 fade-in' },
-                        h('div', { className: 'text-xl font-black text-orange-200' }, '🎯 Assassino Descoberto!'),
+                        h('div', { className: 'text-xl font-black text-orange-200' }, T('dec_witness_discovered')),
                         (myRoleEntry && myRoleEntry.role === 'assassino')
-                            ? h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, 'Foste descoberto! Ainda podes escapar se identificares a Testemunha. Comunica verbalmente ao anfitrião qual das equipas pensas ser a Testemunha — se acertares, tu e o cúmplice vencem a ronda!')
+                            ? h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, T('dec_witness_you_assassin'))
                             : (myRoleEntry && myRoleEntry.role === 'cumplice')
-                                ? h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, 'O assassino foi descoberto! Ainda pode escapar se identificar a Testemunha. Se acertar, os dois vencem a ronda!')
-                                : h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, h('span', { className: 'font-bold text-white' }, witnessHunt.pendingWinnerTeam), ' acertou no assassino! O assassino ainda pode tentar identificar a Testemunha para escapar. Aguarda a confirmação do anfitrião...')
+                                ? h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, T('dec_witness_you_accomplice'))
+                                : h('p', { className: 'text-sm text-slate-200 leading-relaxed' }, T('dec_witness_others', { team: witnessHunt.pendingWinnerTeam }))
                     ),
 
-                    /* RUNNING — accuse button */
-                    phase === 'running' && h('div', { className: 'flex flex-col items-center gap-2 pt-2 fade-in' },
+                    /* RUNNING — accuse button (escondido durante a Caça à Testemunha) */
+                    phase === 'running' && !witnessHunt && h('div', { className: 'flex flex-col items-center gap-2 pt-2 fade-in' },
                         h('button', {
                             className: 'w-full rounded-2xl py-5 text-xl font-black transition-all ' +
                                 (accusationSent ? 'border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-500 text-white active:scale-95 accuse-pulse'),
                             disabled: accusationSent, onClick: handleAccuse
-                        }, accusationSent ? '✓ ' + buzzerName + ' enviado' : buzzerName),
-                        accusationSent && h('div', { className: 'text-xs text-slate-500 text-center' }, 'Botão de acusação usado nesta ronda.')
+                        }, accusationSent ? T('dec_accuse_sent', { buzzer: buzzerName }) : buzzerName),
+                        accusationSent && h('div', { className: 'text-xs text-slate-500 text-center' }, T('dec_accuse_used'))
                     )
                 )
             );
