@@ -247,6 +247,14 @@
                 return saved === 'console' || saved === 'public';
             });
             var modeChosen = mc2[0]; var setModeChosen = mc2[1];
+            /* modo forçado explicitamente por ?mode=... na URL (ex: TV com bookmark) —
+               distingue de um modo apenas recordado do sessionStorage, para decidir se
+               mostramos o ecrã rápido de ligação por código sem passar pelo setup geral */
+            var um = useState(function() {
+                var params = new URLSearchParams(window.location.search);
+                return params.get('mode');
+            });
+            var urlModeParam = um[0];
             /* projector state (read-only) */
             var pb1 = useState(null);  var publicState   = pb1[0];   var setPublicState   = pb1[1];
             var pb2 = useState({});    var publicClients = pb2[0];   var setPublicClients = pb2[1];
@@ -862,14 +870,15 @@
                 );
             }
 
-            /* ── MODE SELECTION ──────────────────────────────────── */
-            if (!modeChosen) {
+            /* ── MODE SELECTION (só depois de criar/retomar uma sessão) ──── */
+            if (sessionCode && !modeChosen) {
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/20 flex flex-col items-center justify-center p-6' },
                     h('div', { className: 'w-full max-w-sm flex flex-col gap-6' },
                         h('div', { className: 'flex justify-end' }, LangSelector()),
                         h('div', { className: 'text-center' },
                             h('div', { className: 'text-5xl mb-3' }, '🔪'),
                             h('h1', { className: 'text-2xl font-black' }, T('dec_title')),
+                            h('p', { className: 'font-mono font-bold text-rose-300 mt-2 tracking-widest' }, sessionCode),
                             h('p', { className: 'text-slate-400 mt-1 text-sm' }, T('m_dec_choose_mode'))
                         ),
                         h('div', { className: 'flex flex-col gap-3' },
@@ -882,13 +891,15 @@
                                 h('div', { className: 'text-sm text-slate-400 mt-1' }, T('m_dec_mode_public_hint'))
                             )
                         ),
-                        h('a', { href: 'masters.html', className: 'text-center text-sm text-slate-500 hover:text-slate-300 underline' }, T('m_dec_back'))
+                        h('button', { className: 'text-center text-sm text-slate-500 hover:text-slate-300 underline', onClick: function () { setSessionCode(''); } }, T('m_dec_back'))
                     )
                 );
             }
 
-            /* ── PROJECTOR: code entry ───────────────────────────── */
-            if (masterMode === 'public' && !sessionCode) {
+            /* ── PROJECTOR: ligação rápida por código ──────────────
+               só quando ?mode=public vem explicitamente na URL (ex: bookmark de TV);
+               fora desse caso, a ligação a uma sessão passa sempre pelo ecrã de setup */
+            if (urlModeParam === 'public' && masterMode === 'public' && !sessionCode) {
                 return h('div', { className: 'min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6' },
                     h('div', { className: 'w-full max-w-xs flex flex-col gap-6' },
                         h('div', { className: 'flex justify-between items-center' },
@@ -1011,7 +1022,7 @@
                             ),
                             h('div', { className: 'flex items-center gap-2' },
                                 LangSelector(),
-                                h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: switchMode }, T('m_dec_switch_mode')),
+                                modeChosen && h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: switchMode }, T('m_dec_switch_mode')),
                                 h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: function () { setShowHistory(true); } }, T('m_dec_history')),
                                 h('a', { href: 'masters.html', className: 'rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-sm font-semibold hover:bg-white/20' }, T('m_dec_back'))
                             )
