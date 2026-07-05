@@ -64,7 +64,10 @@
         var CLIENT_URL = (window.AppConfig && window.AppConfig.CLIENT_DECEPTION_URL)
             || (window.location.origin + window.location.pathname.replace('master-deception.html', 'client-deception.html'));
         var MASTER_MODE_KEY = 'decMasterMode';
-        var ROLE_TEXTS_PATH = 'gameConfig/deception/roleTexts';
+        /* As regras do Firebase só permitem leitura/escrita em sessions/ e sessionHistory/ —
+           por isso a config partilhada usa uma chave reservada dentro de sessions/ que nunca
+           colide com um código de sessão real (códigos de sessão nunca começam por '_'). */
+        var ROLE_TEXTS_PATH = 'sessions/_deceptionConfig/roleTexts';
 
         /* ── siren ────────────────────────────────────────────────── */
         function playSiren() {
@@ -271,7 +274,7 @@
                 try { localStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
             }, []);
 
-            /* textos dos papéis: o valor partilhado no Firebase (gameConfig/deception/roleTexts)
+            /* textos dos papéis: o valor partilhado no Firebase (sessions/_deceptionConfig/roleTexts)
                é a fonte de verdade entre masters/dispositivos — sobrepõe a cópia local se existir */
             useEffect(function () {
                 fm.get(fm.ref(rtdb, ROLE_TEXTS_PATH)).then(function (snap) {
@@ -281,7 +284,7 @@
                         setRoleTexts(merged);
                         persistRoleTexts(merged);
                     }
-                }).catch(function () {});
+                }).catch(function (e) { console.error('Erro ao ler roleTexts partilhados:', e); });
             }, []);
 
             var switchMode = function () {
@@ -625,7 +628,7 @@
 
             var saveRoleTexts = function () {
                 persistRoleTexts(roleTexts);
-                fm.set(fm.ref(rtdb, ROLE_TEXTS_PATH), roleTexts).catch(function () {});
+                fm.set(fm.ref(rtdb, ROLE_TEXTS_PATH), roleTexts).catch(function (e) { console.error('Erro ao gravar roleTexts partilhados:', e); });
                 if (sessionCode && gameData) fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { roleTexts: roleTexts });
             };
 
