@@ -1011,7 +1011,7 @@
                 pendingDrawRef.current = null;
                 setSecretWord(word);
                 fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/secret'), { word: word }).catch(function(){});
-                setSecretWordDifficulty(difficulty || 'medium');
+                setSecretWordDifficulty(difficulty || null);
                 setUsedWords(newUsedWords);
                 setClueDeadline(timerSeconds > 0 ? (Date.now() + timerSeconds * 1000) : null);
                 setShowWordApproval(false);
