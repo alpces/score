@@ -431,7 +431,8 @@ I18n.registerStrings('en', {
     m_j_guesser_label        : 'Guessing Team:',
     m_j_clues_received       : '{{n}}/{{total}} clues received',
     m_j_start_round_1        : '🤫 Start Round 1',
-    m_j_view_clues           : '👀 View Clues ({{n}})',
+    m_j_view_clues           : '✅ Clue Approval',
+    m_j_clue_approval_confirm : 'Clues will be locked now and cannot be changed. Continue?',
     m_j_no_clues_confirm     : 'No clue has been submitted yet. Continue anyway?',
     m_j_restart_round         : '↺ Restart Round',
     m_j_restart_round_confirm : 'Restart this round? Submitted clues will be lost.',
@@ -474,7 +475,7 @@ I18n.registerStrings('en', {
     m_j_timer_save            : '💾 Save',
     m_j_timer_saved           : '✓ Saved!',
     m_j_timer_reset           : '↺ Reset to default',
-    m_j_timer_hint            : '0 = no time limit. When it expires, clients can no longer send/edit clues — the phase does not advance automatically.',
+    m_j_timer_hint            : '0 = no time limit. When it expires, clients can no longer send/edit clues and the console automatically advances to clue approval.',
 
     // ── Master Just One — Statistics and end of session ──────────────────────────
     m_j_stats_button          : '📊 Statistics',
@@ -490,6 +491,7 @@ I18n.registerStrings('en', {
     m_j_stats_export_csv      : '⬇️ Export CSV',
     m_j_stats_export_json     : '⬇️ Export JSON',
     m_j_stats_history_note    : 'Also includes previous sessions saved on this device.',
+    m_j_stats_total_rounds    : 'Total rounds',
     m_j_end_session_locked    : 'Available at the end of the current lap — {{n}} completed lap(s) so far',
 
     // ── Master Just One — Table management ───────────────────────────────────────

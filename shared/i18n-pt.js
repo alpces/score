@@ -431,7 +431,8 @@ I18n.registerStrings('pt', {
     m_j_guesser_label        : 'Equipa a Adivinhar:',
     m_j_clues_received       : '{{n}}/{{total}} pistas recebidas',
     m_j_start_round_1        : '🤫 Iniciar Ronda 1',
-    m_j_view_clues           : '👀 Ver Pistas ({{n}})',
+    m_j_view_clues           : '✅ Aprovação de Pistas',
+    m_j_clue_approval_confirm : 'As pistas ficam bloqueadas agora e não poderão ser alteradas. Continuas?',
     m_j_no_clues_confirm     : 'Nenhuma pista foi submetida ainda. Continuar mesmo assim?',
     m_j_restart_round         : '↺ Recomeçar Ronda',
     m_j_restart_round_confirm : 'Recomeçar esta ronda? As pistas submetidas serão perdidas.',
@@ -474,7 +475,7 @@ I18n.registerStrings('pt', {
     m_j_timer_save            : '💾 Guardar',
     m_j_timer_saved           : '✓ Guardado!',
     m_j_timer_reset           : '↺ Repor padrão',
-    m_j_timer_hint            : '0 = sem limite de tempo. Ao esgotar, os clientes ficam impedidos de enviar/editar pistas — a fase não avança automaticamente.',
+    m_j_timer_hint            : '0 = sem limite de tempo. Ao esgotar, os clientes ficam impedidos de enviar/editar pistas e a consola avança automaticamente para a aprovação.',
 
     // ── Master Just One — Estatísticas e fim de sessão ───────────────────────────
     m_j_stats_button          : '📊 Estatísticas',
@@ -490,6 +491,7 @@ I18n.registerStrings('pt', {
     m_j_stats_export_csv      : '⬇️ Exportar CSV',
     m_j_stats_export_json     : '⬇️ Exportar JSON',
     m_j_stats_history_note    : 'Inclui também o histórico de sessões anteriores guardado neste dispositivo.',
+    m_j_stats_total_rounds    : 'Total de rondas',
     m_j_end_session_locked    : 'Disponível no fim da volta atual — {{n}} volta(s) completa(s) até agora',
 
     // ── Master Just One — Gestão de mesas ────────────────────────────────────────

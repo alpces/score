@@ -66,6 +66,7 @@
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
         var T = I18n.t;
+        function capitalize(s) { if (!s) return s; return s.charAt(0).toUpperCase() + s.slice(1); }
 
         // — pool de palavras: parser de texto + fallback embutido por idioma —
         function parseWordPoolText(text) {
@@ -164,7 +165,7 @@
                 });
                 return valid;
             }
-            if (phase === 'reveal') {
+            if (phase === 'best_clue_selection' || phase === 'reveal') {
                 var all = {};
                 Object.keys(justoneClues).forEach(function(tid) {
                     all[tid] = { text: justoneClues[tid].text, status: clueStatus[tid] || 'annulled' };
@@ -235,7 +236,7 @@
             try { localStorage.setItem('justoneBestClueConfig', JSON.stringify(cfg)); return true; } catch(e) { return false; }
         }
         function loadScoringMode() {
-            try { var v = localStorage.getItem('justoneScoringMode'); return v === 'best_clue' ? 'best_clue' : 'difficulty'; } catch(e) { return 'difficulty'; }
+            try { var v = localStorage.getItem('justoneScoringMode'); return v === 'difficulty' ? 'difficulty' : 'best_clue'; } catch(e) { return 'best_clue'; }
         }
         function saveScoringMode(mode) {
             try { localStorage.setItem('justoneScoringMode', mode); } catch(e) {}
@@ -341,7 +342,7 @@
             var tm2 = _s(false);   var timerSaved = tm2[0];        var setTimerSaved = tm2[1];
 
             /* —— SETUP: VARIANTE DE PONTUAÇÃO —— */
-            var sm1 = _s('difficulty'); var scoringMode = sm1[0];        var setScoringMode = sm1[1];
+            var sm1 = _s('best_clue'); var scoringMode = sm1[0];        var setScoringMode = sm1[1];
             var bc1 = _s(getDefaultBestClueConfig());
             var bestClueConfig = bc1[0]; var setBestClueConfig = bc1[1];
             var bc2 = _s(false);   var showBestClueEdit = bc2[0];  var setShowBestClueEdit = bc2[1];
@@ -400,6 +401,7 @@
             var processedDifficultyChoiceRef = useRef(null);
             var processedBestClueVoteRef = useRef(null);
             var pendingDrawRef = useRef(null);
+            var autoReviewedRef = useRef(false);
 
             /* —— RESOLUÇÃO DE MODO (Consola/Público) E PRÉ-PREENCHIMENTO DO CÓDIGO —— */
             useEffect(function() {
@@ -712,6 +714,17 @@
                 var id = setInterval(function() { setNowTick(Date.now()); }, 1000);
                 return function() { clearInterval(id); };
             }, [masterMode, clueDeadline, publicState && publicState.clueDeadline]);
+            /* —— AUTO-AVANÇAR PARA APROVAÇÃO QUANDO O TIMER EXPIRA —— */
+            useEffect(function() {
+                if (masterMode !== 'console' || phase !== 'clue_giving' || !clueDeadline) {
+                    if (phase !== 'clue_giving') autoReviewedRef.current = false;
+                    return;
+                }
+                if (nowTick >= clueDeadline && !autoReviewedRef.current) {
+                    autoReviewedRef.current = true;
+                    openClueReview();
+                }
+            }, [masterMode, phase, clueDeadline, nowTick]);
 
             /* —— INICIAR SESSÃO —— */
             var initSession = async function() {
@@ -811,6 +824,7 @@
                         var secretVal = secretSnap.val();
                         setSecretWord(secretVal ? secretVal.word : null);
                     } catch(e) { setSecretWord(null); }
+                    setMasterMode(null); setModeChosen(false);
                     setSessionId(code); setSetupDone(true);
                 } else if (choice === 'new') {
                     var existingTables = data.tables || [];
@@ -1053,7 +1067,6 @@
 
             /* —— VER PISTAS: ABRE MODAL DE VALIDAÇÃO (clue_giving -> reviewing) —— */
             var openClueReview = function() {
-                if (Object.keys(justoneClues).length === 0 && !confirm(T('m_j_no_clues_confirm'))) return;
                 var dupSet = detectDuplicateClues(justoneClues);
                 var initial = {};
                 tables.forEach(function(t) {
@@ -1176,14 +1189,33 @@
                 setPhase('reveal');
             };
 
-            /* —— RECOMEÇAR RONDA (mantém palavra/dificuldade, limpa pistas) —— */
+            /* —— RECOMEÇAR RONDA (sorteia nova palavra, mantém adivinhador, marca a antiga como usada) —— */
             var restartRound = function() {
                 if (!confirm(T('m_j_restart_round_confirm'))) return;
-                setClueStatus({});
-                setJustoneClues({});
+                var newUsedWords = (secretWord && usedWords.indexOf(secretWord) < 0) ? usedWords.concat([secretWord]) : usedWords;
+                setUsedWords(newUsedWords);
+                setSecretWord(null);
+                fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/secret'), { word: null }).catch(function(){});
+                setSecretWordDifficulty(null);
+                setClueDeadline(null);
+                setClueStatus({}); setRevealAll(false); setGuessResult(null);
+                setBestClueTableId(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null);
+                processedDifficultyChoiceRef.current = null;
+                processedBestClueVoteRef.current = null;
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
-                setClueDeadline(timerSeconds > 0 ? (Date.now() + timerSeconds * 1000) : null);
-                setPhase('clue_giving');
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneDifficultyChoice')).catch(function(){});
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneBestClueVote')).catch(function(){});
+                if (scoringMode === 'best_clue') {
+                    var drawn = drawWordFromAllTiers(wordPool, wordPoolLang, newUsedWords);
+                    if (!drawn) { alert(T('m_j_all_tiers_exhausted')); return; }
+                    setPendingWord(drawn);
+                    setPendingWordDiff(null);
+                    setCustomWordInput(''); setShowCustomWordInput(false);
+                    setShowWordApproval(true);
+                } else {
+                    setPhase('choosing_difficulty');
+                }
             };
 
             /* —— AJUSTE MANUAL DE PONTUAÇÃO (±1, floor em 0) —— */
@@ -1426,7 +1458,7 @@
                             )
                         ),
                         h('div', { className: 'overflow-y-auto flex-1 space-y-2 mb-4' },
-                            tables.filter(function(t) { return t.id !== guesserTableId; }).map(function(t) {
+                            tables.filter(function(t) { return t.id !== guesserTableId; }).slice().sort(function(a, b) { var ca = justoneClues[a.id]; var cb = justoneClues[b.id]; var ta = ca && ca.text ? ca.text.toLowerCase() : ''; var tb = cb && cb.text ? cb.text.toLowerCase() : ''; return ta < tb ? -1 : ta > tb ? 1 : 0; }).map(function(t) {
                                 var clue = justoneClues[t.id];
                                 var hasClue = !!(clue && clue.text);
                                 var status = clueStatus[t.id] || 'annulled';
@@ -1471,36 +1503,64 @@
             /* —— MODAL: ESTATÍSTICAS —— */
             var StatsModal = function() {
                 var agg = aggregateStats(justoneStats);
+                var totalChosen = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].chosen;},0);
+                var totalCorrect = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].correct;},0);
+                var totalIncorrect = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].incorrect;},0);
+                var totalPassed = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].passed;},0);
+                var totalPct = totalChosen > 0 ? Math.round((totalCorrect / totalChosen) * 100) : 0;
                 return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowStats(false); } },
                     h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 w-full max-w-lg slide-in max-h-[90vh] overflow-y-auto', onClick: function(e) { e.stopPropagation(); } },
                         h('h3', { className: 'text-lg font-black text-white mb-1' }, T('m_j_stats_title')),
                         h('div', { className: 'text-sm text-slate-400 mb-3' }, T('m_j_stats_active_tables', { n: tables.length })),
-                        h('table', { className: 'w-full text-sm text-left mb-4' },
-                            h('thead', null,
-                                h('tr', { className: 'text-slate-400 border-b border-slate-600' },
-                                    h('th', { className: 'py-1 pr-2' }, T('m_j_stats_col_difficulty')),
-                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_chosen')),
-                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_correct')),
-                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_incorrect')),
-                                    h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_passed')),
-                                    h('th', { className: 'py-1 text-center' }, T('m_j_stats_col_pct'))
+                        scoringMode === 'best_clue'
+                            ? h('div', { className: 'grid grid-cols-2 gap-3 mb-4' },
+                                h('div', { className: 'bg-slate-700 rounded-xl p-3 text-center' },
+                                    h('div', { className: 'text-xs text-slate-400 mb-1' }, T('m_j_stats_total_rounds')),
+                                    h('div', { className: 'text-3xl font-black text-white' }, totalChosen)
+                                ),
+                                h('div', { className: 'bg-slate-700 rounded-xl p-3 text-center' },
+                                    h('div', { className: 'text-xs text-slate-400 mb-1' }, T('m_j_stats_col_pct')),
+                                    h('div', { className: 'text-3xl font-black text-teal-400' }, totalPct + '%')
+                                ),
+                                h('div', { className: 'bg-green-900 rounded-xl p-3 text-center' },
+                                    h('div', { className: 'text-xs text-green-400 mb-1' }, T('m_j_stats_col_correct')),
+                                    h('div', { className: 'text-3xl font-black text-green-300' }, totalCorrect)
+                                ),
+                                h('div', { className: 'bg-red-900 rounded-xl p-3 text-center' },
+                                    h('div', { className: 'text-xs text-red-400 mb-1' }, T('m_j_stats_col_incorrect')),
+                                    h('div', { className: 'text-3xl font-black text-red-300' }, totalIncorrect)
+                                ),
+                                h('div', { className: 'bg-slate-700 rounded-xl p-3 text-center col-span-2' },
+                                    h('div', { className: 'text-xs text-slate-400 mb-1' }, T('m_j_stats_col_passed')),
+                                    h('div', { className: 'text-3xl font-black text-slate-300' }, totalPassed)
+                                )
+                            )
+                            : h('table', { className: 'w-full text-sm text-left mb-4' },
+                                h('thead', null,
+                                    h('tr', { className: 'text-slate-400 border-b border-slate-600' },
+                                        h('th', { className: 'py-1 pr-2' }, T('m_j_stats_col_difficulty')),
+                                        h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_chosen')),
+                                        h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_correct')),
+                                        h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_incorrect')),
+                                        h('th', { className: 'py-1 pr-2 text-center' }, T('m_j_stats_col_passed')),
+                                        h('th', { className: 'py-1 text-center' }, T('m_j_stats_col_pct'))
+                                    )
+                                ),
+                                h('tbody', null,
+                                    ['easy', 'medium', 'hard'].map(function(tier) {
+                                        var d = agg[tier];
+                                        var pct = d.chosen > 0 ? Math.round((d.correct / d.chosen) * 100) : 0;
+                                        return h('tr', { key: tier, className: 'border-b border-slate-700 text-white' },
+                                            h('td', { className: 'py-1.5 pr-2 font-semibold' }, T('m_j_difficulty_' + tier)),
+                                            h('td', { className: 'py-1.5 pr-2 text-center' }, d.chosen),
+                                            h('td', { className: 'py-1.5 pr-2 text-center text-green-400' }, d.correct),
+                                            h('td', { className: 'py-1.5 pr-2 text-center text-red-400' }, d.incorrect),
+                                            h('td', { className: 'py-1.5 pr-2 text-center text-slate-400' }, d.passed),
+                                            h('td', { className: 'py-1.5 text-center font-bold' }, pct + '%')
+                                        );
+                                    })
                                 )
                             ),
-                            h('tbody', null,
-                                ['easy', 'medium', 'hard'].map(function(tier) {
-                                    var d = agg[tier];
-                                    var pct = d.chosen > 0 ? Math.round((d.correct / d.chosen) * 100) : 0;
-                                    return h('tr', { key: tier, className: 'border-b border-slate-700 text-white' },
-                                        h('td', { className: 'py-1.5 pr-2 font-semibold' }, T('m_j_difficulty_' + tier)),
-                                        h('td', { className: 'py-1.5 pr-2 text-center' }, d.chosen),
-                                        h('td', { className: 'py-1.5 pr-2 text-center text-green-400' }, d.correct),
-                                        h('td', { className: 'py-1.5 pr-2 text-center text-red-400' }, d.incorrect),
-                                        h('td', { className: 'py-1.5 pr-2 text-center text-slate-400' }, d.passed),
-                                        h('td', { className: 'py-1.5 text-center font-bold' }, pct + '%')
-                                    );
-                                })
-                            )
-                        ),
                         h('div', { className: 'flex gap-2 mb-4' },
                             h('button', { onClick: exportStatsCsv, className: 'flex-1 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-lg font-bold text-sm' }, T('m_j_stats_export_csv')),
                             h('button', { onClick: exportStatsJson, className: 'flex-1 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded-lg font-bold text-sm' }, T('m_j_stats_export_json'))
@@ -1512,7 +1572,7 @@
 
             /* —— MODAL: APROVAÇÃO DE PALAVRA —— */
             var WordApprovalModal = function() {
-                var displayWord = showCustomWordInput ? customWordInput : (pendingWord || '');
+                var displayWord = showCustomWordInput ? customWordInput : (pendingWord ? capitalize(pendingWord) : '');
                 var diff = pendingWordDiff;
                 return h('div', { className: 'fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4' },
                     h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in' },
@@ -1994,9 +2054,10 @@
                 var psShowScores = !!ps.publicShowScores;
                 /* placar passou a modal — o corpo principal usa sempre tamanhos grandes */
                 var psBodyWidth = 'max-w-4xl';
-                var psClueTextSize = 'text-3xl';
-                var psRevealClueTextSize = 'text-2xl';
-                var psRevealWordTextSize = 'text-5xl';
+                var psVisibleCount = Object.keys(ps.visibleClues || {}).length;
+                var psClueTextSize = psVisibleCount <= 3 ? 'text-6xl' : psVisibleCount <= 6 ? 'text-4xl' : psVisibleCount <= 10 ? 'text-3xl' : 'text-2xl';
+                var psRevealClueTextSize = psVisibleCount <= 4 ? 'text-3xl' : psVisibleCount <= 8 ? 'text-2xl' : 'text-xl';
+                var psRevealWordTextSize = 'text-6xl';
 
                 var psPhaseLabel = {
                     'waiting':              T('m_j_phase_waiting'),
@@ -2048,16 +2109,34 @@
                     psBody = h('div', { className: 'text-center space-y-3 ' + psBodyWidth },
                         psDifficultyBadge,
                         h('div', { className: 'flex flex-wrap gap-3 justify-center' },
-                            Object.keys(psVisibleClues).map(function(tid) {
-                                return h('div', { key: tid, className: 'bg-slate-800 border border-teal-700 rounded-xl px-4 py-2 font-black ' + psClueTextSize }, psVisibleClues[tid].text);
+                            Object.keys(psVisibleClues).slice().sort(function(a, b) {
+                                var ta = psVisibleClues[a].text.toLowerCase();
+                                var tb = psVisibleClues[b].text.toLowerCase();
+                                return ta < tb ? -1 : ta > tb ? 1 : 0;
+                            }).map(function(tid) {
+                                return h('div', { key: tid, className: 'bg-slate-800 border border-teal-700 rounded-xl px-4 py-2 font-black ' + psClueTextSize }, capitalize(psVisibleClues[tid].text));
                             })
                         ),
                         h('div', { className: 'text-sm text-slate-400' }, T('m_j_annulled_count', { n: ps.annulledClueCount || 0 }))
                     );
                 } else if (ps.phase === 'best_clue_selection') {
-                    psBody = h('div', { className: 'text-center space-y-3' },
+                    var psBcsClues = ps.visibleClues || {};
+                    var psBcsSorted = Object.keys(psBcsClues).slice().sort(function(a, b) {
+                        var ta = psBcsClues[a].text.toLowerCase();
+                        var tb = psBcsClues[b].text.toLowerCase();
+                        return ta < tb ? -1 : ta > tb ? 1 : 0;
+                    });
+                    psBody = h('div', { className: 'text-center space-y-4 ' + psBodyWidth },
                         h('div', { className: 'text-2xl font-black text-pink-300' }, T('m_j_phase_best_clue_selection')),
-                        psGuesser && h('div', { className: 'text-lg text-slate-300' }, T('m_j_pub_choosing_difficulty', { name: teamLabel(psGuesser) }))
+                        psGuesser && h('div', { className: 'text-lg text-slate-300' }, T('m_j_pub_choosing_difficulty', { name: teamLabel(psGuesser) })),
+                        psBcsSorted.length > 0 && h('div', { className: 'flex flex-wrap gap-3 justify-center mt-2' },
+                            psBcsSorted.map(function(tid) {
+                                var c = psBcsClues[tid];
+                                return h('div', { key: tid,
+                                    className: 'rounded-xl px-4 py-2 font-bold ' + psClueTextSize + ' ' + (c.status === 'valid' ? 'bg-teal-700 text-white' : 'bg-slate-700 text-slate-400 line-through opacity-60')
+                                }, capitalize(c.text));
+                            })
+                        )
                     );
                 } else if (ps.phase === 'reveal') {
                     var psVisibleAll = ps.visibleClues || {};
@@ -2066,23 +2145,30 @@
                         incorrect: { emoji: '❌', cls: 'bg-red-600' },
                         passed:    { emoji: '⏭️', cls: 'bg-slate-600' }
                     }[ps.guessResult] || null;
-                    psBody = h('div', { className: 'text-center space-y-3 ' + psBodyWidth },
-                        psDifficultyBadge,
-                        h('div', { className: 'font-black text-amber-300 tracking-wide ' + psRevealWordTextSize }, ps.revealedWord || ''),
-                        h('div', { className: 'flex flex-wrap gap-3 justify-center' },
-                            Object.keys(psVisibleAll).map(function(tid) {
-                                var c = psVisibleAll[tid];
-                                return h('div', {
-                                    key: tid,
-                                    className: 'rounded-xl px-4 py-2 font-bold ' + psRevealClueTextSize + ' ' + (c.status === 'valid' ? 'bg-green-700' : 'bg-slate-700 line-through opacity-60')
-                                }, c.text);
-                            })
-                        ),
-                        psResultBadge && psGuesser && h('div', { className: 'inline-block px-4 py-2 rounded-xl font-black text-lg ' + psResultBadge.cls },
-                            psResultBadge.emoji + ' ' + teamLabel(psGuesser)
-                        ),
-                        h('div', { className: 'text-xs text-slate-400' }, T('m_j_completed_laps', { n: ps.completedLaps || 0 }))
-                    );
+                    var psRevealSorted = Object.keys(psVisibleAll).slice().sort(function(a, b) {
+                        var ta = psVisibleAll[a].text.toLowerCase();
+                        var tb = psVisibleAll[b].text.toLowerCase();
+                        return ta < tb ? -1 : ta > tb ? 1 : 0;
+                    });
+                    psBody = ps.revealedWord
+                        ? h('div', { className: 'text-center space-y-3 ' + psBodyWidth },
+                            psDifficultyBadge,
+                            h('div', { className: 'font-black text-amber-300 tracking-wide ' + psRevealWordTextSize }, capitalize(ps.revealedWord)),
+                            psRevealSorted.length > 0 && h('div', { className: 'flex flex-wrap gap-3 justify-center' },
+                                psRevealSorted.map(function(tid) {
+                                    var c = psVisibleAll[tid];
+                                    return h('div', {
+                                        key: tid,
+                                        className: 'rounded-xl px-4 py-2 font-bold ' + psRevealClueTextSize + ' ' + (c.status === 'valid' ? 'bg-green-700' : 'bg-slate-700 line-through opacity-60')
+                                    }, capitalize(c.text));
+                                })
+                            ),
+                            psResultBadge && psGuesser && h('div', { className: 'inline-block px-4 py-2 rounded-xl font-black text-lg ' + psResultBadge.cls },
+                                psResultBadge.emoji + ' ' + teamLabel(psGuesser)
+                            ),
+                            h('div', { className: 'text-xs text-slate-400' }, T('m_j_completed_laps', { n: ps.completedLaps || 0 }))
+                        )
+                        : h('div', { className: 'text-teal-300 text-lg font-bold' }, T('m_j_phase_waiting'));
                 }
 
                 return h('div', { className: 'min-h-screen bg-slate-900 text-white flex flex-col' },
@@ -2137,10 +2223,10 @@
                                         className: 'flex items-center justify-between p-3 rounded-xl ' + (isGuesser ? 'bg-teal-700 ring-2 ring-teal-400' : 'bg-slate-700')
                                     },
                                         h('div', { className: 'flex items-center gap-2' },
-                                            h('span', { className: 'text-xl' }, medal),
-                                            h('span', { className: 'font-black text-lg' }, teamLabel(t))
+                                            h('span', { className: 'text-3xl' }, medal),
+                                            h('span', { className: 'font-black text-2xl' }, teamLabel(t))
                                         ),
-                                        h('span', { className: 'font-black text-2xl text-teal-400' }, t.score)
+                                        h('span', { className: 'font-black text-4xl text-teal-400' }, t.score)
                                     );
                                 })
                             )
@@ -2224,8 +2310,8 @@
                     secretWordDifficulty && h('span', {
                         className: 'px-3 py-1 rounded-full text-sm font-bold ' + (DIFFICULTY_BADGE_COLORS[secretWordDifficulty] || '')
                     }, T('m_j_difficulty_badge', { name: T('m_j_difficulty_' + secretWordDifficulty) })),
-                    secretWord && (phase === 'clue_giving' || phase === 'reviewing') && h('div', { className: 'bg-amber-500 text-amber-900 px-3 py-1 rounded-full text-sm font-black' },
-                        T('m_j_secret_word_label') + ' ' + secretWord
+                    secretWord && phase !== 'waiting' && h('div', { className: 'bg-amber-500 text-amber-900 px-3 py-1 rounded-full text-sm font-black' },
+                        T('m_j_secret_word_label') + ' ' + capitalize(secretWord)
                     ),
                     phase === 'clue_giving' && h('div', { className: 'bg-blue-700 text-blue-100 px-3 py-1 rounded-full text-sm font-bold' },
                         T('m_j_clues_received', { n: clueCount, total: Math.max(0, tableCount - 1) })
@@ -2321,7 +2407,7 @@
                 /* —— BARRA INFERIOR —— */
                 h('div', { className: 'bg-slate-800 border-t border-slate-700 px-4 py-3 flex items-center gap-3 flex-shrink-0 flex-wrap' },
 
-                    phase === 'waiting' && h('button', {
+                    phase === 'waiting' && !showWordApproval && h('button', {
                         onClick: startRound,
                         disabled: tables.length < 2,
                         className: 'px-6 py-2.5 rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform ' + (tables.length < 2 ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-500 text-white')
@@ -2350,16 +2436,13 @@
                     phase === 'clue_giving' && h('div', { className: 'flex items-center gap-3' },
                         h('button', {
                             onClick: function() {
-                                if (clueCount === 0 && !confirm(T('m_j_no_clues_confirm'))) return;
+                                if (!confirm(T('m_j_clue_approval_confirm'))) return;
                                 openClueReview();
                             },
                             className: 'px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform' + (clueCount > 0 ? ' blink' : '')
                         }, T('m_j_view_clues', { n: clueCount })),
                         h('button', {
-                            onClick: function() {
-                                if (!confirm(T('m_j_restart_round_confirm'))) return;
-                                restartRound();
-                            },
+                            onClick: restartRound,
                             className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
                         }, T('m_j_restart_round'))
                     ),
@@ -2370,10 +2453,7 @@
                             className: 'px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-black text-base shadow-lg blink active:scale-95 transition-transform'
                         }, T('m_j_validate_clues_title')),
                         h('button', {
-                            onClick: function() {
-                                if (!confirm(T('m_j_restart_round_confirm'))) return;
-                                restartRound();
-                            },
+                            onClick: restartRound,
                             className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
                         }, T('m_j_restart_round'))
                     ),
@@ -2408,7 +2488,7 @@
                                     key: tid,
                                     onClick: function() { confirmBestClue(Number(tid)); },
                                     className: 'px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-xl font-bold text-sm shadow active:scale-95 transition-transform'
-                                }, T('m_j_best_clue_select_btn') + ' ' + (t2 ? t2.name : 'Mesa ' + tid) + ': "' + clue.text + '"');
+                                }, T('m_j_best_clue_select_btn') + ' ' + (t2 ? t2.name : 'Mesa ' + tid) + ': "' + capitalize(clue.text) + '"');
                             }),
                             h('button', {
                                 onClick: function() { confirmBestClue(null); },
@@ -2417,7 +2497,7 @@
                         )
                     ),
 
-                    phase === 'reveal' && h('div', { className: 'flex items-center gap-3' },
+                    phase === 'reveal' && !showWordApproval && h('div', { className: 'flex items-center gap-3' },
                         h('button', {
                             onClick: nextRound,
                             className: 'px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'

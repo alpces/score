@@ -52,6 +52,7 @@
 
         // Alias de tradução — lê _current dinamicamente, funciona com re-renders por i18n:change
         var T = I18n.t;
+        function capitalize(s) { if (!s) return s; return s.charAt(0).toUpperCase() + s.slice(1); }
 
         var HEARTBEAT_MS = 15000;
         var localStore  = ClientCore.createLocalStore('justone');
@@ -255,7 +256,7 @@
                     return;
                 }
                 // reset em choosing_difficulty (modo difficulty) ou clue_giving (modo best_clue)
-                if (rn !== prevRoundNumberRef.current && (ph === 'choosing_difficulty' || ph === 'clue_giving')) {
+                if (ph === 'clue_giving' || ph === 'choosing_difficulty' || rn !== prevRoundNumberRef.current) {
                     setClueInput(''); setClueSubmitted(false); setLastSubmittedClue('');
                     setChoosingDifficulty(false); setSubmitError('');
                     setBestClueVoted(false); setBestClueVoteTableId(null);
@@ -556,23 +557,32 @@
                                 bestClueVoted
                                     ? h('div', { className: 'text-center text-white font-bold text-lg' }, T('j_best_clue_vote_sent'))
                                     : h('div', { className: 'space-y-2' },
-                                        Object.keys(gameData && gameData.clueStatus || {})
-                                            .filter(function(tid) { return (gameData.clueStatus || {})[tid] === 'valid'; })
-                                            .map(function(tid) {
-                                                var clues = gameData && gameData.visibleClues || {};
+                                        (function() {
+                                            var allC = visibleClues || {};
+                                            return Object.keys(allC).sort(function(a, b) { return (allC[a].text || '').localeCompare(allC[b].text || ''); }).map(function(tid) {
+                                                var c = allC[tid];
                                                 var tbl = allTables.find(function(t) { return t.id === parseInt(tid, 10); });
-                                                var clue = clues[tid];
-                                                return clue && h('button', {
-                                                    key: tid,
-                                                    onClick: function() { chooseBestClue(parseInt(tid, 10)); },
-                                                    className: 'w-full py-2 px-4 bg-pink-600 hover:bg-pink-500 text-white rounded-xl font-bold text-sm shadow active:scale-95 transition-transform'
-                                                }, T('m_j_best_clue_select_btn') + ': ' + teamLabel(tbl || { id: parseInt(tid,10) }) + ' — "' + clue.text + '"');
-                                            })
+                                                var isValid = c.status === 'valid';
+                                                if (isValid) {
+                                                    return h('button', { key: tid, onClick: function() { chooseBestClue(parseInt(tid, 10)); }, className: 'w-full py-2 px-4 bg-pink-600 hover:bg-pink-500 text-white rounded-xl font-bold text-sm shadow active:scale-95 transition-transform' },
+                                                        T('m_j_best_clue_select_btn') + ': ' + teamLabel(tbl || { id: parseInt(tid,10) }) + ' — "' + capitalize(c.text) + '"');
+                                                }
+                                                return h('div', { key: tid, className: 'w-full py-2 px-4 bg-white bg-opacity-10 text-white opacity-40 rounded-xl text-sm line-through' },
+                                                    teamLabel(tbl || { id: parseInt(tid,10) }) + ' — "' + capitalize(c.text) + '"');
+                                            });
+                                        })()
                                       )
                               )
                             : h('div', { className: 'text-center text-white' },
                                 h('div', { className: 'text-5xl mb-3' }, '⭐'),
-                                h('div', { className: 'text-lg font-semibold' }, T('j_best_clue_waiting', { name: teamLabel(guesserTable || { id: gameData && gameData.guesserTableId }) }))
+                                h('div', { className: 'text-lg font-semibold mb-3' }, T('j_best_clue_waiting', { name: teamLabel(guesserTable || { id: gameData && gameData.guesserTableId }) })),
+                                h('div', { className: 'flex flex-wrap gap-2 justify-center mt-2' },
+                                    Object.keys(visibleClues || {}).sort(function(a, b) { return ((visibleClues || {})[a].text || '').localeCompare(((visibleClues || {})[b].text || '')); }).map(function(tid) {
+                                        var cv = (visibleClues || {})[tid];
+                                        var isValid = cv && cv.status === 'valid';
+                                        return h('span', { key: tid, className: 'px-3 py-1.5 rounded-full font-bold text-sm ' + (isValid ? 'bg-teal-100 text-teal-800' : 'bg-white bg-opacity-10 text-white opacity-40 line-through') }, cv ? capitalize(cv.text) : '');
+                                    })
+                                )
                               )
                     ),
 
@@ -591,7 +601,7 @@
                             : h('div', { className: 'space-y-3' },
                                 h('div', { className: 'bg-white rounded-2xl shadow-xl p-4 text-center' },
                                     h('div', { className: 'text-xs text-gray-500 mb-1' }, T('j_secret_word_label')),
-                                    h('div', { className: 'text-2xl font-black text-teal-800' }, secretWord || '...')
+                                    h('div', { className: 'text-2xl font-black text-teal-800' }, capitalize(secretWord) || '...')
                                 ),
                                 h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
                                     h('input', {
@@ -651,8 +661,8 @@
                                 h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
                                     h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-700 mb-2' }, T('j_valid_clues_label')),
                                     h('div', { className: 'flex flex-wrap gap-2 mb-2' },
-                                        Object.keys(visibleClues || {}).map(function(tid) {
-                                            return h('span', { key: tid, className: 'px-3 py-1.5 bg-teal-100 text-teal-800 rounded-full font-bold text-sm' }, visibleClues[tid].text);
+                                        Object.keys(visibleClues || {}).sort(function(a, b) { return (visibleClues[a].text || '').localeCompare(visibleClues[b].text || ''); }).map(function(tid) {
+                                            return h('span', { key: tid, className: 'px-3 py-1.5 bg-teal-100 text-teal-800 rounded-full font-bold text-sm' }, capitalize(visibleClues[tid].text));
                                         })
                                     ),
                                     annulledCount > 0 && h('div', { className: 'text-sm text-gray-500 italic' }, T('j_annulled_clues_count', { n: annulledCount }))
@@ -667,20 +677,20 @@
 
                     // — reveal —
                     phase === 'reveal' && h('div', { className: 'w-full max-w-sm space-y-3' },
-                        h('div', { className: 'bg-white rounded-2xl shadow-xl p-4 text-center' },
+                        revealedWord && h('div', { className: 'bg-white rounded-2xl shadow-xl p-4 text-center' },
                             difficulty && h('div', { className: 'inline-block mb-2 px-3 py-1 rounded-full text-xs font-black uppercase ' + (DIFFICULTY_BADGE_COLORS[difficulty] || '') }, T('j_difficulty_' + difficulty)),
                             h('div', { className: 'text-xs text-gray-500 mb-1' }, T('j_reveal_secret_word')),
-                            h('div', { className: 'text-3xl font-black text-teal-800' }, revealedWord)
+                            h('div', { className: 'text-3xl font-black text-teal-800' }, capitalize(revealedWord))
                         ),
-                        h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                        (visibleClues && Object.keys(visibleClues).length > 0) && h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
                             h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-700 mb-2' }, T('j_reveal_all_clues')),
                             h('div', { className: 'space-y-1.5' },
-                                Object.keys(visibleClues || {}).map(function(tid) {
-                                    var c = visibleClues[tid];
+                                Object.keys(visibleClues).sort(function(a, b) { return (visibleClues[a].text || '').localeCompare(visibleClues[b].text || ''); }).map(function(tid) {
+                                    var cv = visibleClues[tid];
                                     var tbl = allTables.find(function(t) { return t.id === parseInt(tid, 10); });
                                     return h('div', { key: tid, className: 'flex items-center justify-between gap-2 text-sm' },
-                                        h('span', { className: 'font-semibold text-gray-700' }, teamLabel(tbl || { id: tid }) + ': ' + c.text),
-                                        h('span', { className: c.status === 'valid' ? 'text-green-600 font-bold' : 'text-gray-400 font-bold' }, c.status === 'valid' ? '✅' : '🚫')
+                                        h('span', { className: 'font-semibold text-gray-700' }, teamLabel(tbl || { id: tid }) + ': ' + capitalize(cv.text)),
+                                        h('span', { className: cv.status === 'valid' ? 'text-green-600 font-bold' : 'text-gray-400 font-bold' }, cv.status === 'valid' ? '✅' : '🚫')
                                     );
                                 })
                             )
