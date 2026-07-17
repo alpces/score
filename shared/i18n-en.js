@@ -524,7 +524,7 @@ I18n.registerStrings('en', {
 
     // ── Client Just One — Best Clue ───────────────────────────────────────────────
     j_best_clue_select_title        : 'Which clue helped you most?',
-    j_best_clue_select_hint         : 'Pick the clue that helped you guess the word.',
+    j_best_clue_select_hint         : 'Say out loud to the host which clue helped you most!',
     j_best_clue_vote_sent           : 'Vote sent!',
     j_best_clue_waiting             : 'Team {{name}} is choosing the best clue...',
     j_best_clue_won                 : 'Your clue was the best! +{{points}} points',

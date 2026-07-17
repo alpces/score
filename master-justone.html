@@ -379,7 +379,6 @@
             var u1  = _s({});      var connectedClients = u1[0];        var setConnectedClients = u1[1];
             var u2  = _s({});      var justoneClues = u2[0];             var setJustoneClues = u2[1];
             var u3  = _s(null);    var justoneDifficultyChoice = u3[0];  var setJustoneDifficultyChoice = u3[1];
-            var u3b = _s(null);    var justoneBestClueVote = u3b[0];     var setJustoneBestClueVote = u3b[1];
             var u4  = _s({});      var justoneStats = u4[0];             var setJustoneStats = u4[1];
             var u5  = _s(false);   var showReview = u5[0];               var setShowReview = u5[1];
             var u6  = _s(false);   var showLeaderboard = u6[0];          var setShowLeaderboard = u6[1];
@@ -657,24 +656,6 @@
                 confirmDifficultyAndDrawWord(justoneDifficultyChoice.difficulty);
             }, [justoneDifficultyChoice, phase, masterMode]);
 
-            /* —— LISTENER: VOTO MELHOR PISTA (Consola) —— */
-            useEffect(function() {
-                if (!sessionId || masterMode !== 'console') return;
-                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneBestClueVote'), function(snap) {
-                    setJustoneBestClueVote(snap.val() || null);
-                });
-                return function() { unsub(); };
-            }, [sessionId, masterMode]);
-
-            /* —— PROCESSAR VOTO MELHOR PISTA (auto-confirma) —— */
-            useEffect(function() {
-                if (masterMode !== 'console') return;
-                if (phase !== 'best_clue_selection') return;
-                if (!justoneBestClueVote) return;
-                if (processedBestClueVoteRef.current === justoneBestClueVote.timestamp) return;
-                processedBestClueVoteRef.current = justoneBestClueVote.timestamp;
-                confirmBestClue(justoneBestClueVote.tableId);
-            }, [justoneBestClueVote, phase, masterMode]);
 
             /* —— LISTENER: ESTATÍSTICAS (Consola, só quando o painel está aberto) —— */
             useEffect(function() {
@@ -900,7 +881,7 @@
                 setSecretWord(null); setSecretWordDifficulty(null); setUsedWords([]);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null); setClueDeadline(null);
                 setShowScores(true); setPublicShowScores(false); setTablesLocked(false);
-                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null); setJustoneStats({});
+                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneStats({});
                 setBestClueTableId(null); setPendingWord(null); setPendingWordDiff(null);
                 setShowWordApproval(false); setCustomWordInput(''); setShowCustomWordInput(false);
                 setConnectedClients({}); setPublicState(null);
@@ -949,7 +930,7 @@
                 setClueDeadline(null);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null);
                 setBestClueTableId(null);
-                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null);
                 processedDifficultyChoiceRef.current = null;
                 processedBestClueVoteRef.current = null;
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
@@ -978,7 +959,7 @@
                 setClueDeadline(null);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null);
                 setBestClueTableId(null);
-                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null);
                 processedDifficultyChoiceRef.current = null;
                 processedBestClueVoteRef.current = null;
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
@@ -1200,7 +1181,7 @@
                 setClueDeadline(null);
                 setClueStatus({}); setRevealAll(false); setGuessResult(null);
                 setBestClueTableId(null);
-                setJustoneClues({}); setJustoneDifficultyChoice(null); setJustoneBestClueVote(null);
+                setJustoneClues({}); setJustoneDifficultyChoice(null);
                 processedDifficultyChoiceRef.current = null;
                 processedBestClueVoteRef.current = null;
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneClues')).catch(function(){});
@@ -1349,7 +1330,6 @@
                     });
                 });
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/justoneBestClueVote')).catch(function(){});
-                setJustoneBestClueVote(null);
                 setRevealAll(true);
                 setPhase('reveal');
             };

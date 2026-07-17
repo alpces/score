@@ -129,8 +129,6 @@
             var c4 = _s('');     var submitError = c4[0];        var setSubmitError = c4[1];
             var c5 = _s('');     var lastSubmittedClue = c5[0];  var setLastSubmittedClue = c5[1];
             var c6 = _s(false);  var choosingDifficulty = c6[0]; var setChoosingDifficulty = c6[1];
-            var c7 = _s(false);  var bestClueVoted = c7[0];      var setBestClueVoted = c7[1];
-            var c8 = _s(null);   var bestClueVoteTableId = c8[0]; var setBestClueVoteTableId = c8[1];
 
             // — i18n —
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -546,44 +544,21 @@
                     ),
 
                     // — best_clue_selection —
-                    phase === 'best_clue_selection' && (
+                    phase === 'best_clue_selection' && h('div', { className: 'text-center text-white' },
+                        h('div', { className: 'text-5xl mb-3' }, '⭐'),
                         isGuesser
-                            ? h('div', { className: 'w-full max-w-sm space-y-3' },
-                                h('div', { className: 'text-center text-white' },
-                                    h('div', { className: 'text-3xl mb-2' }, '⭐'),
-                                    h('h2', { className: 'text-lg font-black' }, T('j_best_clue_select_title')),
-                                    h('p', { className: 'text-sm opacity-80 mt-1' }, T('j_best_clue_select_hint'))
-                                ),
-                                bestClueVoted
-                                    ? h('div', { className: 'text-center text-white font-bold text-lg' }, T('j_best_clue_vote_sent'))
-                                    : h('div', { className: 'space-y-2' },
-                                        (function() {
-                                            var allC = visibleClues || {};
-                                            return Object.keys(allC).sort(function(a, b) { return (allC[a].text || '').localeCompare(allC[b].text || ''); }).map(function(tid) {
-                                                var c = allC[tid];
-                                                var tbl = allTables.find(function(t) { return t.id === parseInt(tid, 10); });
-                                                var isValid = c.status === 'valid';
-                                                if (isValid) {
-                                                    return h('button', { key: tid, onClick: function() { chooseBestClue(parseInt(tid, 10)); }, className: 'w-full py-2 px-4 bg-pink-600 hover:bg-pink-500 text-white rounded-xl font-bold text-sm shadow active:scale-95 transition-transform' },
-                                                        T('m_j_best_clue_select_btn') + ': ' + teamLabel(tbl || { id: parseInt(tid,10) }) + ' — "' + capitalize(c.text) + '"');
-                                                }
-                                                return h('div', { key: tid, className: 'w-full py-2 px-4 bg-white bg-opacity-10 text-white opacity-40 rounded-xl text-sm line-through' },
-                                                    teamLabel(tbl || { id: parseInt(tid,10) }) + ' — "' + capitalize(c.text) + '"');
-                                            });
-                                        })()
-                                      )
+                            ? h('div', { className: 'mb-3' },
+                                h('div', { className: 'text-lg font-black mb-1' }, T('j_best_clue_select_title')),
+                                h('div', { className: 'text-sm opacity-80' }, T('j_best_clue_select_hint'))
                               )
-                            : h('div', { className: 'text-center text-white' },
-                                h('div', { className: 'text-5xl mb-3' }, '⭐'),
-                                h('div', { className: 'text-lg font-semibold mb-3' }, T('j_best_clue_waiting', { name: teamLabel(guesserTable || { id: gameData && gameData.guesserTableId }) })),
-                                h('div', { className: 'flex flex-wrap gap-2 justify-center mt-2' },
-                                    Object.keys(visibleClues || {}).sort(function(a, b) { return ((visibleClues || {})[a].text || '').localeCompare(((visibleClues || {})[b].text || '')); }).map(function(tid) {
-                                        var cv = (visibleClues || {})[tid];
-                                        var isValid = cv && cv.status === 'valid';
-                                        return h('span', { key: tid, className: 'px-3 py-1.5 rounded-full font-bold text-sm ' + (isValid ? 'bg-teal-100 text-teal-800' : 'bg-white bg-opacity-10 text-white opacity-40 line-through') }, cv ? capitalize(cv.text) : '');
-                                    })
-                                )
-                              )
+                            : h('div', { className: 'text-lg font-semibold mb-3' }, T('j_best_clue_waiting', { name: teamLabel(guesserTable || { id: gameData && gameData.guesserTableId }) })),
+                        h('div', { className: 'flex flex-wrap gap-2 justify-center mt-2' },
+                            Object.keys(visibleClues || {}).sort(function(a, b) { return ((visibleClues || {})[a].text || '').localeCompare(((visibleClues || {})[b].text || '')); }).map(function(tid) {
+                                var cv = (visibleClues || {})[tid];
+                                var isValid = cv && cv.status === 'valid';
+                                return h('span', { key: tid, className: 'px-3 py-1.5 rounded-full font-bold text-sm ' + (isValid ? 'bg-teal-100 text-teal-800' : 'bg-white bg-opacity-10 text-white opacity-40 line-through') }, cv ? capitalize(cv.text) : '');
+                            })
+                        )
                     ),
 
                     // — clue_giving —

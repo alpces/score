@@ -524,7 +524,7 @@ I18n.registerStrings('pt', {
 
     // ── Cliente Just One — Melhor Pista ───────────────────────────────────────────
     j_best_clue_select_title        : 'Qual pista vos ajudou mais?',
-    j_best_clue_select_hint         : 'Escolham a pista que mais ajudou a adivinhar.',
+    j_best_clue_select_hint         : 'Diz em voz alta ao anfitrião qual é a pista que mais vos ajudou!',
     j_best_clue_vote_sent           : 'Voto enviado!',
     j_best_clue_waiting             : 'A equipa {{name}} está a escolher a melhor pista...',
     j_best_clue_won                 : 'A vossa pista foi a melhor! +{{points}} pontos',
