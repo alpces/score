@@ -294,7 +294,7 @@
             var submitClue = async function() {
                 if (!clueInput.trim() || sending || clueLocked) return;
                 var trimmed = clueInput.trim();
-                var hasEmoji = /p{Emoji_Presentation}|p{Extended_Pictographic}/u.test(trimmed);
+                var hasEmoji = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(trimmed);
                 var hasSpace = trimmed.indexOf(' ') !== -1;
                 if (hasEmoji && !confirm(T('j_clue_emoji_confirm'))) return;
                 else if (!hasEmoji && hasSpace && !confirm(T('j_clue_multiword_confirm'))) return;

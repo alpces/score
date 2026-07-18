@@ -434,6 +434,7 @@
             var u9  = _s(false);   var showManage = u9[0];               var setShowManage = u9[1];
             var u10 = _s(false);   var showStats = u10[0];               var setShowStats = u10[1];
             var u11 = _s(0);       var presenceTick = u11[0];            var setPresenceTick = u11[1];
+            var u12 = _s(false);   var psHideScoresLocally = u12[0];     var setPsHideScoresLocally = u12[1];
 
             /* —— LÍNGUA —— */
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -721,6 +722,11 @@
                 });
                 return function() { unsub(); setPublicState(null); };
             }, [sessionId, masterMode]);
+
+            /* reset do fecho local do modal de pontuação no projetor quando o master o fecha/reabre */
+            useEffect(function() {
+                setPsHideScoresLocally(false);
+            }, [publicState && !!publicState.publicShowScores]);
 
             /* —— SUBSCRIÇÃO clients (modo Público — só teamName/tableNumber/lastSeen, sem
                dados de jogo, para novas mesas aparecerem de imediato sem esperar pela
@@ -2259,9 +2265,12 @@
                     ),
 
                     // Placar em modal, tal como o ranking no modo Consola — só quando ativado
-                    psShowScores && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-40 p-4' },
-                        h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-md slide-in' },
-                            h('h3', { className: 'text-2xl font-black text-white mb-4 text-center' }, '🏆 ' + T('m_h_ranking')),
+                    psShowScores && !psHideScoresLocally && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-40 p-4', onClick: function() { setPsHideScoresLocally(true); } },
+                        h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-md slide-in', onClick: function(e) { e.stopPropagation(); } },
+                            h('div', { className: 'flex items-center justify-between mb-4' },
+                                h('h3', { className: 'text-2xl font-black text-white' }, '🏆 ' + T('m_h_ranking')),
+                                h('button', { onClick: function() { setPsHideScoresLocally(true); }, className: 'text-slate-400 hover:text-white text-2xl leading-none px-2' }, '✕')
+                            ),
                             h('div', { className: 'space-y-2' },
                                 rankTables(psSorted).map(function(item) {
                                     var t = item.table, medal = RANK_MEDALS[item.rank] || item.rank + '.';
