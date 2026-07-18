@@ -402,6 +402,7 @@ I18n.registerStrings('pt', {
     m_j_pub_scores_hide      : '🙈 Ocultar pontos no projetor',
     m_j_public_waiting_data  : 'A aguardar dados da sessão...',
     m_j_pub_choosing_difficulty : 'A equipa {{name}} está a escolher a dificuldade',
+    m_j_pub_choosing_best_clue  : 'A equipa {{name}} está a escolher a melhor pista',
     m_j_pub_collecting_clues : 'A recolher pistas...',
     m_j_pub_validating       : 'A validar pistas...',
 

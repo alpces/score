@@ -402,6 +402,7 @@ I18n.registerStrings('en', {
     m_j_pub_scores_hide      : '🙈 Hide scores on projector',
     m_j_public_waiting_data  : 'Waiting for session data...',
     m_j_pub_choosing_difficulty : 'Team {{name}} is choosing the difficulty',
+    m_j_pub_choosing_best_clue  : 'Team {{name}} is choosing the best clue',
     m_j_pub_collecting_clues : 'Collecting clues...',
     m_j_pub_validating       : 'Validating clues...',
 

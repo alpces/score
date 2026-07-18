@@ -2183,7 +2183,7 @@
                     psBody = h('div', { className: 'text-center space-y-4 ' + psBodyWidth },
                         h('div', { className: 'text-2xl font-black text-pink-300' }, T('m_j_phase_best_clue_selection')),
                         ps.revealedWord && h('div', { className: 'inline-block bg-amber-500 text-amber-950 font-black text-2xl px-6 py-2 rounded-2xl' }, capitalize(ps.revealedWord)),
-                        psGuesser && h('div', { className: 'text-lg text-slate-300' }, T('m_j_pub_choosing_difficulty', { name: teamLabel(psGuesser) })),
+                        psGuesser && h('div', { className: 'text-lg text-slate-300' }, T('m_j_pub_choosing_best_clue', { name: teamLabel(psGuesser) })),
                         psBcsSorted.length > 0 && h('div', { className: 'flex flex-wrap gap-3 justify-center mt-2' },
                             psBcsSorted.map(function(tid) {
                                 var c = psBcsClues[tid];
