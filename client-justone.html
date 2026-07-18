@@ -55,7 +55,7 @@
         function capitalize(s) { if (!s) return s; return s.charAt(0).toUpperCase() + s.slice(1); }
 
         var HEARTBEAT_MS = 15000;
-        var localStore  = ClientCore.createLocalStore('justone');
+        var localStore  = ClientCore.createLocalStore('justone', 6 * 3600 * 1000);
         var clearLocal  = localStore.clear;
         var CLIENT_ID   = ClientCore.getClientId('justone_clientId');
 
@@ -257,7 +257,6 @@
                 if (ph === 'clue_giving' || ph === 'choosing_difficulty' || rn !== prevRoundNumberRef.current) {
                     setClueInput(''); setClueSubmitted(false); setLastSubmittedClue('');
                     setChoosingDifficulty(false); setSubmitError('');
-                    setBestClueVoted(false); setBestClueVoteTableId(null);
                 }
                 prevRoundNumberRef.current = rn;
             }, [gameData ? gameData.roundNumber : null, gameData ? gameData.phase : null]);
@@ -291,6 +290,11 @@
             // — submeter pista —
             var submitClue = async function() {
                 if (!clueInput.trim() || sending || clueLocked) return;
+                var trimmed = clueInput.trim();
+                var hasEmoji = /p{Emoji_Presentation}|p{Extended_Pictographic}/u.test(trimmed);
+                var hasSpace = trimmed.indexOf(' ') !== -1;
+                if (hasEmoji && !confirm(T('j_clue_emoji_confirm'))) return;
+                else if (!hasEmoji && hasSpace && !confirm(T('j_clue_multiword_confirm'))) return;
                 setSending(true); setSubmitError('');
                 var payload = { text: clueInput.trim(), timestamp: Date.now(), clientId: CLIENT_ID };
                 var result = await ClientCore.submitWithVerify({

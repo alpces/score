@@ -379,7 +379,10 @@
             }
 
             // Colisão de clientId: a mesa pertence a outro dispositivo
-            if (existing) {
+            // Grace period: se o último heartbeat foi há mais de 90s, a entrada é considerada obsoleta
+            // e qualquer dispositivo pode tomar a mesa (cobre o caso de refresh + localStorage limpo).
+            var isStale = existing && existing.lastSeen && (Date.now() - existing.lastSeen) > 90000;
+            if (existing && !isStale) {
                 if (existing.clientId && existing.clientId !== clientId) {
                     if (isAuto) {
                         return {

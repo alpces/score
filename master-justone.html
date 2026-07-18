@@ -156,6 +156,40 @@
             return dupSet;
         }
 
+        function levenshtein(a, b) {
+            var m = a.length, n = b.length, i, j, prev = [], curr = [], tmp;
+            for (j = 0; j <= n; j++) prev[j] = j;
+            for (i = 1; i <= m; i++) {
+                curr[0] = i;
+                for (j = 1; j <= n; j++) {
+                    curr[j] = a[i-1] === b[j-1] ? prev[j-1] : 1 + Math.min(prev[j], curr[j-1], prev[j-1]);
+                }
+                tmp = prev; prev = curr; curr = tmp;
+            }
+            return prev[n];
+        }
+
+        function detectSimilarClues(clues, dupSet) {
+            // Returns {tid: [tid2, ...]} for clues similar but NOT identical to another
+            var ids = Object.keys(clues).filter(function(tid) { return clues[tid] && clues[tid].text; });
+            var simSet = {};
+            for (var i = 0; i < ids.length; i++) {
+                for (var j = i + 1; j < ids.length; j++) {
+                    if (dupSet[ids[i]] && dupSet[ids[j]]) continue; // already flagged as exact dup
+                    var a = normalizeClueText(clues[ids[i]].text);
+                    var b = normalizeClueText(clues[ids[j]].text);
+                    if (a === b || a.length < 3 || b.length < 3) continue;
+                    var dist = levenshtein(a, b);
+                    var maxLen = Math.max(a.length, b.length);
+                    if (dist <= 2 || (maxLen >= 6 && dist <= Math.floor(maxLen * 0.25))) {
+                        (simSet[ids[i]] = simSet[ids[i]] || []).push(ids[j]);
+                        (simSet[ids[j]] = simSet[ids[j]] || []).push(ids[i]);
+                    }
+                }
+            }
+            return simSet;
+        }
+
         // — projeção partilhada gameState.visibleClues / publicState.visibleClues —
         function buildVisibleClues(phase, justoneClues, clueStatus) {
             if (phase === 'guessing') {
@@ -287,6 +321,19 @@
                 });
             return [header].concat(rows).join('\n');
         }
+
+        function rankTables(sorted) {
+            // Standard competition ranking: ties share the same position, next rank skips
+            var result = [];
+            var rank = 1;
+            for (var i = 0; i < sorted.length; i++) {
+                if (i > 0 && sorted[i].score < sorted[i-1].score) rank = i + 1;
+                result.push({ table: sorted[i], rank: rank });
+            }
+            return result;
+        }
+
+        var RANK_MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
         function downloadBlob(content, filename, mime) {
             var blob = new Blob([content], { type: mime });
@@ -573,7 +620,7 @@
                         revealAll: revealAll,
                         guessResult: guessResult,
                         visibleClues: buildVisibleClues(phase, justoneClues, clueStatus),
-                        revealedWord: revealAll ? secretWord : null,
+                        revealedWord: (revealAll || phase === 'best_clue_selection') ? secretWord : null,
                         tables: tables,
                         showScores: showScores,
                         publicShowScores: publicShowScores,
@@ -1424,6 +1471,7 @@
             /* —— MODAL: VALIDAR PISTAS —— */
             var ClueReviewModal = function() {
                 var dupSet = detectDuplicateClues(justoneClues);
+                var simSet = detectSimilarClues(justoneClues, dupSet);
                 return h('div', { className: 'fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4' },
                     h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 w-full max-w-2xl max-h-[90vh] flex flex-col slide-in' },
                         h('div', { className: 'flex items-center justify-between mb-3 flex-shrink-0' },
@@ -1448,6 +1496,8 @@
                                     onClick: function() { toggleClueStatus(t.id); },
                                     className: 'flex items-center gap-3 p-3 rounded-xl border-2 transition-all ' + (
                                         !hasClue ? 'border-gray-100 bg-gray-50 opacity-60' :
+                                        isDup ? 'border-red-300 bg-red-50 cursor-pointer' :
+                                        simSet[t.id] ? 'border-amber-400 bg-amber-50 cursor-pointer' :
                                         status === 'valid' ? 'border-green-400 bg-green-50 cursor-pointer' : 'border-red-300 bg-red-50 cursor-pointer'
                                     )
                                 },
@@ -1459,10 +1509,18 @@
                                         hasClue
                                             ? h('div', { className: 'text-gray-600 text-sm truncate' }, '"' + clue.text + '"')
                                             : h('div', { className: 'text-gray-400 text-xs italic' }, T('m_j_clue_no_submission')),
-                                        isDup && h('div', { className: 'text-xs text-amber-600 font-semibold mt-0.5' },
+                                        isDup && h('div', { className: 'text-xs text-red-600 font-semibold mt-0.5' },
                                             T('m_j_duplicate_warning', {
                                                 names: tables.filter(function(t2) { return dupSet[t2.id] && t2.id !== t.id; })
                                                     .map(function(t2) { return teamLabel(t2); }).join(', ')
+                                            })
+                                        ),
+                                        !isDup && simSet[t.id] && h('div', { className: 'text-xs text-amber-600 font-semibold mt-0.5' },
+                                            T('m_j_similar_warning', {
+                                                names: simSet[t.id].map(function(sid) {
+                                                    var st = tables.find(function(t3) { return t3.id === Number(sid); });
+                                                    return st ? teamLabel(st) : 'Mesa ' + sid;
+                                                }).join(', ')
                                             })
                                         )
                                     ),
@@ -1483,10 +1541,19 @@
             /* —— MODAL: ESTATÍSTICAS —— */
             var StatsModal = function() {
                 var agg = aggregateStats(justoneStats);
-                var totalChosen = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].chosen;},0);
-                var totalCorrect = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].correct;},0);
-                var totalIncorrect = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].incorrect;},0);
-                var totalPassed = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].passed;},0);
+                var totalChosen, totalCorrect, totalIncorrect, totalPassed;
+                if (scoringMode === 'best_clue') {
+                    var sv = Object.values(justoneStats);
+                    totalChosen = sv.length;
+                    totalCorrect = sv.filter(function(r) { return r.result === 'correct'; }).length;
+                    totalIncorrect = sv.filter(function(r) { return r.result === 'incorrect'; }).length;
+                    totalPassed = sv.filter(function(r) { return r.result === 'passed'; }).length;
+                } else {
+                    totalChosen = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].chosen;},0);
+                    totalCorrect = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].correct;},0);
+                    totalIncorrect = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].incorrect;},0);
+                    totalPassed = ['easy','medium','hard'].reduce(function(s2,t){return s2+agg[t].passed;},0);
+                }
                 var totalPct = totalChosen > 0 ? Math.round((totalCorrect / totalChosen) * 100) : 0;
                 return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowStats(false); } },
                     h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 w-full max-w-lg slide-in max-h-[90vh] overflow-y-auto', onClick: function(e) { e.stopPropagation(); } },
@@ -1697,8 +1764,8 @@
                             (infoSession.tables || []).length === 0
                                 ? h('p', { className: 'text-slate-400 text-sm text-center italic px-5 pb-5' }, T('m_h_no_teams'))
                                 : h('div', { className: 'space-y-1.5 px-5 pb-5 overflow-y-auto flex-1' },
-                                    (infoSession.tables || []).slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
-                                        var medal = ['🥇','🥈','🥉'][idx] || '';
+                                    rankTables((infoSession.tables || []).slice().sort(function(a,b) { return b.score - a.score; })).map(function(item) {
+                                        var t = item.table, medal = RANK_MEDALS[item.rank] || '';
                                         var clientData = histInfoClients[t.id];
                                         var emails = (clientData && clientData.emails) || t.emails || [];
                                         return h('div', { key: t.id, className: 'py-2 px-3 rounded-lg bg-slate-700' },
@@ -2108,6 +2175,7 @@
                     });
                     psBody = h('div', { className: 'text-center space-y-4 ' + psBodyWidth },
                         h('div', { className: 'text-2xl font-black text-pink-300' }, T('m_j_phase_best_clue_selection')),
+                        ps.revealedWord && h('div', { className: 'inline-block bg-amber-500 text-amber-950 font-black text-2xl px-6 py-2 rounded-2xl' }, capitalize(ps.revealedWord)),
                         psGuesser && h('div', { className: 'text-lg text-slate-300' }, T('m_j_pub_choosing_difficulty', { name: teamLabel(psGuesser) })),
                         psBcsSorted.length > 0 && h('div', { className: 'flex flex-wrap gap-3 justify-center mt-2' },
                             psBcsSorted.map(function(tid) {
@@ -2195,8 +2263,8 @@
                         h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-md slide-in' },
                             h('h3', { className: 'text-2xl font-black text-white mb-4 text-center' }, '🏆 ' + T('m_h_ranking')),
                             h('div', { className: 'space-y-2' },
-                                psSorted.map(function(t, idx) {
-                                    var medal = ['🥇', '🥈', '🥉'][idx] || (idx + 1) + '.';
+                                rankTables(psSorted).map(function(item) {
+                                    var t = item.table, medal = RANK_MEDALS[item.rank] || item.rank + '.';
                                     var isGuesser = t.id === ps.guesserTableId;
                                     return h('div', {
                                         key: t.id,
@@ -2369,11 +2437,11 @@
                         h('div', { className: 'flex-1 overflow-y-auto p-3' },
                             h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, T('m_h_ranking')),
                             h('div', { className: 'space-y-1' },
-                                tables.slice().sort(function(a, b) { return b.score - a.score; }).map(function(t, idx) {
-                                    var medal = ['🥇', '🥈', '🥉'][idx] || '';
+                                rankTables(tables.slice().sort(function(a, b) { return b.score - a.score; })).map(function(item) {
+                                    var t = item.table, medal = RANK_MEDALS[item.rank] || '';
                                     return h('div', { key: t.id, className: 'flex items-center justify-between text-sm' },
                                         h('div', { className: 'flex items-center gap-1' },
-                                            h('span', null, medal || (idx + 1) + '.'),
+                                            h('span', null, medal || item.rank + '.'),
                                             h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, teamLabel(t))
                                         ),
                                         h('span', { className: 'font-black text-teal-400' }, t.score)
@@ -2514,8 +2582,8 @@
                     h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm slide-in', onClick: function(e) { e.stopPropagation(); } },
                         h('h3', { className: 'text-xl font-black text-white mb-4 text-center' }, T('m_leaderboard')),
                         h('div', { className: 'space-y-2' },
-                            tables.slice().sort(function(a, b) { return b.score - a.score; }).map(function(t, idx) {
-                                var medal = ['🥇', '🥈', '🥉'][idx] || (idx + 1) + '.';
+                            rankTables(tables.slice().sort(function(a, b) { return b.score - a.score; })).map(function(item) {
+                                var t = item.table, medal = RANK_MEDALS[item.rank] || item.rank + '.';
                                 return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl bg-slate-700' },
                                     h('div', { className: 'flex items-center gap-2' },
                                         h('span', { className: 'text-xl' }, medal),
