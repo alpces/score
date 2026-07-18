@@ -1100,13 +1100,17 @@
             };
 
             /* —— VER PISTAS: ABRE MODAL DE VALIDAÇÃO (clue_giving -> reviewing) —— */
+            var emojiRe = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u;
             var openClueReview = function() {
                 var dupSet = detectDuplicateClues(justoneClues);
                 var initial = {};
                 tables.forEach(function(t) {
                     if (t.id === guesserTableId) return;
                     var hasClue = !!(justoneClues[t.id] && justoneClues[t.id].text);
-                    initial[t.id] = (!hasClue || dupSet[t.id]) ? 'annulled' : 'valid';
+                    var clueText = hasClue ? justoneClues[t.id].text.trim() : '';
+                    var isMultiWord = clueText.indexOf(' ') !== -1;
+                    var hasEmoji = emojiRe.test(clueText);
+                    initial[t.id] = (!hasClue || dupSet[t.id] || isMultiWord || hasEmoji) ? 'annulled' : 'valid';
                 });
                 setClueStatus(initial);
                 setPhase('reviewing');
