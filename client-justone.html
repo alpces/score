@@ -55,7 +55,7 @@
         function capitalize(s) { if (!s) return s; return s.charAt(0).toUpperCase() + s.slice(1); }
 
         var HEARTBEAT_MS = 15000;
-        var localStore  = ClientCore.createLocalStore('justone', 6 * 3600 * 1000);
+        var localStore  = ClientCore.createLocalStore('justone');
         var clearLocal  = localStore.clear;
         var CLIENT_ID   = ClientCore.getClientId('justone_clientId');
 
@@ -197,18 +197,21 @@
             }, [connected]);
 
             // 3. — restaurar sessão local —
+            // Nota: se o URL contém ?session= diferente do guardado, o URL ganha —
+            // evita que um QR code de nova sessão seja ignorado por sessão antiga.
             useEffect(function() {
+                var p = new URLSearchParams(window.location.search);
+                var urlSession = p.get('session') ? p.get('session').toUpperCase() : null;
                 var saved = localStore.load();
-                if (saved) {
+                if (saved && (!urlSession || urlSession === saved.session)) {
                     setSessionCode(saved.session);
                     setTableNumber(saved.table);
                     if (saved.team)   setTeamName(saved.team);
                     if (saved.emails) setEmails(saved.emails);
                     setAutoRecon(true);
                 } else {
-                    var p = new URLSearchParams(window.location.search);
-                    var u = p.get('session');
-                    if (u) setSessionCode(u.toUpperCase());
+                    if (urlSession && saved && urlSession !== saved.session) clearLocal();
+                    if (urlSession) setSessionCode(urlSession);
                 }
             }, []);
 
