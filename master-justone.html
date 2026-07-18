@@ -1280,7 +1280,7 @@
                     clueDeadline: clueDeadline,
                     guessResult: guessResult,
                     visibleClues: buildVisibleClues(phase, justoneClues, clueStatus),
-                    revealedWord: (revealAll || phase === 'best_clue_selection' || phase === 'guessing') ? secretWord : null,
+                    revealedWord: (revealAll || phase === 'best_clue_selection') ? secretWord : null,
                     publicShowScores: publicShowScores,
                     completedLaps: getCompletedLaps(tables),
                     timestamp: Date.now()
@@ -2161,7 +2161,6 @@
                     var psVisibleClues = ps.visibleClues || {};
                     psBody = h('div', { className: 'text-center space-y-3 ' + psBodyWidth },
                         psDifficultyBadge,
-                        ps.revealedWord && h('div', { className: 'inline-block bg-amber-500 text-amber-950 font-black text-2xl px-6 py-2 rounded-2xl' }, capitalize(ps.revealedWord)),
                         h('div', { className: 'flex flex-wrap gap-3 justify-center' },
                             Object.keys(psVisibleClues).slice().sort(function(a, b) {
                                 var ta = psVisibleClues[a].text.toLowerCase();
