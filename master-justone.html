@@ -927,6 +927,19 @@
 
             var endSessionPause = function() { resetToSetup(); };
 
+            var endSessionDelete = async function() {
+                if (!sessionId) return;
+                if (!confirm(T('m_h_delete_session_confirm'))) return;
+                var curId = sessionId;
+                archivingRef.current = true;
+                try {
+                    await fm.update(fm.ref(rtdb, 'sessions/' + curId + '/gameState'), { active: false, closedAt: Date.now() });
+                    await new Promise(function(r) { setTimeout(r, 400); });
+                    await fm.remove(fm.ref(rtdb, 'sessions/' + curId));
+                } catch(e) { console.error('Erro ao eliminar sessão:', e); }
+                resetToSetup();
+            };
+
             var resetToSetup = function() {
                 archivingRef.current = false;
                 setSetupDone(false); setSessionId(null); setTables([]);
@@ -2649,6 +2662,7 @@
                                 className: 'w-full py-3 rounded-xl font-bold ' + (lapComplete ? 'bg-teal-600 hover:bg-teal-500 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed')
                             }, T('m_archive_close')),
                             h('button', { onClick: endSessionPause, className: 'w-full py-3 bg-amber-700 hover:bg-amber-600 text-white rounded-xl font-bold' }, T('m_h_pause_session')),
+                            h('button', { onClick: endSessionDelete, className: 'w-full py-3 bg-red-900 hover:bg-red-800 text-red-300 rounded-xl font-bold' }, T('m_h_delete_session')),
                             h('button', { onClick: function() { setShowEndModal(false); }, className: 'w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold' }, T('m_cancel'))
                         )
                     )
