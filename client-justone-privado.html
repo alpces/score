@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Just One – Evento</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="shared/firebase-config.js"></script>
+    <script src="shared/client-core.js"></script>
+    <script src="shared/i18n.js"></script>
+    <script src="shared/i18n-pt.js"></script>
+    <script src="shared/i18n-en.js"></script>
+    <style>
+        input, textarea { font-size: 16px !important; }
+        html, body { height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; padding-bottom: env(safe-area-inset-bottom); }
+        #root { min-height: 100dvh; }
+        .min-h-screen { min-height: 100dvh !important; }
+        .h-screen { height: 100dvh !important; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, onValue, set, remove, get, update, goOffline, goOnline } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+        const app = initializeApp(window.FirebaseConfig);
+        window.rtdb = getDatabase(app);
+        window.fbModules = { ref, onValue, set, remove, get, update, goOffline, goOnline };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script>
+    window.addEventListener('firebaseReady', function() {
+        var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
+        var rtdb = window.rtdb, fm = window.fbModules;
+
+        var GAME_TYPE   = 'justone-privado';
+        var HEARTBEAT_MS = 15000;
+        var localStore  = ClientCore.createLocalStore(GAME_TYPE);
+        var clearLocal  = localStore.clear;
+        var CLIENT_ID   = ClientCore.getClientId('justone_privado_clientId');
+
+        function capitalize(s) { if (!s) return s; return s.charAt(0).toUpperCase() + s.slice(1); }
+
+        function teamLabel(table) {
+            if (!table) return '';
+            var tn = 'Equipa ' + table.id;
+            return table.name ? (table.name + ' (' + tn + ')') : tn;
+        }
+
+        function App() {
+            var _s = function(v) { return useState(v); };
+
+            // conexão
+            var r1 = _s(false);  var connected = r1[0];     var setConnected = r1[1];
+            var r2 = _s('');     var sessionCode = r2[0];   var setSessionCode = r2[1];
+            var r3 = _s('');     var tableNumber = r3[0];   var setTableNumber = r3[1];
+            var r4 = _s('');     var teamName = r4[0];      var setTeamName = r4[1];
+            var r5 = _s('');     var connError = r5[0];     var setConnError = r5[1];
+            var r6 = _s(false);  var autoRecon = r6[0];     var setAutoRecon = r6[1];
+            var r7 = _s(false);  var sessionLost = r7[0];   var setSessionLost = r7[1];
+            var r8 = _s(true);   var fbConnected = r8[0];   var setFbConnected = r8[1];
+            var r9 = _s(0);      var resubKey = r9[0];      var setResubKey = r9[1];
+
+            // jogo
+            var g1 = _s(null);       var gameData = g1[0];      var setGameData = g1[1];
+            var g2 = _s(null);       var secretWordData = g2[0]; var setSecretWordData = g2[1];
+            var g3 = _s(Date.now()); var nowTick = g3[0];        var setNowTick = g3[1];
+            var g4 = _s(false);      var showHelp = g4[0];       var setShowHelp = g4[1];
+
+            // pista própria
+            var c1 = _s('');    var clueInput = c1[0];         var setClueInput = c1[1];
+            var c2 = _s(false); var clueSubmitted = c2[0];     var setClueSubmitted = c2[1];
+            var c3 = _s(false); var sending = c3[0];           var setSending = c3[1];
+            var c4 = _s('');    var submitError = c4[0];       var setSubmitError = c4[1];
+            var c5 = _s('');    var lastSubmittedClue = c5[0]; var setLastSubmittedClue = c5[1];
+
+            var prevRoundNumberRef = useRef(null);
+
+            // dados derivados
+            var tableId       = parseInt(tableNumber || '0');
+            var phase         = gameData ? (gameData.phase || 'waiting') : 'waiting';
+            var isGuesser     = !!(gameData && gameData.guesserTableId === tableId);
+            var secretWord    = secretWordData ? secretWordData.word : null;
+            var bestClueConfig = gameData ? (gameData.bestClueConfig || { guesser: 3, bestClue: 3, otherClue: 1, penalty: 1 }) : { guesser: 3, bestClue: 3, otherClue: 1, penalty: 1 };
+            var bestClueTableId = gameData ? (gameData.bestClueTableId || null) : null;
+            var clueDeadline  = gameData ? gameData.clueDeadline : null;
+            var clueLocked    = !!(clueDeadline && nowTick > clueDeadline);
+            var clueStatus    = gameData ? (gameData.clueStatus || {}) : {};
+            var myClueStatus  = clueStatus[tableId];
+            var annulledCount = Object.keys(clueStatus).filter(function(tid) { return clueStatus[tid] === 'annulled'; }).length;
+            var revealAll     = gameData ? gameData.revealAll : false;
+            var guessResult   = gameData ? gameData.guessResult : null;
+            var visibleClues  = gameData ? gameData.visibleClues : null;
+            var revealedWord  = gameData ? gameData.revealedWord : null;
+            var allTables     = gameData ? (gameData.tables || []) : [];
+            var myTable       = allTables.find(function(t) { return t.id === tableId; });
+            var guesserTable  = allTables.find(function(t) { return gameData && t.id === gameData.guesserTableId; });
+            var myScore       = myTable ? myTable.score : 0;
+
+            // 1. conexão à sessão
+            useEffect(function() {
+                if (!connected || !sessionCode || !tableNumber) return;
+                var ctrl = ClientCore.connectClient({
+                    rtdb: rtdb, fm: fm,
+                    sessionCode: sessionCode, tableNumber: tableNumber,
+                    heartbeatMs: HEARTBEAT_MS,
+                    onGameState: setGameData,
+                    onSessionLost: function() {
+                        setSessionLost(true); setConnected(false); setGameData(null); clearLocal();
+                    },
+                    onFbConnectionChange: setFbConnected,
+                    onResume: function() { setResubKey(function(k) { return k + 1; }); }
+                });
+                return function() { ctrl.disconnect(); };
+            }, [connected, sessionCode, tableNumber]);
+
+            // 2. wake lock
+            useEffect(function() {
+                if (!connected) return;
+                var lock = ClientCore.attachWakeLock();
+                return function() { lock.release(); };
+            }, [connected]);
+
+            // 3. restaurar sessão local
+            useEffect(function() {
+                var p = new URLSearchParams(window.location.search);
+                var urlSession = p.get('session') ? p.get('session').toUpperCase() : null;
+                var saved = localStore.load();
+                if (saved && (!urlSession || urlSession === saved.session)) {
+                    setSessionCode(saved.session);
+                    setTableNumber(saved.table);
+                    if (saved.team) setTeamName(saved.team);
+                    setAutoRecon(true);
+                } else {
+                    if (urlSession && saved && urlSession !== saved.session) clearLocal();
+                    if (urlSession) setSessionCode(urlSession);
+                }
+            }, []);
+
+            // 4. auto-reconnect
+            useEffect(function() {
+                if (autoRecon && sessionCode && tableNumber) handleConnect(true);
+            }, [autoRecon, sessionCode, tableNumber]);
+
+            // 5. limpar pista quando servidor limpa justoneClues
+            useEffect(function() {
+                if (!connected || !sessionCode || !tableNumber) return;
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/justoneClues/' + tableNumber), function(snap) {
+                    if (!snap.val()) setClueSubmitted(false);
+                });
+                return function() { unsub(); };
+            }, [connected, sessionCode, tableNumber, resubKey]);
+
+            // 6. palavra secreta (apenas para não-adivinhadores)
+            useEffect(function() {
+                if (!sessionCode || !connected || isGuesser) { setSecretWordData(null); return; }
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/secret'), function(snap) {
+                    setSecretWordData(snap.val() || null);
+                });
+                return function() { unsub(); setSecretWordData(null); };
+            }, [sessionCode, connected, isGuesser]);
+
+            // 7. timer de pistas
+            useEffect(function() {
+                if (!gameData || phase !== 'clue_giving' || !gameData.clueDeadline) return;
+                var id = setInterval(function() { setNowTick(Date.now()); }, 1000);
+                return function() { clearInterval(id); };
+            }, [phase, gameData && gameData.clueDeadline]);
+
+            // 8. reset ao início de nova ronda
+            useEffect(function() {
+                if (!gameData) return;
+                var rn = gameData.roundNumber;
+                var ph = gameData.phase;
+                if (prevRoundNumberRef.current === null) { prevRoundNumberRef.current = rn; return; }
+                if (ph === 'clue_giving' || rn !== prevRoundNumberRef.current) {
+                    setClueInput(''); setClueSubmitted(false); setLastSubmittedClue(''); setSubmitError('');
+                }
+                prevRoundNumberRef.current = rn;
+            }, [gameData ? gameData.roundNumber : null, gameData ? gameData.phase : null]);
+
+            // — conexão —
+            var handleConnect = async function(isAuto) {
+                var result = await ClientCore.joinSession({
+                    rtdb: rtdb, fm: fm,
+                    sessionCode: sessionCode, tableNumber: tableNumber,
+                    teamName: teamName, emails: '',
+                    clientId: CLIENT_ID, gameType: GAME_TYPE,
+                    isAuto: isAuto
+                });
+                if (result.ok) {
+                    localStore.save({ session: result.code, table: result.table, team: teamName });
+                    setConnected(true); ClientCore.showDedicatedWarning(); setAutoRecon(false); setConnError(''); setSessionLost(false);
+                } else {
+                    if (result.clearLocal) clearLocal();
+                    setConnError(result.error || 'Erro de ligação. Verifica o código e o número de equipa.');
+                    setAutoRecon(false);
+                }
+            };
+
+            var handleDisconnect = async function() {
+                if (!confirm('Tens a certeza que queres sair?')) return;
+                try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients/' + tableNumber)); } catch(e) {}
+                clearLocal();
+                setConnected(false); setGameData(null); setSecretWordData(null);
+            };
+
+            // — submeter pista —
+            var submitClue = async function() {
+                if (!clueInput.trim() || sending || clueLocked) return;
+                var trimmed = clueInput.trim();
+                var hasEmoji = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(trimmed);
+                var hasSpace = trimmed.indexOf(' ') !== -1;
+                if (hasEmoji && !confirm('A tua pista tem emoji. Os emojis não são permitidos. Continuar mesmo assim?')) return;
+                else if (!hasEmoji && hasSpace && !confirm('A tua pista tem espaço (mais de uma palavra). Continuar mesmo assim?')) return;
+                setSending(true); setSubmitError('');
+                var payload = { text: trimmed, timestamp: Date.now(), clientId: CLIENT_ID };
+                var result = await ClientCore.submitWithVerify({
+                    rtdb: rtdb, fm: fm,
+                    path: 'sessions/' + sessionCode + '/justoneClues/' + tableNumber,
+                    payload: payload, clientId: CLIENT_ID, verifyKey: 'text'
+                });
+                if (result.ok) {
+                    setClueSubmitted(true); setLastSubmittedClue(payload.text);
+                    setTimeout(function() { setSending(false); }, 500);
+                } else {
+                    setSubmitError('Erro ao enviar. Tenta de novo.'); setSending(false); setClueSubmitted(false);
+                }
+            };
+
+            // — sessão perdida —
+            if (sessionLost) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex items-center justify-center p-4' },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center' },
+                        h('div', { className: 'text-5xl mb-4' }, '🤫'),
+                        h('h2', { className: 'text-xl font-bold text-gray-800 mb-2' }, 'Sessão terminada'),
+                        h('p', { className: 'text-gray-600 mb-4' }, 'O anfitrião encerrou a sessão de jogo.'),
+                        h('button', {
+                            onClick: function() { setSessionLost(false); setSessionCode(''); setTableNumber(''); },
+                            className: 'w-full py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold'
+                        }, 'Voltar ao início')
+                    )
+                );
+            }
+
+            // — a reconectar —
+            if (autoRecon) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex items-center justify-center' },
+                    h('div', { className: 'text-center text-white' },
+                        h('div', { className: 'text-5xl mb-4 animate-spin' }, '🤫'),
+                        h('div', { className: 'text-xl font-semibold' }, 'A ligar…')
+                    )
+                );
+            }
+
+            // — login —
+            if (!connected) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 p-4 flex items-center justify-center' },
+                    h('div', { className: 'w-full max-w-sm' },
+                        h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' },
+                            h('div', { className: 'flex items-center justify-between mb-4' },
+                                h('div', { className: 'bg-gray-700 rounded-xl p-1.5' },
+                                    h('img', { src: 'logo2.png', className: 'h-8 w-auto', alt: 'Ludonautas' })
+                                ),
+                                h('div', { className: 'text-right' },
+                                    h('div', { className: 'text-sm font-black text-teal-800' }, 'Just One'),
+                                    h('div', { className: 'text-xs text-gray-500' }, 'Evento privado')
+                                )
+                            ),
+                            h('div', { className: 'text-center mb-5' },
+                                h('div', { className: 'text-4xl mb-2' }, '🤫'),
+                                h('h1', { className: 'text-xl font-black text-teal-800' }, 'Entrar na sessão')
+                            ),
+                            connError && h('div', { className: 'bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm font-semibold' }, connError),
+                            h('div', { className: 'space-y-4' },
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-1' }, 'Código da sessão'),
+                                    h('input', {
+                                        type: 'text', value: sessionCode,
+                                        onChange: function(e) { setSessionCode(e.target.value.toUpperCase()); },
+                                        placeholder: 'ABC123',
+                                        className: 'w-full px-4 py-3 border-2 rounded-xl text-center font-mono text-xl uppercase focus:border-teal-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-1' }, 'Número da equipa (1–999)'),
+                                    h('input', {
+                                        type: 'number', min: 1, max: 999,
+                                        value: tableNumber,
+                                        onChange: function(e) { setTableNumber(e.target.value); },
+                                        placeholder: '1',
+                                        className: 'w-full px-4 py-3 border-2 rounded-xl text-center text-xl focus:border-teal-500 outline-none'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-semibold text-gray-700 mb-1' }, 'Nome da equipa (opcional)'),
+                                    h('input', {
+                                        type: 'text', value: teamName,
+                                        onChange: function(e) { setTeamName(e.target.value); },
+                                        placeholder: 'Ex: Os Campeões',
+                                        className: 'w-full px-4 py-2 border-2 rounded-xl focus:border-teal-500 outline-none'
+                                    })
+                                ),
+                                h('button', {
+                                    onClick: function() { handleConnect(false); },
+                                    className: 'w-full py-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform'
+                                }, 'Entrar')
+                            )
+                        )
+                    )
+                );
+            }
+
+            // — jogo —
+            return h('div', { className: 'h-screen bg-gradient-to-br from-teal-900 via-cyan-900 to-slate-900 flex flex-col overflow-hidden' },
+
+                // banner offline
+                !fbConnected && h('div', {
+                    className: 'absolute top-0 inset-x-0 bg-red-600 text-white text-xs text-center py-1 z-50 font-bold animate-pulse'
+                }, 'Sem ligação — a tentar reconectar…'),
+
+                // header
+                h('div', { className: 'relative z-10 bg-white bg-opacity-10 backdrop-blur-sm px-4 py-2 flex items-center justify-between flex-shrink-0' },
+                    h('div', { className: 'text-white' },
+                        h('div', { className: 'text-xs opacity-70' }, 'Equipa ' + tableNumber),
+                        h('div', { className: 'font-bold text-sm leading-tight truncate max-w-32' }, teamName || ('Equipa ' + tableNumber))
+                    ),
+                    h('img', { src: 'logo2.png', alt: 'logo', className: 'h-8 object-contain' }),
+                    h('div', { className: 'flex items-center gap-2' },
+                        h('button', {
+                            onClick: function() { setShowHelp(true); },
+                            style: { boxShadow: '0 0 7px 2px rgba(255,255,255,0.22), 0 0 0 1.5px rgba(255,255,255,0.18)' },
+                            className: 'w-8 h-8 flex items-center justify-center bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-full text-sm font-black transition-all active:scale-95'
+                        }, '?'),
+                        h('div', { className: 'text-xs text-white opacity-60 font-mono' }, sessionCode),
+                        h('button', {
+                            onClick: handleDisconnect,
+                            className: 'w-7 h-7 flex items-center justify-center bg-red-600 hover:bg-red-500 text-white rounded text-sm font-bold transition-all active:scale-95'
+                        }, '✕')
+                    )
+                ),
+
+                // ronda + equipa a adivinhar
+                gameData && phase !== 'waiting' && h('div', { className: 'relative z-10 mx-4 mt-2 flex items-center justify-between text-white text-opacity-70 text-xs font-bold flex-shrink-0' },
+                    h('span', null, 'Ronda ' + (gameData.roundNumber || 1)),
+                    h('span', null, 'A adivinhar: ' + teamLabel(guesserTable || { id: gameData.guesserTableId }))
+                ),
+
+                // pontuação
+                h('div', { className: 'relative z-10 mx-4 mt-3 bg-white bg-opacity-15 rounded-2xl p-3 text-center flex-shrink-0' },
+                    h('div', { className: 'text-5xl font-black text-white' }, myScore),
+                    h('div', { className: 'text-xs text-white opacity-70 mt-0.5' }, 'pontos')
+                ),
+
+                // área principal
+                h('div', { className: 'relative z-10 flex-1 flex flex-col items-center justify-center gap-3 p-4 overflow-y-auto' },
+
+                    // waiting
+                    phase === 'waiting' && h('div', { className: 'text-center text-white opacity-75' },
+                        h('div', { className: 'text-5xl mb-3' }, '🤫'),
+                        h('div', { className: 'text-lg font-semibold' }, 'À espera que o anfitrião inicie a ronda…')
+                    ),
+
+                    // best_clue_selection
+                    phase === 'best_clue_selection' && h('div', { className: 'text-center text-white' },
+                        h('div', { className: 'text-5xl mb-3' }, '⭐'),
+                        isGuesser
+                            ? h('div', { className: 'mb-3' },
+                                h('div', { className: 'text-lg font-black mb-1' }, 'Escolhe a melhor pista!'),
+                                h('div', { className: 'text-sm opacity-80' }, 'Vota na pista que te ajudou mais a adivinhar.')
+                              )
+                            : h('div', { className: 'text-lg font-semibold mb-3' }, teamLabel(guesserTable || { id: gameData && gameData.guesserTableId }) + ' está a escolher a melhor pista…'),
+                        h('div', { className: 'flex flex-wrap gap-2 justify-center mt-2' },
+                            Object.keys(visibleClues || {}).sort(function(a, b) {
+                                return ((visibleClues[a].text) || '').localeCompare(((visibleClues[b].text) || ''));
+                            }).map(function(tid) {
+                                var cv = (visibleClues || {})[tid];
+                                var isValid = cv && cv.status === 'valid';
+                                return h('span', { key: tid,
+                                    className: 'px-3 py-1.5 rounded-full font-bold text-sm ' + (isValid ? 'bg-teal-100 text-teal-800' : 'bg-white bg-opacity-10 text-white opacity-40 line-through')
+                                }, cv ? capitalize(cv.text) : '');
+                            })
+                        )
+                    ),
+
+                    // clue_giving
+                    phase === 'clue_giving' && h('div', { className: 'w-full max-w-sm space-y-3' },
+                        clueDeadline && h('div', { className: 'text-center' },
+                            h('div', { className: 'text-2xl font-bold ' + (clueLocked ? 'text-red-300' : 'text-white') },
+                                clueLocked ? '🔒 Tempo esgotado!' : '⏱️ ' + Math.max(0, Math.ceil((clueDeadline - nowTick) / 1000)) + 's'
+                            )
+                        ),
+                        isGuesser
+                            ? h('div', { className: 'text-center text-white' },
+                                h('div', { className: 'text-5xl mb-3' }, '🤫'),
+                                h('div', { className: 'text-lg font-semibold' }, 'És o adivinhador! Não espreites as pistas…')
+                              )
+                            : h('div', { className: 'space-y-3' },
+                                h('div', { className: 'bg-white rounded-2xl shadow-xl p-4 text-center' },
+                                    h('div', { className: 'text-xs text-gray-500 mb-1' }, 'Palavra secreta'),
+                                    h('div', { className: 'text-2xl font-black text-teal-800' }, capitalize(secretWord) || '…')
+                                ),
+                                h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                                    h('input', {
+                                        type: 'text', value: clueInput,
+                                        disabled: clueLocked,
+                                        onChange: function(e) {
+                                            setClueInput(e.target.value);
+                                            if (clueSubmitted) setClueSubmitted(false);
+                                            if (submitError) setSubmitError('');
+                                        },
+                                        maxLength: 30,
+                                        placeholder: 'A tua pista…',
+                                        className: 'w-full px-3 py-2 text-base border-2 border-teal-400 focus:border-teal-600 rounded-lg focus:outline-none text-center font-bold disabled:bg-gray-100 disabled:text-gray-400'
+                                    }),
+                                    h('div', { className: 'text-xs text-gray-400 text-center mt-1' }, 'Uma única palavra, sem emojis'),
+                                    submitError && h('div', { className: 'mt-2 px-3 py-2 bg-red-100 border border-red-400 text-red-700 text-xs rounded-lg font-semibold' }, submitError),
+                                    h('button', {
+                                        onClick: submitClue,
+                                        disabled: !clueInput.trim() || sending || clueLocked,
+                                        className: 'w-full mt-2 px-6 py-2 rounded-lg font-bold text-white text-sm transition-all active:scale-95 ' + (
+                                            clueLocked ? 'bg-gray-400 cursor-not-allowed' :
+                                            sending ? 'bg-yellow-500 cursor-wait' :
+                                            clueSubmitted ? 'bg-green-500' :
+                                            submitError ? 'bg-red-600 hover:bg-red-700 shadow-md' :
+                                            !clueInput.trim() ? 'bg-gray-400 cursor-not-allowed' :
+                                            'bg-teal-600 hover:bg-teal-700 shadow-md'
+                                        )
+                                    }, sending ? 'A enviar…' : (clueSubmitted ? '✓ Enviado' : (submitError ? 'Tentar de novo' : 'Enviar pista')))
+                                ),
+                                lastSubmittedClue && h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 backdrop-blur-sm' },
+                                    h('div', { className: 'flex items-center gap-2 mb-1' },
+                                        h('span', { className: 'text-green-300 text-sm font-black' }, '✓ Pista confirmada'),
+                                        h('span', { className: 'text-white opacity-40 text-xs' }, '(só tu vês)')
+                                    ),
+                                    h('div', { className: 'text-white font-semibold text-base' }, lastSubmittedClue)
+                                ),
+                                clueLocked && h('div', { className: 'text-center text-red-200 font-bold text-sm' }, 'O tempo para enviar pistas esgotou.')
+                              )
+                    ),
+
+                    // reviewing
+                    phase === 'reviewing' && h('div', { className: 'text-center text-white' },
+                        h('div', { className: 'text-5xl mb-3' }, '✅'),
+                        h('div', { className: 'text-lg font-semibold' }, 'Pistas em revisão'),
+                        h('div', { className: 'text-sm opacity-70 mt-1' }, 'O anfitrião está a validar as pistas…')
+                    ),
+
+                    // guessing
+                    phase === 'guessing' && (
+                        isGuesser
+                            ? h('div', { className: 'w-full max-w-sm space-y-3' },
+                                h('div', { className: 'text-center text-white' },
+                                    h('div', { className: 'text-3xl mb-2' }, '🤔'),
+                                    h('div', { className: 'text-lg font-bold' }, 'Adivinha a palavra!')
+                                ),
+                                h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                                    h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-700 mb-2' }, 'Pistas válidas'),
+                                    h('div', { className: 'flex flex-wrap gap-2 mb-2' },
+                                        Object.keys(visibleClues || {}).sort(function(a, b) {
+                                            return (visibleClues[a].text || '').localeCompare(visibleClues[b].text || '');
+                                        }).map(function(tid) {
+                                            return h('span', { key: tid, className: 'px-3 py-1.5 bg-teal-100 text-teal-800 rounded-full font-bold text-sm' }, capitalize(visibleClues[tid].text));
+                                        })
+                                    ),
+                                    annulledCount > 0 && h('div', { className: 'text-sm text-gray-500 italic' }, annulledCount + ' pista(s) anulada(s)')
+                                ),
+                                h('div', { className: 'text-center text-white text-opacity-70 text-sm' }, 'Se não souberes, podes passar.')
+                              )
+                            : h('div', { className: 'text-center text-white' },
+                                h('div', { className: 'text-5xl mb-3' }, myClueStatus === 'valid' ? '✅' : '🚫'),
+                                h('div', { className: 'text-lg font-semibold' }, myClueStatus === 'valid' ? 'A tua pista é válida!' : 'A tua pista foi anulada.')
+                              )
+                    ),
+
+                    // reveal
+                    phase === 'reveal' && h('div', { className: 'w-full max-w-sm space-y-3' },
+                        revealedWord && h('div', { className: 'bg-white rounded-2xl shadow-xl p-4 text-center' },
+                            h('div', { className: 'text-xs text-gray-500 mb-1' }, 'Palavra secreta'),
+                            h('div', { className: 'text-3xl font-black text-teal-800' }, capitalize(revealedWord))
+                        ),
+                        (visibleClues && Object.keys(visibleClues).length > 0) && h('div', { className: 'bg-white rounded-2xl shadow-xl p-4' },
+                            h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-700 mb-2' }, 'Todas as pistas'),
+                            h('div', { className: 'space-y-1.5' },
+                                Object.keys(visibleClues).sort(function(a, b) {
+                                    return (visibleClues[a].text || '').localeCompare(visibleClues[b].text || '');
+                                }).map(function(tid) {
+                                    var cv = visibleClues[tid];
+                                    var tbl = allTables.find(function(t) { return t.id === parseInt(tid, 10); });
+                                    return h('div', { key: tid, className: 'flex items-center justify-between gap-2 text-sm' },
+                                        h('span', { className: 'font-semibold text-gray-700' }, teamLabel(tbl || { id: tid }) + ': ' + capitalize(cv.text)),
+                                        h('span', { className: cv.status === 'valid' ? 'text-green-600 font-bold' : 'text-gray-400 font-bold' }, cv.status === 'valid' ? '✅' : '🚫')
+                                    );
+                                })
+                            )
+                        ),
+                        bestClueTableId && h('div', { className: 'text-center' },
+                            h('span', { className: 'inline-block px-3 py-1 rounded-full bg-pink-600 text-white text-xs font-bold' },
+                                '⭐ ' + (function() { var t2 = allTables.find(function(t3) { return t3.id === bestClueTableId; }); return t2 ? teamLabel(t2) : 'Equipa ' + bestClueTableId; })()
+                            )
+                        ),
+                        h('div', { className: 'bg-white bg-opacity-15 border border-white border-opacity-25 rounded-2xl p-4 text-center text-white' },
+                            guessResult === 'correct' && h('div', null,
+                                h('div', { className: 'font-bold text-lg' }, teamLabel(guesserTable) + ' acertou! +' + bestClueConfig.guesser + ' pts'),
+                                myClueStatus === 'valid' && tableId === bestClueTableId && h('div', { className: 'text-pink-300 mt-1' }, '⭐ Melhor pista! +' + bestClueConfig.bestClue + ' pts'),
+                                myClueStatus === 'valid' && tableId !== bestClueTableId && !isGuesser && h('div', { className: 'text-green-300 mt-1' }, 'Pista válida! +' + bestClueConfig.otherClue + ' pt')
+                            ),
+                            guessResult === 'incorrect' && h('div', { className: 'font-bold text-lg' },
+                                teamLabel(guesserTable) + ' errou… -' + bestClueConfig.penalty + ' pt'
+                            ),
+                            guessResult === 'passed' && h('div', { className: 'font-bold text-lg' },
+                                isGuesser ? 'Passaste esta ronda.' : teamLabel(guesserTable) + ' passou.'
+                            )
+                        ),
+                        h('div', { className: 'text-center text-white text-opacity-70 text-sm' }, 'À espera da próxima ronda…')
+                    )
+                ),
+
+                // modal de ajuda
+                showHelp && h('div', {
+                    className: 'absolute inset-0 bg-black bg-opacity-80 z-50 flex items-end justify-center',
+                    onClick: function(e) { if (e.target === e.currentTarget) setShowHelp(false); }
+                },
+                    h('div', { className: 'bg-slate-900 rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 pb-8' },
+                        h('div', { className: 'flex items-center justify-between mb-4' },
+                            h('div', { className: 'flex items-center gap-2' },
+                                h('span', { className: 'text-2xl' }, '🤫'),
+                                h('span', { className: 'font-black text-white text-lg' }, 'Como se joga')
+                            ),
+                            h('button', {
+                                onClick: function() { setShowHelp(false); },
+                                className: 'w-8 h-8 flex items-center justify-center rounded-full bg-white bg-opacity-10 text-white font-bold hover:bg-opacity-20'
+                            }, '✕')
+                        ),
+                        [
+                            { title: 'Objetivo', content: 'Cada ronda, uma equipa é sorteada para adivinhar. As restantes equipas veem a palavra secreta e dão uma pista de UMA palavra. O adivinhador não pode ver as pistas enquanto estas são escritas.' },
+                            { title: 'Regras das pistas', content: 'Cada pista tem de ser uma única palavra (sem espaços). Pistas iguais ou muito parecidas são anuladas automaticamente — não chegam ao adivinhador. Sem emojis.' },
+                            { title: 'Pontuação (Melhor Pista)', items: [
+                                '✅ Acertou: +' + bestClueConfig.guesser + ' pts para o adivinhador',
+                                '⭐ Melhor pista: +' + bestClueConfig.bestClue + ' pts para quem deu a melhor pista',
+                                '✔ Outra pista válida: +' + bestClueConfig.otherClue + ' pt',
+                                '❌ Errou: -' + bestClueConfig.penalty + ' pt para o adivinhador',
+                                '⏭ Passou: 0 pts para todos'
+                            ] }
+                        ].map(function(block, i) {
+                            return h('div', { key: i, className: 'bg-white bg-opacity-5 rounded-2xl p-4 mb-3' },
+                                h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-400 mb-2' }, block.title),
+                                block.items
+                                    ? h('ul', { className: 'text-sm text-slate-300 space-y-2 list-none' },
+                                        block.items.map(function(item, idx) { return h('li', { key: idx, className: 'leading-snug' }, item); })
+                                      )
+                                    : h('div', { className: 'text-sm text-slate-300' }, block.content)
+                            );
+                        })
+                    )
+                )
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+    });
+    </script>
+</body>
+</html>

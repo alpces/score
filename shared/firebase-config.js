@@ -31,6 +31,8 @@ const AppConfig = {
     MASTER_JUSTONE_URL: 'https://alpces.github.io/score/master-justone.html',
     CLIENT_DECEPTION_URL: 'https://alpces.github.io/score/client-deception.html',
     MASTER_DECEPTION_URL: 'https://alpces.github.io/score/master-deception.html',
+    CLIENT_JUSTONE_PRIVADO_URL: 'https://alpces.github.io/score/client-justone-privado.html',
+    MASTER_JUSTONE_PRIVADO_URL: 'https://alpces.github.io/score/master-justone-privado.html',
 };
 
 window.FirebaseConfig = FirebaseConfig;
