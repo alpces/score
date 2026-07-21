@@ -1100,7 +1100,7 @@
                                 ),
                                 wordList.length === 0 && h('div', { className: 'text-xs text-amber-600 font-semibold mb-2' }, '⚠️ Sem palavras — adiciona a lista antes de começar'),
                                 showWordEdit && h('div', { className: 'space-y-2 border border-gray-200 rounded-xl p-3 bg-gray-50' },
-                                    h('p', { className: 'text-xs text-gray-500' }, 'Uma palavra por linha. Não precisas de secções de dificuldade.'),
+                                    h('p', { className: 'text-xs text-gray-500' }, 'Uma palavra por linha.'),
                                     h('textarea', {
                                         value: wordListText,
                                         onChange: function(e) { setWordListText(e.target.value); },
