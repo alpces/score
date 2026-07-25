@@ -169,6 +169,12 @@
         function saveTimerSeconds(n) {
             try { localStorage.setItem('justonePrivadoTimerSeconds', String(n)); } catch(e) {}
         }
+        function loadWordListFromStorage() {
+            try { return localStorage.getItem('justonePrivadoWordList') || ''; } catch(e) { return ''; }
+        }
+        function saveWordListToStorage(text) {
+            try { localStorage.setItem('justonePrivadoWordList', text); } catch(e) {}
+        }
 
         function rankTables(sorted) {
             var result = [], rank = 1;
@@ -317,6 +323,11 @@
             useEffect(function() {
                 setBestClueConfig(loadBestClueConfig());
                 setTimerSeconds(loadTimerSeconds());
+                var stored = loadWordListFromStorage();
+                if (stored) {
+                    setWordListText(stored);
+                    setWordList(parseWordList(stored));
+                }
             }, []);
 
             /* —— TICK PRESENÇA —— */
@@ -679,6 +690,7 @@
             var saveWordListSetup = function() {
                 var parsed = parseWordList(wordListText);
                 setWordList(parsed);
+                saveWordListToStorage(wordListText);
                 setWordListSaved(true);
                 setTimeout(function() { setWordListSaved(false); }, 2000);
             };
@@ -686,6 +698,7 @@
             var saveWordListInGame = function() {
                 var parsed = parseWordList(wordListTextInGame);
                 setWordList(parsed);
+                saveWordListToStorage(wordListTextInGame);
                 setShowWordEditInGame(false);
             };
 
