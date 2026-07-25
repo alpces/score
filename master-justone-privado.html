@@ -31,9 +31,10 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
     <script>
-    var CLIENT_URL      = window.AppConfig.CLIENT_JUSTONE_PRIVADO_URL;
-    var GAME_TYPE       = 'justone-privado';
-    var MASTER_MODE_KEY = 'justonePrivadoMasterMode';
+    var CLIENT_URL           = window.AppConfig.CLIENT_JUSTONE_PRIVADO_URL;
+    var GAME_TYPE            = 'justone-privado';
+    var MASTER_MODE_KEY      = 'justonePrivadoMasterMode';
+    var WORD_LIST_FB_PATH    = 'wordLists/justone-privado';
 
     window.addEventListener('firebaseReady', function() {
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
@@ -323,11 +324,23 @@
             useEffect(function() {
                 setBestClueConfig(loadBestClueConfig());
                 setTimerSeconds(loadTimerSeconds());
+                // carrega localStorage imediatamente (sem esperar pela rede)
                 var stored = loadWordListFromStorage();
                 if (stored) {
                     setWordListText(stored);
                     setWordList(parseWordList(stored));
                 }
+                // depois sobrepõe com o valor do Firebase (cross-device)
+                fm.get(fm.ref(rtdb, WORD_LIST_FB_PATH)).then(function(snap) {
+                    if (snap.exists()) {
+                        var text = snap.val() || '';
+                        if (text) {
+                            setWordListText(text);
+                            setWordList(parseWordList(text));
+                            saveWordListToStorage(text);
+                        }
+                    }
+                }).catch(function(e) { console.warn('Erro ao carregar lista de palavras do Firebase:', e); });
             }, []);
 
             /* —— TICK PRESENÇA —— */
@@ -691,6 +704,8 @@
                 var parsed = parseWordList(wordListText);
                 setWordList(parsed);
                 saveWordListToStorage(wordListText);
+                fm.set(fm.ref(rtdb, WORD_LIST_FB_PATH), wordListText)
+                    .catch(function(e) { console.warn('Erro ao guardar lista no Firebase:', e); });
                 setWordListSaved(true);
                 setTimeout(function() { setWordListSaved(false); }, 2000);
             };
@@ -699,6 +714,8 @@
                 var parsed = parseWordList(wordListTextInGame);
                 setWordList(parsed);
                 saveWordListToStorage(wordListTextInGame);
+                fm.set(fm.ref(rtdb, WORD_LIST_FB_PATH), wordListTextInGame)
+                    .catch(function(e) { console.warn('Erro ao guardar lista no Firebase:', e); });
                 setShowWordEditInGame(false);
             };
 
