@@ -548,7 +548,7 @@
                                 '✅ Acertou: +' + bestClueConfig.guesser + ' pts para o adivinhador',
                                 '⭐ Melhor pista: +' + bestClueConfig.bestClue + ' pts para quem deu a melhor pista',
                                 '✔ Outra pista válida: +' + bestClueConfig.otherClue + ' pt',
-                                '❌ Errou: -' + bestClueConfig.penalty + ' pt para o adivinhador',
+                                bestClueConfig.penalty > 0 ? '❌ Errou: −' + bestClueConfig.penalty + ' pt para o adivinhador' : '❌ Errou: sem penalização para o adivinhador',
                                 '⏭ Passou: 0 pts para todos'
                             ] }
                         ].map(function(block, i) {

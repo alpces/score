@@ -720,7 +720,15 @@
                         [
                             { id: 'goal',    title: T('j_rule_goal_title'),    content: T('j_rule_goal_content') },
                             { id: 'clues',   title: T('j_rule_clues_title'),   content: T('j_rule_clues_content') },
-                            { id: 'scoring', title: T('j_rule_scoring_title'), items: [
+                            { id: 'scoring', title: T('j_rule_scoring_title'), items: scoringMode === 'best_clue' ? [
+                                '✅ ' + T('j_bc_help_correct', { points: bestClueConfig.guesser }),
+                                '⭐ ' + T('j_bc_help_best', { points: bestClueConfig.bestClue }),
+                                '✔ ' + T('j_bc_help_other', { points: bestClueConfig.otherClue }),
+                                bestClueConfig.penalty > 0
+                                    ? '❌ ' + T('j_bc_help_wrong', { points: bestClueConfig.penalty })
+                                    : '❌ ' + T('j_bc_help_wrong_zero'),
+                                '⏭️ ' + T('j_bc_help_pass')
+                            ] : [
                                 T('j_rule_scoring_correct'),
                                 T('j_rule_scoring_cluegiver'),
                                 T('j_rule_scoring_wrong'),

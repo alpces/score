@@ -147,7 +147,7 @@
             return table.name ? (table.name + ' (' + tn + ')') : tn;
         }
 
-        var DEFAULT_BEST_CLUE_CONFIG = { guesser: 3, bestClue: 3, otherClue: 1, penalty: 1 };
+        var DEFAULT_BEST_CLUE_CONFIG = { guesser: 3, bestClue: 3, otherClue: 1, penalty: 0 };
         function getDefaultBestClueConfig() { return Object.assign({}, DEFAULT_BEST_CLUE_CONFIG); }
         function loadBestClueConfig() {
             try {
@@ -260,6 +260,7 @@
             var u6  = _s(false); var showEndModal = u6[0];      var setShowEndModal = u6[1];
             var u7  = _s(false); var showManage = u7[0];        var setShowManage = u7[1];
             var u8  = _s(0);     var presenceTick = u8[0];      var setPresenceTick = u8[1];
+            var u9  = _s(false); var showSetupHelp = u9[0];     var setShowSetupHelp = u9[1];
 
             var archivingRef  = useRef(false);
             var syncTimerRef  = useRef(null);
@@ -1231,9 +1232,38 @@
                             ),
                             h('div', { className: 'flex items-center justify-between' },
                                 h('div', { className: 'text-xs text-gray-500' },
-                                    'Pontuação: +' + bestClueConfig.guesser + ' adiv · +' + bestClueConfig.bestClue + ' melhor pista · +' + bestClueConfig.otherClue + ' outras · −' + bestClueConfig.penalty + ' erro'
+                                    'Pontuação: +' + bestClueConfig.guesser + ' adiv · +' + bestClueConfig.bestClue + ' melhor pista · +' + bestClueConfig.otherClue + ' outras' + (bestClueConfig.penalty > 0 ? ' · −' + bestClueConfig.penalty + ' erro' : ' · sem penalização')
                                 ),
                                 h('button', { onClick: function() { setShowBestClueEdit(function(v) { return !v; }); }, className: 'text-xs text-teal-600 hover:text-teal-800 font-semibold' }, showBestClueEdit ? 'Fechar' : 'Editar pontuação')
+                            ),
+                            h('button', {
+                                onClick: function() { setShowSetupHelp(function(v) { return !v; }); },
+                                className: 'w-full py-2 border border-gray-200 rounded-xl text-sm font-semibold text-gray-500 hover:text-gray-700 hover:border-gray-300 flex items-center justify-center gap-2'
+                            }, showSetupHelp ? '▲ Ocultar ajuda' : 'ℹ️ Como funciona'),
+                            showSetupHelp && h('div', { className: 'bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-sm text-gray-600' },
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, '📋 Fluxo de jogo'),
+                                    h('ol', { className: 'list-decimal list-inside space-y-1 text-xs' },
+                                        h('li', null, 'As equipas entram pelo QR ou pelo código da sessão'),
+                                        h('li', null, 'O master sorteia uma palavra e confirma'),
+                                        h('li', null, 'Cada equipa (excepto a adivinhadora) escreve uma pista de 1 palavra'),
+                                        h('li', null, 'O master valida as pistas — duplicadas e inválidas são anuladas'),
+                                        h('li', null, 'A equipa adivinha; o master marca acerto, erro ou passe'),
+                                        h('li', null, 'Se acertou, a equipa escolhe a melhor pista (voto no telemóvel)')
+                                    )
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, '📝 Lista de palavras'),
+                                    h('p', { className: 'text-xs' }, 'Obrigatória para iniciar. As palavras são sorteadas aleatoriamente e não se repetem. A lista fica guardada entre sessões.')
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, '⏱ Timer'),
+                                    h('p', { className: 'text-xs' }, 'Tempo máximo para escrever pistas. 0 = sem limite. Quando esgota, a pista é submetida automaticamente.')
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, '⭐ Melhor Pista'),
+                                    h('p', { className: 'text-xs' }, 'Após cada acerto, a equipa que adivinhou indica qual pista a ajudou mais — essa equipa recebe pontos extra.')
+                                )
                             ),
                             h('button', {
                                 onClick: initSession,

@@ -218,9 +218,9 @@
 
         // — pontuação: configuração por defeito + persistência —
         var DEFAULT_SCORING_CONFIG = {
-            easy:   { guesser: 2, clueGiver: 1, penalty: 1 },
-            medium: { guesser: 3, clueGiver: 1, penalty: 1 },
-            hard:   { guesser: 5, clueGiver: 1, penalty: 1 }
+            easy:   { guesser: 2, clueGiver: 1, penalty: 0 },
+            medium: { guesser: 3, clueGiver: 1, penalty: 0 },
+            hard:   { guesser: 5, clueGiver: 1, penalty: 0 }
         };
         function getDefaultScoringConfig() { return JSON.parse(JSON.stringify(DEFAULT_SCORING_CONFIG)); }
 
@@ -252,7 +252,7 @@
             try { localStorage.setItem('justoneTimerSeconds', String(n)); return true; } catch(e) { return false; }
         }
 
-        var DEFAULT_BEST_CLUE_CONFIG = { guesser: 3, bestClue: 3, otherClue: 1, penalty: 1 };
+        var DEFAULT_BEST_CLUE_CONFIG = { guesser: 3, bestClue: 3, otherClue: 1, penalty: 0 };
         function getDefaultBestClueConfig() { return Object.assign({}, DEFAULT_BEST_CLUE_CONFIG); }
         function loadBestClueConfig() {
             try {
@@ -435,6 +435,7 @@
             var u10 = _s(false);   var showStats = u10[0];               var setShowStats = u10[1];
             var u11 = _s(0);       var presenceTick = u11[0];            var setPresenceTick = u11[1];
             var u12 = _s(false);   var psHideScoresLocally = u12[0];     var setPsHideScoresLocally = u12[1];
+            var u13 = _s(false);   var showSetupHelp = u13[0];           var setShowSetupHelp = u13[1];
 
             /* —— LÍNGUA —— */
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -2068,6 +2069,37 @@
                                             h('img', { src: logo, alt: logo, className: 'h-10 w-16 object-contain', onError: function(e) { e.target.parentElement.style.display='none'; } })
                                         );
                                     })
+                                )
+                            ),
+                            h('button', {
+                                onClick: function() { setShowSetupHelp(function(v) { return !v; }); },
+                                className: 'w-full py-2 border border-gray-200 rounded-xl text-sm font-semibold text-gray-500 hover:text-gray-700 hover:border-gray-300 flex items-center justify-center gap-2'
+                            }, showSetupHelp ? T('m_j_help_hide') : T('m_j_help_show')),
+                            showSetupHelp && h('div', { className: 'bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-sm text-gray-600' },
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, T('m_j_help_flow_title')),
+                                    h('ol', { className: 'list-decimal list-inside space-y-1 text-xs' },
+                                        [
+                                            T('m_j_help_flow_1'),
+                                            T('m_j_help_flow_2'),
+                                            T('m_j_help_flow_3'),
+                                            T('m_j_help_flow_4'),
+                                            T('m_j_help_flow_5'),
+                                            scoringMode === 'best_clue' && T('m_j_help_flow_6_bc')
+                                        ].filter(Boolean).map(function(step, i) { return h('li', { key: i }, step); })
+                                    )
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, T('m_j_help_modes_title')),
+                                    h('p', { className: 'text-xs' }, scoringMode === 'best_clue' ? T('m_j_help_mode_bc') : T('m_j_help_mode_diff'))
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, T('m_j_help_words_title')),
+                                    h('p', { className: 'text-xs' }, T('m_j_help_words_body'))
+                                ),
+                                h('div', null,
+                                    h('div', { className: 'font-black text-gray-800 mb-1' }, T('m_j_help_timer_title')),
+                                    h('p', { className: 'text-xs' }, T('m_j_help_timer_body'))
                                 )
                             ),
                             h('button', {
