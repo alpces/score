@@ -268,6 +268,7 @@
             var pendingDrawRef = useRef(null);
             var autoReviewedRef = useRef(false);
             var processedBestClueVoteRef = useRef(null);
+            var prevClueTextsRef = useRef({});
 
             // dados derivados
             var guesserTable  = tables.find(function(t) { return t.id === guesserTableId; });
@@ -477,6 +478,38 @@
                 });
                 return function() { unsub(); };
             }, [sessionId, masterMode]);
+
+            /* —— REAVALIAÇÃO DE PISTAS QUANDO UM JOGADOR CORRIGE DURANTE REVISÃO —— */
+            useEffect(function() {
+                if (phase !== 'reviewing') { prevClueTextsRef.current = {}; return; }
+                var prev = prevClueTextsRef.current;
+                var changedTids = [];
+                Object.keys(justoneClues).forEach(function(tid) {
+                    var curr = justoneClues[tid] && justoneClues[tid].text;
+                    if (prev[tid] !== curr) changedTids.push(tid);
+                });
+                Object.keys(prev).forEach(function(tid) {
+                    if (!justoneClues[tid] && changedTids.indexOf(tid) < 0) changedTids.push(tid);
+                });
+                var newTexts = {};
+                Object.keys(justoneClues).forEach(function(tid) { newTexts[tid] = justoneClues[tid] && justoneClues[tid].text; });
+                prevClueTextsRef.current = newTexts;
+                if (!changedTids.length) return;
+                var dupSet = detectDuplicateClues(justoneClues);
+                var localEmojiRe = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u;
+                setClueStatus(function(prevStatus) {
+                    var next = Object.assign({}, prevStatus);
+                    changedTids.forEach(function(tid) {
+                        if (Number(tid) === guesserTableId) return;
+                        var hasClue = !!(justoneClues[tid] && justoneClues[tid].text);
+                        var clueText = hasClue ? justoneClues[tid].text.trim() : '';
+                        var isMultiWord = clueText.indexOf(' ') !== -1;
+                        var hasEmoji = localEmojiRe.test(clueText);
+                        next[tid] = (!hasClue || dupSet[tid] || isMultiWord || hasEmoji) ? 'annulled' : 'valid';
+                    });
+                    return next;
+                });
+            }, [justoneClues, phase]);
 
             /* —— PUBLICSTATE (modo projetor) —— */
             useEffect(function() {
@@ -833,7 +866,7 @@
                     });
                     setGuessResult('correct'); setPhase('best_clue_selection');
                 } else {
-                    var pen = bestClueConfig.penalty || 1;
+                    var pen = typeof bestClueConfig.penalty === 'number' ? bestClueConfig.penalty : 1;
                     setTables(function(prev) {
                         return prev.map(function(t) {
                             if (t.id === guesserTableId) return Object.assign({}, t, { score: Math.max(0, t.score - pen), timesGuessed: (t.timesGuessed || 0) + 1 });
