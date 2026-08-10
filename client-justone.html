@@ -718,7 +718,7 @@
                             }, '✕')
                         ),
                         [
-                            { id: 'goal',    title: T('j_rule_goal_title'),    content: T('j_rule_goal_content') },
+                            { id: 'goal',    title: T('j_rule_goal_title'),    content: scoringMode === 'best_clue' ? T('j_rule_goal_content_bc') : T('j_rule_goal_content') },
                             { id: 'clues',   title: T('j_rule_clues_title'),   content: T('j_rule_clues_content') },
                             { id: 'scoring', title: T('j_rule_scoring_title'), items: scoringMode === 'best_clue' ? [
                                 '✅ ' + T('j_bc_help_correct', { points: bestClueConfig.guesser }),

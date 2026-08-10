@@ -385,6 +385,7 @@ I18n.registerStrings('en', {
     j_help_title             : 'How to Play',
     j_rule_goal_title        : 'Goal',
     j_rule_goal_content      : 'Each table is a team. In turns, one team tries to guess a secret word from one-word clues written by the opposing teams. Before the word is drawn, the guessing team chooses the difficulty (Easy, Medium or Hard).',
+    j_rule_goal_content_bc   : 'Each table is a team. In turns, one team tries to guess a secret word from one-word clues written by the opposing teams. At the end of each correct guess, the guessing team votes on the clue that helped most — that team earns extra points.',
     j_rule_clues_title       : 'The Clues',
     j_rule_clues_content     : 'Each team writes ONE clue of ONE WORD. Clues that match another, or that contain the secret word, are annulled by the host. No clue sent in time = annulled clue.',
     j_rule_scoring_title     : 'Scoring',

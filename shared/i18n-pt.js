@@ -385,6 +385,7 @@ I18n.registerStrings('pt', {
     j_help_title             : 'Como Jogar',
     j_rule_goal_title        : 'Objetivo',
     j_rule_goal_content      : 'Cada mesa é uma equipa. Por turnos, uma equipa tenta adivinhar uma palavra secreta a partir de pistas de uma só palavra escritas pelas equipas adversárias. Antes de a palavra ser sorteada, a equipa que vai adivinhar escolhe a dificuldade (Fácil, Médio ou Difícil).',
+    j_rule_goal_content_bc   : 'Cada mesa é uma equipa. Por turnos, uma equipa tenta adivinhar uma palavra secreta a partir de pistas de uma só palavra escritas pelas equipas adversárias. No final de cada acerto, a equipa adivinhadora vota na pista que mais a ajudou — essa equipa recebe pontos extra.',
     j_rule_clues_title       : 'As Pistas',
     j_rule_clues_content     : 'Cada equipa escreve UMA pista de UMA SÓ PALAVRA. Pistas iguais a outra, ou que contenham a palavra secreta, são anuladas pelo anfitrião. Sem pista enviada a tempo = pista anulada.',
     j_rule_scoring_title     : 'Pontuação',
