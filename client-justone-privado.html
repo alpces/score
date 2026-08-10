@@ -546,11 +546,10 @@
                             { title: 'Regras das pistas', content: 'Cada pista tem de ser uma única palavra (sem espaços). Pistas iguais ou muito parecidas são anuladas automaticamente — não chegam ao adivinhador. Sem emojis.',
                               example: [
                                 '💡 Exemplo — palavra secreta: BANANA',
-                                '✅ "Fruta" — válida',
-                                '✅ "Amarela" — válida',
-                                '❌ "Fruta" (repetida) — anulada',
+                                '✅ "Doce" — válida',
+                                '❌ "Fruta" (enviada por 2 equipas) — ambas anuladas',
                                 '❌ "Fruta tropical" (2 palavras) — anulada',
-                                '👁 O adivinhador recebe: "Fruta" e "Amarela"'
+                                '👁 O adivinhador recebe apenas: "Doce"'
                               ]
                             },
                             { title: 'Pontuação (Melhor Pista)', items: [
@@ -561,10 +560,10 @@
                                 '⏭ Passou: 0 pts para todos'
                               ],
                               example: [
-                                '💡 Exemplo — acertou, votou em "Amarela"',
+                                '💡 Exemplo — acertou, votou em "Doce"',
                                 '✅ Adivinhador: +' + bestClueConfig.guesser + ' pts',
-                                '⭐ Quem deu "Amarela": +' + bestClueConfig.bestClue + ' pts',
-                                '✔ Quem deu "Fruta": +' + bestClueConfig.otherClue + ' pt'
+                                '⭐ Quem deu "Doce": +' + bestClueConfig.bestClue + ' pts',
+                                '✔ Outras pistas válidas: +' + bestClueConfig.otherClue + ' pt cada'
                               ]
                             }
                         ].map(function(block, i) {
