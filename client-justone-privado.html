@@ -542,15 +542,31 @@
                             }, '✕')
                         ),
                         [
-                            { title: 'Objetivo', content: 'Cada ronda, uma equipa é sorteada para adivinhar. As restantes equipas veem a palavra secreta e dão uma pista de UMA palavra. O adivinhador não pode ver as pistas enquanto estas são escritas.' },
-                            { title: 'Regras das pistas', content: 'Cada pista tem de ser uma única palavra (sem espaços). Pistas iguais ou muito parecidas são anuladas automaticamente — não chegam ao adivinhador. Sem emojis.' },
+                            { title: 'Objetivo', content: 'Cada ronda, uma equipa é sorteada para adivinhar. As restantes equipas veem a palavra secreta e dão uma pista de UMA palavra. No final de cada acerto, a equipa adivinhadora vota na pista que mais a ajudou — essa equipa recebe pontos extra.' },
+                            { title: 'Regras das pistas', content: 'Cada pista tem de ser uma única palavra (sem espaços). Pistas iguais ou muito parecidas são anuladas automaticamente — não chegam ao adivinhador. Sem emojis.',
+                              example: [
+                                '💡 Exemplo — palavra secreta: BANANA',
+                                '✅ "Fruta" — válida',
+                                '✅ "Amarela" — válida',
+                                '❌ "Fruta" (repetida) — anulada',
+                                '❌ "Fruta tropical" (2 palavras) — anulada',
+                                '👁 O adivinhador recebe: "Fruta" e "Amarela"'
+                              ]
+                            },
                             { title: 'Pontuação (Melhor Pista)', items: [
                                 '✅ Acertou: +' + bestClueConfig.guesser + ' pts para o adivinhador',
                                 '⭐ Melhor pista: +' + bestClueConfig.bestClue + ' pts para quem deu a melhor pista',
                                 '✔ Outra pista válida: +' + bestClueConfig.otherClue + ' pt',
                                 bestClueConfig.penalty > 0 ? '❌ Errou: −' + bestClueConfig.penalty + ' pt para o adivinhador' : '❌ Errou: sem penalização para o adivinhador',
                                 '⏭ Passou: 0 pts para todos'
-                            ] }
+                              ],
+                              example: [
+                                '💡 Exemplo — acertou, votou em "Amarela"',
+                                '✅ Adivinhador: +' + bestClueConfig.guesser + ' pts',
+                                '⭐ Quem deu "Amarela": +' + bestClueConfig.bestClue + ' pts',
+                                '✔ Quem deu "Fruta": +' + bestClueConfig.otherClue + ' pt'
+                              ]
+                            }
                         ].map(function(block, i) {
                             return h('div', { key: i, className: 'bg-white bg-opacity-5 rounded-2xl p-4 mb-3' },
                                 h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-400 mb-2' }, block.title),
@@ -558,7 +574,12 @@
                                     ? h('ul', { className: 'text-sm text-slate-300 space-y-2 list-none' },
                                         block.items.map(function(item, idx) { return h('li', { key: idx, className: 'leading-snug' }, item); })
                                       )
-                                    : h('div', { className: 'text-sm text-slate-300' }, block.content)
+                                    : h('div', { className: 'text-sm text-slate-300' }, block.content),
+                                block.example && h('div', { className: 'mt-3 bg-black bg-opacity-30 rounded-xl p-3' },
+                                    h('ul', { className: 'text-xs text-slate-400 space-y-1 list-none' },
+                                        block.example.map(function(line, idx) { return h('li', { key: idx, className: 'leading-snug' }, line); })
+                                    )
+                                )
                             );
                         })
                     )

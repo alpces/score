@@ -719,7 +719,16 @@
                         ),
                         [
                             { id: 'goal',    title: T('j_rule_goal_title'),    content: scoringMode === 'best_clue' ? T('j_rule_goal_content_bc') : T('j_rule_goal_content') },
-                            { id: 'clues',   title: T('j_rule_clues_title'),   content: T('j_rule_clues_content') },
+                            { id: 'clues',   title: T('j_rule_clues_title'),   content: T('j_rule_clues_content'),
+                              example: [
+                                T('j_ex_clues_header'),
+                                T('j_ex_clue_valid_a'),
+                                T('j_ex_clue_valid_b'),
+                                T('j_ex_clue_dup'),
+                                T('j_ex_clue_multi'),
+                                T('j_ex_clue_sees')
+                              ]
+                            },
                             { id: 'scoring', title: T('j_rule_scoring_title'), items: scoringMode === 'best_clue' ? [
                                 '✅ ' + T('j_bc_help_correct', { points: bestClueConfig.guesser }),
                                 '⭐ ' + T('j_bc_help_best', { points: bestClueConfig.bestClue }),
@@ -733,7 +742,18 @@
                                 T('j_rule_scoring_cluegiver'),
                                 T('j_rule_scoring_wrong'),
                                 T('j_rule_scoring_pass')
-                            ] }
+                            ],
+                              example: scoringMode === 'best_clue' ? [
+                                T('j_ex_bc_header'),
+                                '✅ ' + T('j_ex_bc_guesser', { points: bestClueConfig.guesser }),
+                                '⭐ ' + T('j_ex_bc_winner', { points: bestClueConfig.bestClue }),
+                                '✔ ' + T('j_ex_bc_other', { points: bestClueConfig.otherClue })
+                              ] : [
+                                T('j_ex_diff_header'),
+                                T('j_ex_diff_guesser'),
+                                T('j_ex_diff_clue')
+                              ]
+                            }
                         ].map(function(block) {
                             return h('div', { key: block.id, className: 'bg-white bg-opacity-5 rounded-2xl p-4 mb-3' },
                                 h('div', { className: 'text-xs font-black uppercase tracking-widest text-teal-400 mb-2' }, block.title),
@@ -743,7 +763,14 @@
                                             return h('li', { key: idx, className: 'leading-snug' }, item);
                                         })
                                       )
-                                    : h('div', { className: 'text-sm text-slate-300' }, block.content)
+                                    : h('div', { className: 'text-sm text-slate-300' }, block.content),
+                                block.example && h('div', { className: 'mt-3 bg-black bg-opacity-30 rounded-xl p-3' },
+                                    h('ul', { className: 'text-xs text-slate-400 space-y-1' },
+                                        block.example.map(function(line, idx) {
+                                            return h('li', { key: idx, className: 'leading-snug' }, line);
+                                        })
+                                    )
+                                )
                             );
                         })
                     )
