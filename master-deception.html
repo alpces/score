@@ -176,14 +176,24 @@
             return h('span', { className: 'inline-block w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0' });
         }
 
+        /* ── timer formatting ─────────────────────────────────────── */
+        function formatTimer(sec) {
+            sec = Math.max(0, sec | 0);
+            var m = Math.floor(sec / 60), s = sec % 60;
+            return m + ':' + (s < 10 ? '0' : '') + s;
+        }
+
         /* ── App ─────────────────────────────────────────────────── */
         function App() {
             /* setup inputs */
             var ci = useState('');           var codeInput = ci[0];    var setCodeInput = ci[1];
             var bn = useState(T('dec_buzzer_default')); var buzzerName = bn[0]; var setBuzzerName = bn[1];
             var ap = useState('5');          var accusePts = ap[0];    var setAccusePts = ap[1];
-            var vp = useState('5');          var victoryPts = vp[0];        var setVictoryPts = vp[1];
-            var pp = useState('2');          var participationPts = pp[0];  var setParticipationPts = pp[1];
+            var asp = useState('5');         var assassinPts = asp[0];       var setAssassinPts = asp[1];
+            var cup = useState('2');         var cumplicePts = cup[0];       var setCumplicePts = cup[1];
+            var wip = useState('2');         var witnessPts = wip[0];        var setWitnessPts = wip[1];
+            var ivp = useState('2');         var investigatorPts = ivp[0];   var setInvestigatorPts = ivp[1];
+            var tdp = useState('300');       var timerDuration = tdp[0];     var setTimerDuration = tdp[1];
             var rt = useState(loadRoleTexts); var roleTexts = rt[0];        var setRoleTexts = rt[1];
 
             /* i18n: estado de língua para forçar re-render quando a língua muda */
@@ -209,6 +219,7 @@
             var cl = useState({});   var clients = cl[0];     var setClients = cl[1];
             var ls = useState({});   var lastSeen = ls[0];    var setLastSeen = ls[1];
             var tk = useState(0);    var tick = tk[0];        var setTick = tk[1];
+            var tt = useState(0);    var timerTick = tt[0];   var setTimerTick = tt[1];
 
             /* sessions list (setup screen) */
             var as = useState([]); var activeSessions = as[0]; var setActiveSessions = as[1];
@@ -271,6 +282,20 @@
                 var iv = setInterval(function () { setTick(function (t) { return t + 1; }); }, 5000);
                 return function () { clearInterval(iv); };
             }, []);
+
+            /* timer tick — só corre enquanto o temporizador está ativo */
+            useEffect(function () {
+                if (!gameData || gameData.timerState !== 'running') return;
+                var iv = setInterval(function () { setTimerTick(function (t) { return t + 1; }); }, 250);
+                return function () { clearInterval(iv); };
+            }, [gameData && gameData.timerState, gameData && gameData.timerEndAt]);
+
+            /* timer tick (projeção) — baseado no publicState em vez do gameData */
+            useEffect(function () {
+                if (!publicState || publicState.timerState !== 'running') return;
+                var iv = setInterval(function () { setTimerTick(function (t) { return t + 1; }); }, 250);
+                return function () { clearInterval(iv); };
+            }, [publicState && publicState.timerState, publicState && publicState.timerEndAt]);
 
             /* URL restore — só preenche o campo de código da consola se tiver ?session= sem ?mode=public */
             useEffect(function () {
@@ -365,6 +390,14 @@
                         round: gameData.round || 0,
                         scores: gameData.scores || {},
                         roundResult: gameData.roundResult || null,
+                        showScores: !!gameData.showScores,
+                        pendingAccusationTables: Object.keys(gameData.accusations || {}),
+                        usedAccusations: gameData.usedAccusations || {},
+                        wrongGuesses: gameData.wrongGuesses || [],
+                        timerState: gameData.timerState || 'idle',
+                        timerEndAt: gameData.timerEndAt || null,
+                        timerRemaining: gameData.timerRemaining || null,
+                        timerDuration: (gameData.config && gameData.config.timerDuration) || 300,
                         timestamp: Date.now()
                     }).catch(function(e) { console.error('Sync publicState:', e); });
                 }, 200);
@@ -439,10 +472,21 @@
             var confirmedCorrect  = gameData ? !!gameData.confirmedCorrect : false;
             var roundResult       = gameData ? (gameData.roundResult || null) : null;
             var usedAccusations   = gameData ? (gameData.usedAccusations || {}) : {};
-            var accusePtsNow        = (gameData && gameData.config && gameData.config.accusationPoints)    || parseInt(accusePts)        || 5;
-            var victoryPtsNow       = (gameData && gameData.config && gameData.config.roleVictoryPoints)   || parseInt(victoryPts)       || 5;
-            var participationPtsNow = (gameData && gameData.config && gameData.config.participationPoints) || parseInt(participationPts) || 2;
+            var accusePtsNow        = (gameData && gameData.config && gameData.config.accusationPoints)   || parseInt(accusePts)        || 5;
+            var assassinPtsNow      = (gameData && gameData.config && gameData.config.assassinPoints)     || parseInt(assassinPts)      || 5;
+            var cumplicePtsNow      = (gameData && gameData.config && gameData.config.cumplicePoints)     || parseInt(cumplicePts)      || 2;
+            var witnessPtsNow       = (gameData && gameData.config && gameData.config.witnessPoints)      || parseInt(witnessPts)       || 2;
+            var investigatorPtsNow  = (gameData && gameData.config && gameData.config.investigatorPoints) || parseInt(investigatorPts)  || 2;
+            var timerDurationNow    = (gameData && gameData.config && gameData.config.timerDuration)      || parseInt(timerDuration)    || 300;
             var witnessHunt         = gameData ? (gameData.witnessHunt || null) : null;
+            var showScores          = gameData ? !!gameData.showScores : false;
+            var wrongGuesses        = gameData ? (gameData.wrongGuesses || []) : [];
+            var timerState          = gameData ? (gameData.timerState || 'idle') : 'idle';
+            var timerRemainingSeconds = timerState === 'running'
+                ? Math.max(0, Math.ceil(((gameData.timerEndAt || 0) - Date.now()) / 1000))
+                : timerState === 'paused'
+                    ? (gameData.timerRemaining || 0)
+                    : timerDurationNow;
 
             var sortedClients = Object.values(clients)
                 .filter(function (c) { return c && c.tableNumber; })
@@ -480,22 +524,21 @@
 
                 if (winnerTable !== null) {
                     s[winnerTable] = (s[winnerTable] || 0) + accusePtsNow;
-                    /* participation points for investigators who did not accuse */
-                    if (participationPtsNow > 0) {
-                        Object.keys(roles).forEach(function (tNum) {
-                            var r = roles[tNum] && roles[tNum].role;
-                            if (r === 'investigador' && String(tNum) !== String(winnerTable)) {
-                                s[tNum] = (s[tNum] || 0) + participationPtsNow;
-                            }
-                        });
-                    }
+                    /* participation points for the helper roles that were on the accusers' side */
+                    Object.keys(roles).forEach(function (tNum) {
+                        if (String(tNum) === String(winnerTable)) return;
+                        var r = roles[tNum] && roles[tNum].role;
+                        if (r === 'investigador' && investigatorPtsNow > 0) s[tNum] = (s[tNum] || 0) + investigatorPtsNow;
+                        else if (r === 'testemunha' && witnessPtsNow > 0) s[tNum] = (s[tNum] || 0) + witnessPtsNow;
+                    });
                     var wc = clients[winnerTable] || {};
                     result = { winner: 'accusers', winnerTable: winnerTable, winnerTeam: wc.teamName || ('Mesa ' + winnerTable),
                                assassinTable: aTable, assassinTeamName: aName, assassinCards: aCards };
                 } else {
                     Object.keys(roles).forEach(function (tNum) {
                         var r = roles[tNum] && roles[tNum].role;
-                        if (r === 'assassino' || r === 'cumplice') s[tNum] = (s[tNum] || 0) + victoryPtsNow;
+                        if (r === 'assassino') s[tNum] = (s[tNum] || 0) + assassinPtsNow;
+                        else if (r === 'cumplice' && cumplicePtsNow > 0) s[tNum] = (s[tNum] || 0) + cumplicePtsNow;
                     });
                     result = { winner: 'killers', assassinTable: aTable, assassinTeamName: aName, assassinCards: aCards, escaped: !!escaped };
                 }
@@ -521,13 +564,25 @@
                 await doCreateSession(code);
             };
 
+            var buildConfig = function () {
+                return {
+                    accusationPoints: parseInt(accusePts) || 5,
+                    assassinPoints: parseInt(assassinPts) || 5,
+                    cumplicePoints: parseInt(cumplicePts) || 2,
+                    witnessPoints: parseInt(witnessPts) || 2,
+                    investigatorPoints: parseInt(investigatorPts) || 2,
+                    timerDuration: parseInt(timerDuration) || 300
+                };
+            };
+
             var doCreateSession = async function (code) {
                 var gs = {
                     gameType: GAME_TYPE, active: true, phase: 'waiting', round: 0,
                     buzzerName: buzzerName.trim() || T('dec_buzzer_default'),
-                    config: { accusationPoints: parseInt(accusePts) || 5, roleVictoryPoints: parseInt(victoryPts) || 5, participationPoints: parseInt(participationPts) || 2 },
-                    roleTexts: roleTexts,
-                    roles: {}, assassinTable: null, accusations: {}, usedAccusations: {}, scores: {},
+                    config: buildConfig(),
+                    roleTexts: roleTexts, showScores: false,
+                    roles: {}, assassinTable: null, accusations: {}, usedAccusations: {}, scores: {}, wrongGuesses: [],
+                    timerState: 'idle', timerEndAt: null, timerRemaining: null,
                     confirmedCorrect: false, roundResult: null, witnessHunt: null, timestamp: Date.now()
                 };
                 await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), gs);
@@ -554,7 +609,8 @@
                 if (Object.keys(clears).length) fm.update(fm.ref(rtdb), clears);
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
                     phase: 'setup', round: next,
-                    roles: {}, assassinTable: null, accusations: {}, usedAccusations: {},
+                    roles: {}, assassinTable: null, accusations: {}, usedAccusations: {}, wrongGuesses: [],
+                    timerState: 'idle', timerEndAt: null, timerRemaining: null,
                     confirmedCorrect: false, roundResult: null, witnessHunt: null, timestamp: Date.now()
                 });
                 setShowNewRound(false);
@@ -566,7 +622,7 @@
                 if (!result) { alert(T('m_dec_no_tables_alert')); return; }
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
                     phase: 'running', roles: result.roles, assassinTable: result.assassinTable,
-                    accusations: {}, usedAccusations: {}, confirmedCorrect: false, roundResult: null, witnessHunt: null, timestamp: Date.now()
+                    accusations: {}, usedAccusations: {}, wrongGuesses: [], confirmedCorrect: false, roundResult: null, witnessHunt: null, timestamp: Date.now()
                 });
             };
 
@@ -586,12 +642,44 @@
             var markWrong   = function (tNum) {
                 if (!sessionCode || witnessHunt) return; /* já há uma caça à testemunha pendente — resolve-a primeiro */
                 /* remove pending accusation but record that this table used their button */
+                var acc = gameData && gameData.accusations ? gameData.accusations[tNum] : null;
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState/accusations/' + tNum));
                 var used = Object.assign({}, gameData ? (gameData.usedAccusations || {}) : {});
                 used[tNum] = true;
-                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { usedAccusations: used });
+                var wrongList = wrongGuesses.slice();
+                if (acc) {
+                    wrongList.push({
+                        tableNumber: tNum, teamName: acc.teamName || '',
+                        blueGuess: acc.blueGuess || '', redGuess: acc.redGuess || '',
+                        timestamp: Date.now()
+                    });
+                }
+                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { usedAccusations: used, wrongGuesses: wrongList });
             };
-            var endRoundManual   = function () { if (confirm(T('m_dec_end_round_confirm', { n: victoryPtsNow }))) doEndRound(null); };
+            var toggleShowScores = function () {
+                if (!sessionCode) return;
+                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { showScores: !showScores });
+            };
+            var startTimer = function () {
+                if (!sessionCode || !gameData) return;
+                var remaining = timerState === 'paused' ? (gameData.timerRemaining || timerDurationNow) : timerDurationNow;
+                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
+                    timerState: 'running', timerEndAt: Date.now() + remaining * 1000, timerRemaining: null
+                });
+            };
+            var pauseTimer = function () {
+                if (!sessionCode || !gameData || timerState !== 'running') return;
+                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
+                    timerState: 'paused', timerEndAt: null, timerRemaining: timerRemainingSeconds
+                });
+            };
+            var resetTimer = function () {
+                if (!sessionCode) return;
+                fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), {
+                    timerState: 'idle', timerEndAt: null, timerRemaining: null
+                });
+            };
+            var endRoundManual   = function () { if (confirm(T('m_dec_end_round_confirm', { n: assassinPtsNow, m: cumplicePtsNow }))) doEndRound(null); };
             var resetAllAccusations = function () {
                 if (!sessionCode) return;
                 fm.update(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState'), { accusations: {}, usedAccusations: {} });
@@ -645,9 +733,10 @@
                     await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
                         gameType: GAME_TYPE, active: true, phase: 'waiting',
                         round: entry.round || 0,
-                        config: { accusationPoints: parseInt(accusePts) || 5, roleVictoryPoints: parseInt(victoryPts) || 5, participationPoints: parseInt(participationPts) || 2 },
-                        roleTexts: roleTexts,
-                        roles: {}, assassinTable: null, accusations: {}, usedAccusations: {},
+                        config: buildConfig(),
+                        roleTexts: roleTexts, showScores: false,
+                        roles: {}, assassinTable: null, accusations: {}, usedAccusations: {}, wrongGuesses: [],
+                        timerState: 'idle', timerEndAt: null, timerRemaining: null,
                         scores: entry.scores || {},
                         confirmedCorrect: false, roundResult: null, witnessHunt: null,
                         timestamp: Date.now()
@@ -931,10 +1020,28 @@
                 var pubResult = publicState ? (publicState.roundResult || null) : null;
                 var pubPhaseLabel = pubPhase === 'setup' ? T('dec_phase_setup_label') : pubPhase === 'running' ? T('dec_phase_running_label') : (pubRound > 0 ? T('dec_phase_round_over', { n: pubRound }) : T('dec_phase_waiting_label'));
                 var pubClients = Object.values(publicClients).filter(function (c) { return c && c.tableNumber; }).sort(function (a, b) { return a.tableNumber - b.tableNumber; });
-                var ranked = pubClients.map(function (c) {
-                    return { tNum: c.tableNumber, teamName: c.teamName, score: pubScores[c.tableNumber] || 0 };
-                }).sort(function (a, b) { return b.score - a.score; });
+                var pubShowScores = publicState ? !!publicState.showScores : false;
+                var pubPendingSet = {};
+                (publicState && publicState.pendingAccusationTables || []).forEach(function (t) { pubPendingSet[t] = true; });
+                var pubUsedAcc = (publicState && publicState.usedAccusations) || {};
+                var pubWrongGuesses = (publicState && publicState.wrongGuesses) || [];
+                var teamRows = pubClients.map(function (c) {
+                    return {
+                        tNum: c.tableNumber, teamName: c.teamName,
+                        score: pubScores[c.tableNumber] || 0,
+                        pending: !!pubPendingSet[c.tableNumber],
+                        used: !!pubUsedAcc[c.tableNumber] && !pubPendingSet[c.tableNumber]
+                    };
+                });
+                teamRows.sort(pubShowScores ? function (a, b) { return b.score - a.score; } : function (a, b) { return a.tNum - b.tNum; });
                 var medals = ['🥇','🥈','🥉'];
+                var pubTimerState = publicState ? (publicState.timerState || 'idle') : 'idle';
+                var pubTimerDuration = publicState ? (publicState.timerDuration || 300) : 300;
+                var pubTimerRemaining = pubTimerState === 'running'
+                    ? Math.max(0, Math.ceil(((publicState.timerEndAt || 0) - Date.now()) / 1000))
+                    : pubTimerState === 'paused'
+                        ? (publicState.timerRemaining || 0)
+                        : pubTimerDuration;
                 var projQrUrl = CLIENT_URL + '?session=' + sessionCode;
 
                 /* modo QR maximizado — ecrã inteiro para as mesas digitalizarem */
@@ -987,17 +1094,41 @@
                                         : (pubResult.escaped ? T('dec_winner_escaped') : T('dec_winner_unpunished'))
                                 )
                             ),
+                            (pubTimerState !== 'idle' || pubPhase === 'running') && h('div', { className: 'w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col items-center gap-1' },
+                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' }, T('m_dec_timer_title')),
+                                h('div', { className: 'text-5xl font-black tabular-nums ' + (pubTimerState === 'running' && pubTimerRemaining <= 10 ? 'text-rose-400' : 'text-white') }, formatTimer(pubTimerRemaining))
+                            ),
                             h('div', { className: 'w-full max-w-md' },
-                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 text-center' }, T('dec_ranking')),
-                                !ranked.length && h('p', { className: 'text-slate-600 text-center py-6' }, T('dec_waiting_tables')),
+                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 text-center' }, pubShowScores ? T('dec_ranking') : T('m_dec_team_list_title')),
+                                !teamRows.length && h('p', { className: 'text-slate-600 text-center py-6' }, T('dec_waiting_tables')),
                                 h('div', { className: 'flex flex-col gap-2' },
-                                    ranked.map(function (e, i) {
+                                    teamRows.map(function (e, i) {
                                         return h('div', { key: e.tNum, className: 'flex items-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-3' },
-                                            h('span', { className: 'text-2xl w-8 text-center flex-shrink-0' }, medals[i] || (i + 1) + 'º'),
+                                            h('span', { className: 'text-2xl w-8 text-center flex-shrink-0' }, pubShowScores ? (medals[i] || (i + 1) + 'º') : ('#' + e.tNum)),
                                             h('div', { className: 'flex-1 min-w-0' },
                                                 h('div', { className: 'font-bold' }, T('table_n', { n: e.tNum }) + (e.teamName ? ' · ' + e.teamName : ''))
                                             ),
-                                            h('span', { className: 'text-xl font-black ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + T('dec_pts'))
+                                            pubShowScores
+                                                ? h('span', { className: 'text-xl font-black ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + T('dec_pts'))
+                                                : (e.pending
+                                                    ? h('span', { className: 'text-sm font-bold text-rose-300' }, T('m_dec_accusation_status_pending'))
+                                                    : e.used
+                                                        ? h('span', { className: 'text-sm font-semibold text-slate-500' }, T('m_dec_accusation_status_used'))
+                                                        : null)
+                                        );
+                                    })
+                                )
+                            ),
+                            pubWrongGuesses.length > 0 && h('div', { className: 'w-full max-w-md' },
+                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 text-center' }, T('m_dec_wrong_guesses_title')),
+                                h('div', { className: 'flex flex-col gap-2' },
+                                    pubWrongGuesses.slice().reverse().map(function (wg, i) {
+                                        return h('div', { key: wg.timestamp || i, className: 'rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-2.5 flex items-center gap-3' },
+                                            h('span', { className: 'text-slate-600' }, '✗'),
+                                            h('div', { className: 'flex-1 min-w-0' },
+                                                h('div', { className: 'text-sm font-semibold' }, T('table_n', { n: wg.tableNumber }) + (wg.teamName ? ' · ' + wg.teamName : '')),
+                                                h('div', { className: 'text-xs text-slate-500' }, '🔵 ' + (wg.blueGuess || '—') + '   🔴 ' + (wg.redGuess || '—'))
+                                            )
                                         );
                                     })
                                 )
@@ -1068,14 +1199,29 @@
                                             h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: accusePts, onChange: function (e) { setAccusePts(e.target.value); } })
                                         ),
                                         h('label', { className: 'flex flex-col gap-1' },
-                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, T('m_dec_pts_killers')),
-                                            h('div', { className: 'text-[10px] text-slate-500' }, T('m_dec_pts_killers_hint')),
-                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: victoryPts, onChange: function (e) { setVictoryPts(e.target.value); } })
+                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, T('m_dec_pts_assassin')),
+                                            h('div', { className: 'text-[10px] text-slate-500' }, T('m_dec_pts_assassin_hint')),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: assassinPts, onChange: function (e) { setAssassinPts(e.target.value); } })
+                                        ),
+                                        h('label', { className: 'flex flex-col gap-1' },
+                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, T('m_dec_pts_cumplice')),
+                                            h('div', { className: 'text-[10px] text-slate-500' }, T('m_dec_pts_cumplice_hint')),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: cumplicePts, onChange: function (e) { setCumplicePts(e.target.value); } })
                                         ),
                                         h('label', { className: 'flex flex-col gap-1' },
                                             h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, T('m_dec_pts_investigators')),
                                             h('div', { className: 'text-[10px] text-slate-500' }, T('m_dec_pts_investigators_hint')),
-                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: participationPts, onChange: function (e) { setParticipationPts(e.target.value); } })
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: investigatorPts, onChange: function (e) { setInvestigatorPts(e.target.value); } })
+                                        ),
+                                        h('label', { className: 'flex flex-col gap-1' },
+                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, T('m_dec_pts_witness')),
+                                            h('div', { className: 'text-[10px] text-slate-500' }, T('m_dec_pts_witness_hint')),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', value: witnessPts, onChange: function (e) { setWitnessPts(e.target.value); } })
+                                        ),
+                                        h('label', { className: 'flex flex-col gap-1' },
+                                            h('div', { className: 'text-xs font-semibold text-slate-300 leading-tight' }, T('m_dec_timer_label')),
+                                            h('div', { className: 'text-[10px] text-slate-500' }, T('m_dec_timer_hint')),
+                                            h('input', { className: 'rounded-xl border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-rose-400 text-center font-bold w-full', type: 'number', min: '0', step: '10', value: timerDuration, onChange: function (e) { setTimerDuration(e.target.value); } })
                                         )
                                     ),
                                     /* role texts */
@@ -1142,6 +1288,10 @@
                         h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700', onClick: switchMode, title: T('m_dec_switch_mode') }, '⇄'),
                         h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700', onClick: function () { setShowQR(true); }, title: T('m_dec_qr_code_title') }, '📱'),
                         h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700', onClick: function () { setShowLeaderboard(true); }, title: T('dec_ranking') }, '🏆'),
+                        h('button', {
+                            className: 'rounded-xl border px-3 py-2 text-xs font-semibold ' + (showScores ? 'border-emerald-600/50 bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/50' : 'border-slate-700 bg-slate-800 hover:bg-slate-700'),
+                            onClick: toggleShowScores, title: T('m_dec_toggle_pts_title')
+                        }, showScores ? T('m_dec_hide_pts') : T('m_dec_show_pts')),
                         h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700', onClick: resetScores, title: T('m_dec_reset_points_title') }, '↺ ' + T('dec_pts')),
                         h('button', { className: 'rounded-xl border border-rose-700/50 bg-rose-950/40 px-3 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-900/40', onClick: function () { setShowCloseConfirm(true); } }, T('close'))
                     )
@@ -1228,8 +1378,11 @@
                                 ),
                                 h('div', { className: 'text-sm text-slate-400 mt-1' },
                                     roundResult.winner === 'accusers'
-                                        ? T('m_dec_pts_for_accusers', { n: accusePtsNow }) + (participationPtsNow > 0 ? T('m_dec_pts_for_others', { n: participationPtsNow }) : '')
-                                        : T('m_dec_pts_for_killers', { n: victoryPtsNow })
+                                        ? T('m_dec_pts_for_accusers', { n: accusePtsNow })
+                                            + (investigatorPtsNow > 0 ? T('m_dec_pts_for_investigators', { n: investigatorPtsNow }) : '')
+                                            + (witnessPtsNow > 0 ? T('m_dec_pts_for_witness', { n: witnessPtsNow }) : '')
+                                        : T('m_dec_pts_for_assassin', { n: assassinPtsNow })
+                                            + (cumplicePtsNow > 0 ? T('m_dec_pts_for_cumplice', { n: cumplicePtsNow }) : '')
                                 )
                             ),
                             h('div', { className: 'text-center' },
@@ -1258,13 +1411,25 @@
                                 h('button', { className: 'rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm font-semibold text-rose-300 hover:bg-rose-500/20', onClick: endRoundManual }, T('m_dec_end_round')),
                                 h('button', { className: 'rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/20', onClick: function () { setShowNewRound(true); } }, T('m_dec_new_round_short'))
                             ),
+                            /* timer */
+                            h('div', { className: 'rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex items-center justify-between gap-4' },
+                                h('div', {},
+                                    h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-1' }, T('m_dec_timer_title')),
+                                    h('div', { className: 'text-3xl font-black tabular-nums ' + (timerState === 'running' && timerRemainingSeconds <= 10 ? 'text-rose-400' : 'text-white') }, formatTimer(timerRemainingSeconds))
+                                ),
+                                h('div', { className: 'flex gap-2' },
+                                    timerState !== 'running' && h('button', { className: 'rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 active:scale-95 transition-all', onClick: startTimer }, timerState === 'paused' ? T('m_dec_timer_resume') : T('m_dec_timer_start')),
+                                    timerState === 'running' && h('button', { className: 'rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-500 active:scale-95 transition-all', onClick: pauseTimer }, T('m_dec_timer_pause')),
+                                    timerState !== 'idle' && h('button', { className: 'rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold hover:bg-slate-700', onClick: resetTimer }, T('m_dec_timer_reset'))
+                                )
+                            ),
                             /* witness hunt sub-phase */
                             witnessHunt && h('div', { className: 'rounded-2xl border border-orange-500/40 bg-orange-950/25 p-4 slide-in flex flex-col gap-3' },
                                 h('div', { className: 'font-black text-orange-200 text-lg' }, T('m_dec_witness_hunt_title')),
                                 h('div', { className: 'text-sm text-slate-300' }, T('m_dec_witness_hunt_desc', { team: witnessHunt.pendingWinnerTeam })),
                                 h('div', { className: 'text-xs text-orange-200/70' }, T('m_dec_witness_hunt_hint')),
                                 h('div', { className: 'flex flex-col gap-2 mt-1' },
-                                    h('button', { className: 'rounded-xl bg-rose-700 px-4 py-3 text-sm font-bold text-white hover:bg-rose-600 active:scale-95 transition-all', onClick: function () { doEndRound(null, true); } }, T('m_dec_witness_correct', { n: victoryPtsNow })),
+                                    h('button', { className: 'rounded-xl bg-rose-700 px-4 py-3 text-sm font-bold text-white hover:bg-rose-600 active:scale-95 transition-all', onClick: function () { doEndRound(null, true); } }, T('m_dec_witness_correct', { n: assassinPtsNow, m: cumplicePtsNow })),
                                     h('button', { className: 'rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-600 active:scale-95 transition-all', onClick: function () { doEndRound(witnessHunt.pendingWinnerTable); } }, T('m_dec_witness_wrong', { team: witnessHunt.pendingWinnerTeam, n: accusePtsNow }))
                                 )
                             ),
@@ -1292,10 +1457,33 @@
                                             ),
                                             h('span', { className: 'text-rose-400 text-xl' }, '⚡')
                                         ),
+                                        (acc.blueGuess || acc.redGuess) && h('div', { className: 'grid grid-cols-2 gap-1.5 mb-2' },
+                                            h('div', { className: 'rounded-lg border border-blue-500/30 bg-blue-950/30 px-2 py-1.5 text-center' },
+                                                h('div', { className: 'text-xs text-blue-400' }, '🔵'),
+                                                h('div', { className: 'text-xs font-bold text-blue-200 truncate' }, acc.blueGuess || '—')
+                                            ),
+                                            h('div', { className: 'rounded-lg border border-rose-500/30 bg-rose-950/30 px-2 py-1.5 text-center' },
+                                                h('div', { className: 'text-xs text-rose-400' }, '🔴'),
+                                                h('div', { className: 'text-xs font-bold text-rose-200 truncate' }, acc.redGuess || '—')
+                                            )
+                                        ),
                                         h('div', { className: 'text-xs text-amber-400 mb-3' }, blocked ? T('m_dec_resolve_witness_first') : T('m_dec_respond_hint')),
                                         h('div', { className: 'flex flex-wrap gap-2' },
                                             h('button', { className: 'rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed', disabled: blocked, onClick: function () { markCorrect(tNum); } }, T('m_dec_mark_correct', { n: accusePtsNow })),
                                             h('button', { className: 'rounded-xl bg-slate-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed', disabled: blocked, onClick: function () { markWrong(tNum); } }, T('m_dec_mark_wrong'))
+                                        )
+                                    );
+                                })
+                            ),
+                            /* wrong guesses history (this round) */
+                            wrongGuesses.length > 0 && h('div', { className: 'flex flex-col gap-2' },
+                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' }, T('m_dec_wrong_guesses_title')),
+                                wrongGuesses.slice().reverse().map(function (wg, i) {
+                                    return h('div', { key: wg.timestamp || i, className: 'rounded-xl border border-slate-800 bg-slate-900/50 p-3 flex items-center gap-3' },
+                                        h('span', { className: 'text-slate-600' }, '✗'),
+                                        h('div', { className: 'flex-1 min-w-0' },
+                                            h('div', { className: 'text-sm font-semibold truncate' }, T('table_n', { n: wg.tableNumber }) + (wg.teamName ? ' · ' + wg.teamName : '')),
+                                            h('div', { className: 'text-xs text-slate-500' }, '🔵 ' + (wg.blueGuess || '—') + '   🔴 ' + (wg.redGuess || '—'))
                                         )
                                     );
                                 })
