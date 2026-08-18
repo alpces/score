@@ -187,6 +187,8 @@
             var g6 = useState(false);  var accusing = g6[0];     var setAccusing = g6[1];
             var g7 = useState('');     var accBlueGuess = g7[0]; var setAccBlueGuess = g7[1];
             var g8 = useState('');     var accRedGuess = g8[0];  var setAccRedGuess = g8[1];
+            var g9 = useState('');     var accSuspect = g9[0];   var setAccSuspect = g9[1];
+            var g10 = useState({});    var otherClients = g10[0]; var setOtherClients = g10[1];
 
             /* i18n: estado de língua para forçar re-render quando a língua muda */
             var lg1 = useState(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -246,6 +248,15 @@
                 return function () { lock.release(); };
             }, [connected]);
 
+            /* lista de mesas ligadas — necessária para o dropdown "quem é o assassino?" na acusação */
+            useEffect(function () {
+                if (!connected || !sessionCode) return;
+                var u = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/clients'), function (snap) {
+                    setOtherClients(snap.val() || {});
+                });
+                return function () { u(); };
+            }, [connected, sessionCode]);
+
             /* clear cards + accuse state when round changes (or on first load with stale data) */
             useEffect(function () {
                 if (!gameData) return;
@@ -271,7 +282,7 @@
                     persistCards('', '', null);
                     setCardsSaved(false);
                     setAccusing(false);
-                    setAccBlueGuess(''); setAccRedGuess('');
+                    setAccBlueGuess(''); setAccRedGuess(''); setAccSuspect('');
                 }
                 prevRoundRef.current = r;
             }, [gameData && gameData.round]);
@@ -325,14 +336,16 @@
             var handleAccuse = async function () {
                 if (!sessionCode || !tableId || accusing || witnessHunt) return;
                 var bg = accBlueGuess.trim(), rg = accRedGuess.trim();
-                if (!bg || !rg) return;
+                if (!bg || !rg || !accSuspect) return;
                 if (!confirm(T('dec_accuse_confirm'))) return;
+                var suspectClient = otherClients[accSuspect] || {};
                 setAccusing(true);
                 try {
                     await ClientCore.withTimeout(
                         fm.set(fm.ref(rtdb, 'sessions/' + sessionCode + '/gameState/accusations/' + tableId), {
                             tableNumber: tableId, teamName: teamName, timestamp: Date.now(),
-                            blueGuess: bg, redGuess: rg
+                            blueGuess: bg, redGuess: rg,
+                            suspectTable: parseInt(accSuspect), suspectTeamName: suspectClient.teamName || ''
                         }), 6000
                     );
                 } catch (e) {
@@ -354,6 +367,9 @@
             var accusationSent    = !!myAccusation || (accusing && !myAccusation) || !!usedAccusations[tableId];
             var roundResult    = gameData ? (gameData.roundResult || null) : null;
             var witnessHunt    = gameData ? (gameData.witnessHunt  || null) : null;
+            var suspectOptions = Object.values(otherClients)
+                .filter(function (c) { return c && c.tableNumber && String(c.tableNumber) !== String(tableId); })
+                .sort(function (a, b) { return a.tableNumber - b.tableNumber; });
 
             /* ── seletor de língua ─────────────────────────────────── */
             function LangSelector() {
@@ -542,6 +558,18 @@
                     /* RUNNING — pistas da acusação + botão (escondido durante a Caça à Testemunha) */
                     phase === 'running' && !witnessHunt && h('div', { className: 'flex flex-col gap-3 pt-2 fade-in' },
                         !accusationSent && h('div', { className: 'flex flex-col gap-2' },
+                            h('label', { className: 'flex flex-col gap-1' },
+                                h('span', { className: 'text-xs font-bold text-slate-300' }, T('dec_accuse_suspect_label')),
+                                h('select', {
+                                    className: 'rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-rose-400',
+                                    value: accSuspect, onChange: function (e) { setAccSuspect(e.target.value); }
+                                },
+                                    h('option', { value: '' }, T('dec_accuse_suspect_placeholder')),
+                                    suspectOptions.map(function (c) {
+                                        return h('option', { key: c.tableNumber, value: c.tableNumber }, T('table_n', { n: c.tableNumber }) + (c.teamName ? ' · ' + c.teamName : ''));
+                                    })
+                                )
+                            ),
                             h('div', { className: 'text-xs text-slate-400 text-center' }, T('dec_accuse_pistas_hint')),
                             h('div', { className: 'grid grid-cols-2 gap-3' },
                                 h('div', { className: 'flex flex-col gap-1' },
@@ -557,8 +585,8 @@
                         h('div', { className: 'flex flex-col items-center gap-2' },
                             h('button', {
                                 className: 'w-full rounded-2xl py-5 text-xl font-black transition-all ' +
-                                    (accusationSent ? 'border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-500 text-white active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ' + (accBlueGuess.trim() && accRedGuess.trim() ? 'accuse-pulse' : '')),
-                                disabled: accusationSent || !accBlueGuess.trim() || !accRedGuess.trim(), onClick: handleAccuse
+                                    (accusationSent ? 'border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-500 text-white active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ' + (accBlueGuess.trim() && accRedGuess.trim() && accSuspect ? 'accuse-pulse' : '')),
+                                disabled: accusationSent || !accBlueGuess.trim() || !accRedGuess.trim() || !accSuspect, onClick: handleAccuse
                             }, accusationSent ? T('dec_accuse_sent', { buzzer: buzzerName }) : buzzerName),
                             accusationSent && h('div', { className: 'text-xs text-slate-500 text-center' }, T('dec_accuse_used'))
                         )

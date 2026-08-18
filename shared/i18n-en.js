@@ -612,6 +612,8 @@ I18n.registerStrings('en', {
     dec_accuse_blue_guess        : '🔵 Blue clue (your accusation)',
     dec_accuse_red_guess         : '🔴 Red clue (your accusation)',
     dec_accuse_pistas_hint       : 'State which two clues you think are the murderer\'s before accusing.',
+    dec_accuse_suspect_label     : '🔪 Who is the murderer?',
+    dec_accuse_suspect_placeholder: 'Choose a table',
 
     // ── Deception Murder — client ─────────────────────────────────────────────────
     dec_subtitle                 : 'in Hong Kong',
@@ -761,6 +763,11 @@ I18n.registerStrings('en', {
     m_dec_accusation_status_pending : '⚡ Accused',
     m_dec_accusation_status_used    : '✗ Answered',
     m_dec_team_list_title           : '👥 Teams',
+    m_dec_suspect_label             : 'Suspect:',
+    m_dec_suspect_correct_hint      : 'correct table',
+    m_dec_accusations_feed_title    : '🔪 Accusations',
+    m_dec_feed_pending              : '⚡ Pending',
+    m_dec_feed_wrong                : '✗ Wrong',
     m_dec_reset_scores_confirm      : 'Reset all scores to zero?',
     m_dec_remove_table_confirm      : 'Remove Table {{n}} from the session?',
     m_dec_delete_record_confirm     : 'Delete this history record?',

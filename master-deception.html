@@ -391,7 +391,7 @@
                         scores: gameData.scores || {},
                         roundResult: gameData.roundResult || null,
                         showScores: !!gameData.showScores,
-                        pendingAccusationTables: Object.keys(gameData.accusations || {}),
+                        pendingAccusations: gameData.accusations || {},
                         usedAccusations: gameData.usedAccusations || {},
                         wrongGuesses: gameData.wrongGuesses || [],
                         timerState: gameData.timerState || 'idle',
@@ -651,6 +651,7 @@
                     wrongList.push({
                         tableNumber: tNum, teamName: acc.teamName || '',
                         blueGuess: acc.blueGuess || '', redGuess: acc.redGuess || '',
+                        suspectTable: acc.suspectTable || null, suspectTeamName: acc.suspectTeamName || '',
                         timestamp: Date.now()
                     });
                 }
@@ -1021,19 +1022,21 @@
                 var pubPhaseLabel = pubPhase === 'setup' ? T('dec_phase_setup_label') : pubPhase === 'running' ? T('dec_phase_running_label') : (pubRound > 0 ? T('dec_phase_round_over', { n: pubRound }) : T('dec_phase_waiting_label'));
                 var pubClients = Object.values(publicClients).filter(function (c) { return c && c.tableNumber; }).sort(function (a, b) { return a.tableNumber - b.tableNumber; });
                 var pubShowScores = publicState ? !!publicState.showScores : false;
-                var pubPendingSet = {};
-                (publicState && publicState.pendingAccusationTables || []).forEach(function (t) { pubPendingSet[t] = true; });
+                var pubPendingAccusations = (publicState && publicState.pendingAccusations) || {};
                 var pubUsedAcc = (publicState && publicState.usedAccusations) || {};
                 var pubWrongGuesses = (publicState && publicState.wrongGuesses) || [];
                 var teamRows = pubClients.map(function (c) {
                     return {
                         tNum: c.tableNumber, teamName: c.teamName,
                         score: pubScores[c.tableNumber] || 0,
-                        pending: !!pubPendingSet[c.tableNumber],
-                        used: !!pubUsedAcc[c.tableNumber] && !pubPendingSet[c.tableNumber]
+                        pending: !!pubPendingAccusations[c.tableNumber],
+                        used: !!pubUsedAcc[c.tableNumber] && !pubPendingAccusations[c.tableNumber]
                     };
                 });
                 teamRows.sort(pubShowScores ? function (a, b) { return b.score - a.score; } : function (a, b) { return a.tNum - b.tNum; });
+                var pubAccusationFeed = Object.values(pubPendingAccusations).map(function (a) { return Object.assign({ status: 'pending' }, a); })
+                    .concat(pubWrongGuesses.map(function (w) { return Object.assign({ status: 'wrong' }, w); }))
+                    .sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
                 var medals = ['🥇','🥈','🥉'];
                 var pubTimerState = publicState ? (publicState.timerState || 'idle') : 'idle';
                 var pubTimerDuration = publicState ? (publicState.timerDuration || 300) : 300;
@@ -1082,60 +1085,77 @@
                             h('button', { className: 'text-sm text-slate-400 hover:text-white underline', onClick: switchMode }, T('m_dec_switch_mode'))
                         )
                     ),
-                    /* main: ranking + QR */
+                    /* main: equipas + acusações + QR — layout compacto para caber tudo sem scroll num ecrã fixo (projetor) */
                     h('div', { className: 'flex-1 flex flex-col lg:flex-row items-stretch' },
-                        /* ranking — com scroll próprio para caber muitas equipas num ecrã fixo (projetor não tem scroll) */
-                        h('div', { className: 'flex-1 flex flex-col items-center p-6 gap-6 lg:overflow-y-auto lg:max-h-[calc(100vh-57px)]' },
-                            pubResult && h('div', { className: 'w-full max-w-md rounded-2xl border ' + (pubResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') + ' p-4 text-center slide-in' },
-                                h('div', { className: 'text-3xl mb-1' }, pubResult.winner === 'accusers' ? '🎉' : '🔪'),
-                                h('div', { className: 'font-black text-lg' },
-                                    pubResult.winner === 'accusers'
-                                        ? (pubResult.winnerTeam ? T('dec_winner_accusers', { team: pubResult.winnerTeam }) : T('dec_winner_accusers_generic'))
-                                        : (pubResult.escaped ? T('dec_winner_escaped') : T('dec_winner_unpunished'))
-                                )
-                            ),
-                            (pubTimerState !== 'idle' || pubPhase === 'running') && h('div', { className: 'w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col items-center gap-1' },
-                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' }, T('m_dec_timer_title')),
-                                h('div', { className: 'text-5xl font-black tabular-nums ' + (pubTimerState === 'running' && pubTimerRemaining <= 10 ? 'text-rose-400' : 'text-white') }, formatTimer(pubTimerRemaining))
-                            ),
-                            h('div', { className: 'w-full max-w-md' },
-                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 text-center' }, pubShowScores ? T('dec_ranking') : T('m_dec_team_list_title')),
-                                !teamRows.length && h('p', { className: 'text-slate-600 text-center py-6' }, T('dec_waiting_tables')),
-                                h('div', { className: 'flex flex-col gap-2' },
-                                    teamRows.map(function (e, i) {
-                                        return h('div', { key: e.tNum, className: 'flex items-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-3' },
-                                            h('span', { className: 'text-2xl w-8 text-center flex-shrink-0' }, pubShowScores ? (medals[i] || (i + 1) + 'º') : ('#' + e.tNum)),
-                                            h('div', { className: 'flex-1 min-w-0' },
-                                                h('div', { className: 'font-bold' }, T('table_n', { n: e.tNum }) + (e.teamName ? ' · ' + e.teamName : ''))
-                                            ),
-                                            pubShowScores
-                                                ? h('span', { className: 'text-xl font-black ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + T('dec_pts'))
-                                                : (e.pending
-                                                    ? h('span', { className: 'text-sm font-bold text-rose-300' }, T('m_dec_accusation_status_pending'))
-                                                    : e.used
-                                                        ? h('span', { className: 'text-sm font-semibold text-slate-500' }, T('m_dec_accusation_status_used'))
-                                                        : null)
-                                        );
-                                    })
-                                )
-                            ),
-                            pubWrongGuesses.length > 0 && h('div', { className: 'w-full max-w-md' },
-                                h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 text-center' }, T('m_dec_wrong_guesses_title')),
-                                h('div', { className: 'flex flex-col gap-2' },
-                                    pubWrongGuesses.slice().reverse().map(function (wg, i) {
-                                        return h('div', { key: wg.timestamp || i, className: 'rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-2.5 flex items-center gap-3' },
-                                            h('span', { className: 'text-slate-600' }, '✗'),
-                                            h('div', { className: 'flex-1 min-w-0' },
-                                                h('div', { className: 'text-sm font-semibold' }, T('table_n', { n: wg.tableNumber }) + (wg.teamName ? ' · ' + wg.teamName : '')),
-                                                h('div', { className: 'text-xs text-slate-500' }, '🔵 ' + (wg.blueGuess || '—') + '   🔴 ' + (wg.redGuess || '—'))
-                                            )
-                                        );
-                                    })
+                        h('div', { className: 'flex-1 flex flex-col p-5 gap-4 lg:overflow-y-auto lg:max-h-[calc(100vh-57px)]' },
+                            h('div', { className: 'mx-auto w-full max-w-6xl flex flex-col gap-4' },
+                                pubResult && h('div', { className: 'rounded-2xl border ' + (pubResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') + ' p-4 text-center slide-in' },
+                                    h('div', { className: 'text-3xl mb-1' }, pubResult.winner === 'accusers' ? '🎉' : '🔪'),
+                                    h('div', { className: 'font-black text-lg' },
+                                        pubResult.winner === 'accusers'
+                                            ? (pubResult.winnerTeam ? T('dec_winner_accusers', { team: pubResult.winnerTeam }) : T('dec_winner_accusers_generic'))
+                                            : (pubResult.escaped ? T('dec_winner_escaped') : T('dec_winner_unpunished'))
+                                    )
+                                ),
+                                (pubTimerState !== 'idle' || pubPhase === 'running') && h('div', { className: 'rounded-2xl border border-slate-800 bg-slate-900/60 py-3 px-4 flex items-center justify-center gap-4' },
+                                    h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' }, T('m_dec_timer_title')),
+                                    h('div', { className: 'text-3xl font-black tabular-nums ' + (pubTimerState === 'running' && pubTimerRemaining <= 10 ? 'text-rose-400' : 'text-white') }, formatTimer(pubTimerRemaining))
+                                ),
+                                /* equipas — grelha compacta com todas as mesas sempre visíveis, sem scroll */
+                                h('div', {},
+                                    h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-2' }, (pubShowScores ? T('dec_ranking') : T('m_dec_team_list_title')) + ' (' + teamRows.length + ')'),
+                                    !teamRows.length && h('p', { className: 'text-slate-600 text-center py-6' }, T('dec_waiting_tables')),
+                                    h('div', { className: 'grid gap-2 grid-cols-[repeat(auto-fill,minmax(210px,1fr))]' },
+                                        teamRows.map(function (e, i) {
+                                            return h('div', {
+                                                key: e.tNum,
+                                                className: 'rounded-xl border px-3 py-2 flex items-center gap-2 ' +
+                                                    (!pubShowScores && e.pending ? 'border-rose-500/50 bg-rose-950/25' : 'border-slate-800 bg-slate-900/60')
+                                            },
+                                                h('span', { className: 'flex-shrink-0 w-7 text-center ' + (pubShowScores ? 'text-lg' : 'text-xs font-bold text-slate-500') }, pubShowScores ? (medals[i] || (i + 1) + 'º') : ('#' + e.tNum)),
+                                                h('div', { className: 'flex-1 min-w-0' },
+                                                    h('div', { className: 'font-semibold text-sm truncate' }, T('table_n', { n: e.tNum }) + (e.teamName ? ' · ' + e.teamName : ''))
+                                                ),
+                                                pubShowScores
+                                                    ? h('span', { className: 'text-sm font-black flex-shrink-0 ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + T('dec_pts'))
+                                                    : (e.pending
+                                                        ? h('span', { className: 'flex-shrink-0 text-rose-400', title: T('m_dec_accusation_status_pending') }, '⚡')
+                                                        : e.used
+                                                            ? h('span', { className: 'flex-shrink-0 text-slate-500', title: T('m_dec_accusation_status_used') }, '✗')
+                                                            : null)
+                                            );
+                                        })
+                                    )
+                                ),
+                                /* acusações — quem acusou, quem suspeita e as pistas indicadas */
+                                pubAccusationFeed.length > 0 && h('div', {},
+                                    h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide mb-2' }, T('m_dec_accusations_feed_title') + ' (' + pubAccusationFeed.length + ')'),
+                                    h('div', { className: 'grid gap-2 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]' },
+                                        pubAccusationFeed.map(function (acc, i) {
+                                            var pending = acc.status === 'pending';
+                                            return h('div', {
+                                                key: (acc.tableNumber || '') + '-' + (acc.timestamp || i),
+                                                className: 'rounded-xl border p-3 flex flex-col gap-1.5 ' + (pending ? 'border-rose-500/50 bg-rose-950/20' : 'border-slate-800 bg-slate-900/50')
+                                            },
+                                                h('div', { className: 'flex items-center justify-between gap-2' },
+                                                    h('div', { className: 'text-sm font-bold truncate' }, T('table_n', { n: acc.tableNumber }) + (acc.teamName ? ' · ' + acc.teamName : '')),
+                                                    pending
+                                                        ? h('span', { className: 'flex-shrink-0 text-xs font-bold text-rose-300' }, T('m_dec_feed_pending'))
+                                                        : h('span', { className: 'flex-shrink-0 text-xs font-semibold text-slate-500' }, T('m_dec_feed_wrong'))
+                                                ),
+                                                acc.suspectTable && h('div', { className: 'text-xs text-slate-300 truncate' }, '🔪 ' + T('table_n', { n: acc.suspectTable }) + (acc.suspectTeamName ? ' · ' + acc.suspectTeamName : '')),
+                                                h('div', { className: 'flex gap-3 text-xs' },
+                                                    h('span', { className: 'text-blue-300 truncate' }, '🔵 ' + (acc.blueGuess || '—')),
+                                                    h('span', { className: 'text-rose-300 truncate' }, '🔴 ' + (acc.redGuess || '—'))
+                                                )
+                                            );
+                                        })
+                                    )
                                 )
                             )
                         ),
                         /* QR sidebar */
-                        h('div', { className: 'lg:w-56 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col items-center justify-center gap-3 p-6' },
+                        h('div', { className: 'lg:w-56 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col items-center justify-center gap-3 p-6 flex-shrink-0' },
                             h('div', { className: 'text-sm font-bold text-slate-300' }, T('dec_join_game')),
                             h('img', { src: 'https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=' + encodeURIComponent(projQrUrl), alt: 'QR', className: 'rounded-xl w-40 h-40', width: 160, height: 160 }),
                             h('div', { className: 'font-mono font-black text-xl text-white tracking-widest' }, sessionCode)
@@ -1457,6 +1477,11 @@
                                             ),
                                             h('span', { className: 'text-rose-400 text-xl' }, '⚡')
                                         ),
+                                        acc.suspectTable && h('div', { className: 'flex items-center gap-1.5 mb-2 text-sm' },
+                                            h('span', { className: 'text-slate-400' }, '🔪 ' + T('m_dec_suspect_label') + ' '),
+                                            h('span', { className: 'font-bold text-white' }, T('table_n', { n: acc.suspectTable }) + (acc.suspectTeamName ? ' · ' + acc.suspectTeamName : '')),
+                                            String(acc.suspectTable) === String(assassinTable) && h('span', { className: 'text-xs font-bold text-emerald-400' }, '✓ ' + T('m_dec_suspect_correct_hint'))
+                                        ),
                                         (acc.blueGuess || acc.redGuess) && h('div', { className: 'grid grid-cols-2 gap-1.5 mb-2' },
                                             h('div', { className: 'rounded-lg border border-blue-500/30 bg-blue-950/30 px-2 py-1.5 text-center' },
                                                 h('div', { className: 'text-xs text-blue-400' }, '🔵'),
@@ -1483,6 +1508,7 @@
                                         h('span', { className: 'text-slate-600' }, '✗'),
                                         h('div', { className: 'flex-1 min-w-0' },
                                             h('div', { className: 'text-sm font-semibold truncate' }, T('table_n', { n: wg.tableNumber }) + (wg.teamName ? ' · ' + wg.teamName : '')),
+                                            wg.suspectTable && h('div', { className: 'text-xs text-slate-400' }, '🔪 ' + T('table_n', { n: wg.suspectTable }) + (wg.suspectTeamName ? ' · ' + wg.suspectTeamName : '')),
                                             h('div', { className: 'text-xs text-slate-500' }, '🔵 ' + (wg.blueGuess || '—') + '   🔴 ' + (wg.redGuess || '—'))
                                         )
                                     );

@@ -612,6 +612,8 @@ I18n.registerStrings('pt', {
     dec_accuse_blue_guess        : '🔵 Pista azul (a tua acusação)',
     dec_accuse_red_guess         : '🔴 Pista vermelha (a tua acusação)',
     dec_accuse_pistas_hint       : 'Indica quais pensas serem as duas pistas do assassino antes de acusar.',
+    dec_accuse_suspect_label     : '🔪 Quem é o assassino?',
+    dec_accuse_suspect_placeholder: 'Escolhe uma mesa',
 
     // ── Deception Murder — cliente ────────────────────────────────────────────────
     dec_subtitle                : 'in Hong Kong',
@@ -761,6 +763,11 @@ I18n.registerStrings('pt', {
     m_dec_accusation_status_pending: '⚡ Acusou',
     m_dec_accusation_status_used  : '✗ Respondeu',
     m_dec_team_list_title         : '👥 Equipas',
+    m_dec_suspect_label           : 'Suspeito:',
+    m_dec_suspect_correct_hint    : 'mesa correta',
+    m_dec_accusations_feed_title  : '🔪 Acusações',
+    m_dec_feed_pending            : '⚡ Pendente',
+    m_dec_feed_wrong              : '✗ Errou',
     m_dec_reset_scores_confirm    : 'Repor todos os pontos a zero?',
     m_dec_remove_table_confirm    : 'Remover Mesa {{n}} da sessão?',
     m_dec_delete_record_confirm   : 'Eliminar este registo do histórico?',
