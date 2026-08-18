@@ -808,11 +808,11 @@
                 var medals = ['🥇', '🥈', '🥉'];
                 return h('div', { className: 'fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4', onClick: function (e) { if (e.target === e.currentTarget) setShowLeaderboard(false); } },
                     h('div', { className: 'bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm slide-in flex flex-col gap-4 max-h-[80vh]' },
-                        h('div', { className: 'flex items-center justify-between' },
+                        h('div', { className: 'flex items-center justify-between flex-shrink-0' },
                             h('div', { className: 'text-xl font-black' }, T('dec_ranking')),
                             h('button', { className: 'text-slate-400 hover:text-white', onClick: function () { setShowLeaderboard(false); } }, '✕')
                         ),
-                        h('div', { className: 'flex flex-col gap-2 overflow-y-auto' },
+                        h('div', { className: 'flex flex-col gap-2 overflow-y-auto flex-1 min-h-0' },
                             all.map(function (e, i) {
                                 var rl = roles[e.tNum] ? (ROLE_LABELS[roles[e.tNum].role] || null) : null;
                                 return h('div', { key: e.tNum, className: 'flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2.5' },
@@ -873,7 +873,7 @@
                             h('div', { className: 'text-xl font-black' }, T('m_dec_history_title')),
                             h('button', { className: 'text-slate-400 hover:text-white', onClick: function () { setShowHistory(false); setHistInfoId(null); } }, '✕')
                         ),
-                        h('div', { className: 'flex flex-col gap-3 overflow-y-auto' },
+                        h('div', { className: 'flex flex-col gap-3 overflow-y-auto flex-1 min-h-0' },
                             !sessionHistory.length && h('p', { className: 'text-slate-500 text-sm text-center py-4' }, T('m_dec_no_history')),
                             sessionHistory.map(function (entry) {
                                 var date = entry.timestamp ? new Date(entry.timestamp).toLocaleString(I18n.getCurrentLang() === 'en' ? 'en-GB' : 'pt-PT', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
@@ -1084,8 +1084,8 @@
                     ),
                     /* main: ranking + QR */
                     h('div', { className: 'flex-1 flex flex-col lg:flex-row items-stretch' },
-                        /* ranking */
-                        h('div', { className: 'flex-1 flex flex-col items-center justify-center p-6 gap-6' },
+                        /* ranking — com scroll próprio para caber muitas equipas num ecrã fixo (projetor não tem scroll) */
+                        h('div', { className: 'flex-1 flex flex-col items-center p-6 gap-6 lg:overflow-y-auto lg:max-h-[calc(100vh-57px)]' },
                             pubResult && h('div', { className: 'w-full max-w-md rounded-2xl border ' + (pubResult.winner === 'accusers' ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-rose-500/40 bg-rose-950/30') + ' p-4 text-center slide-in' },
                                 h('div', { className: 'text-3xl mb-1' }, pubResult.winner === 'accusers' ? '🎉' : '🔪'),
                                 h('div', { className: 'font-black text-lg' },
@@ -1325,7 +1325,7 @@
                                 h('div', { className: 'flex items-start gap-2' },
                                     h('div', { className: 'pt-1' }, connDot(since)),
                                     h('div', { className: 'flex-1 min-w-0' },
-                                        h('div', { className: 'font-bold text-sm truncate' }, T('table_n', { n: tNum }) + (client.teamName ? ' · ' + client.teamName : '')),
+                                        h('div', { className: 'font-bold text-sm truncate', title: T('table_n', { n: tNum }) + (client.teamName ? ' · ' + client.teamName : '') }, T('table_n', { n: tNum }) + (client.teamName ? ' · ' + client.teamName : '')),
                                         rl && h('div', { className: 'text-xs mt-0.5 ' + rl.color }, rl.icon + ' ' + rl.label)
                                     ),
                                     /* score +/- */
