@@ -319,6 +319,7 @@
             var saveCards = async function () {
                 if (!sessionCode || !tableId || savingCards) return;
                 var b = blueCard.trim(), r = redCard.trim();
+                if (!b || !r) return;
                 setSavingCards(true);
                 try {
                     await ClientCore.withTimeout(
@@ -522,8 +523,8 @@
                             )
                         ),
                         h('button', {
-                            className: 'rounded-xl py-3 font-bold text-sm transition-colors disabled:opacity-50 ' + (cardsSaved ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'),
-                            disabled: savingCards, onClick: saveCards
+                            className: 'rounded-xl py-3 font-bold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ' + (cardsSaved ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'),
+                            disabled: savingCards || !blueCard.trim() || !redCard.trim(), onClick: saveCards
                         }, savingCards ? T('dec_saving') : cardsSaved ? T('dec_sent_ok') : T('dec_save_choices'))
                     ),
 

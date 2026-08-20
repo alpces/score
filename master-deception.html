@@ -498,6 +498,7 @@
             var clientCount          = sortedClients.length;
             var accusationCount      = accusationList.length;
             var usedAccusationCount  = Object.keys(usedAccusations).length;
+            var cardsReadyCount      = sortedClients.filter(function (c) { return c.blueCard && c.redCard; }).length;
 
             /* auto-end: all tables used accusation, master answered all as wrong, nobody correct */
             useEffect(function () {
@@ -1023,20 +1024,19 @@
                 var pubClients = Object.values(publicClients).filter(function (c) { return c && c.tableNumber; }).sort(function (a, b) { return a.tableNumber - b.tableNumber; });
                 var pubShowScores = publicState ? !!publicState.showScores : false;
                 var pubPendingAccusations = (publicState && publicState.pendingAccusations) || {};
-                var pubUsedAcc = (publicState && publicState.usedAccusations) || {};
                 var pubWrongGuesses = (publicState && publicState.wrongGuesses) || [];
+                /* uma equipa só pode ter, no máximo, uma acusação ativa por ronda (botão de uso único) */
+                var pubAccByTable = {};
+                Object.values(pubPendingAccusations).forEach(function (a) { pubAccByTable[a.tableNumber] = Object.assign({ status: 'pending' }, a); });
+                pubWrongGuesses.forEach(function (w) { pubAccByTable[w.tableNumber] = Object.assign({ status: 'wrong' }, w); });
                 var teamRows = pubClients.map(function (c) {
                     return {
                         tNum: c.tableNumber, teamName: c.teamName,
                         score: pubScores[c.tableNumber] || 0,
-                        pending: !!pubPendingAccusations[c.tableNumber],
-                        used: !!pubUsedAcc[c.tableNumber] && !pubPendingAccusations[c.tableNumber]
+                        acc: pubAccByTable[c.tableNumber] || null
                     };
                 });
                 teamRows.sort(pubShowScores ? function (a, b) { return b.score - a.score; } : function (a, b) { return a.tNum - b.tNum; });
-                var pubAccusationFeed = Object.values(pubPendingAccusations).map(function (a) { return Object.assign({ status: 'pending' }, a); })
-                    .concat(pubWrongGuesses.map(function (w) { return Object.assign({ status: 'wrong' }, w); }))
-                    .sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
                 var medals = ['🥇','🥈','🥉'];
                 var pubTimerState = publicState ? (publicState.timerState || 'idle') : 'idle';
                 var pubTimerDuration = publicState ? (publicState.timerDuration || 300) : 300;
@@ -1101,52 +1101,40 @@
                                     h('div', { className: 'text-xs font-bold text-slate-500 uppercase tracking-wide' }, T('m_dec_timer_title')),
                                     h('div', { className: 'text-3xl font-black tabular-nums ' + (pubTimerState === 'running' && pubTimerRemaining <= 10 ? 'text-rose-400' : 'text-white') }, formatTimer(pubTimerRemaining))
                                 ),
-                                /* equipas — grelha compacta com todas as mesas sempre visíveis, sem scroll */
+                                /* equipas — grelha compacta com todas as mesas sempre visíveis, sem scroll; a acusação
+                                   de cada equipa (se houver) aparece dentro do próprio cartão, sem secção separada */
                                 h('div', {},
                                     h('div', { className: 'text-sm font-bold text-slate-400 uppercase tracking-wide mb-2.5' }, (pubShowScores ? T('dec_ranking') : T('m_dec_team_list_title')) + ' (' + teamRows.length + ')'),
                                     !teamRows.length && h('p', { className: 'text-slate-600 text-center py-6' }, T('dec_waiting_tables')),
-                                    h('div', { className: 'grid gap-2.5 grid-cols-[repeat(auto-fill,minmax(250px,1fr))]' },
+                                    h('div', { className: 'grid gap-2.5 items-start grid-cols-[repeat(auto-fill,minmax(270px,1fr))]' },
                                         teamRows.map(function (e, i) {
+                                            var pending = e.acc && e.acc.status === 'pending';
+                                            var wrong = e.acc && e.acc.status === 'wrong';
                                             return h('div', {
                                                 key: e.tNum,
-                                                className: 'rounded-xl border px-3.5 py-3 flex items-center gap-2.5 ' +
-                                                    (!pubShowScores && e.pending ? 'border-rose-500/50 bg-rose-950/25' : !pubShowScores && e.used ? 'border-rose-500/30 bg-slate-900/60' : 'border-slate-800 bg-slate-900/60')
+                                                className: 'rounded-xl border px-3.5 py-3 flex flex-col gap-2 ' +
+                                                    (pending ? 'border-rose-500/50 bg-rose-950/25' : wrong ? 'border-rose-900/50 bg-slate-900/60' : 'border-slate-800 bg-slate-900/60')
                                             },
-                                                h('span', { className: 'flex-shrink-0 w-8 text-center ' + (pubShowScores ? 'text-xl' : 'text-base font-black text-slate-500') }, pubShowScores ? (medals[i] || (i + 1) + 'º') : ('#' + e.tNum)),
-                                                h('div', { className: 'flex-1 min-w-0' },
-                                                    h('div', { className: 'font-semibold text-base truncate' }, T('table_n', { n: e.tNum }) + (e.teamName ? ' · ' + e.teamName : ''))
+                                                h('div', { className: 'flex items-center gap-2.5' },
+                                                    h('span', { className: 'flex-shrink-0 w-8 text-center ' + (pubShowScores ? 'text-xl' : 'text-base font-black text-slate-500') }, pubShowScores ? (medals[i] || (i + 1) + 'º') : ('#' + e.tNum)),
+                                                    h('div', { className: 'flex-1 min-w-0' },
+                                                        h('div', { className: 'font-semibold text-base truncate' }, T('table_n', { n: e.tNum }) + (e.teamName ? ' · ' + e.teamName : ''))
+                                                    ),
+                                                    pubShowScores
+                                                        ? h('span', { className: 'text-base font-black flex-shrink-0 ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + T('dec_pts'))
+                                                        : (pending
+                                                            ? h('span', { className: 'flex-shrink-0 text-2xl leading-none text-rose-400' }, '⚡')
+                                                            : wrong
+                                                                ? h('span', { className: 'flex-shrink-0 text-2xl leading-none font-black text-rose-500' }, '✗')
+                                                                : null)
                                                 ),
-                                                pubShowScores
-                                                    ? h('span', { className: 'text-base font-black flex-shrink-0 ' + (e.score > 0 ? 'text-amber-300' : 'text-slate-600') }, e.score + T('dec_pts'))
-                                                    : (e.pending
-                                                        ? h('span', { className: 'flex-shrink-0 text-2xl leading-none text-rose-400', title: T('m_dec_accusation_status_pending') }, '⚡')
-                                                        : e.used
-                                                            ? h('span', { className: 'flex-shrink-0 text-2xl leading-none font-black text-rose-500', title: T('m_dec_accusation_status_used') }, '✗')
-                                                            : null)
-                                            );
-                                        })
-                                    )
-                                ),
-                                /* acusações — quem acusou, quem suspeita e as pistas indicadas */
-                                pubAccusationFeed.length > 0 && h('div', {},
-                                    h('div', { className: 'text-sm font-bold text-slate-400 uppercase tracking-wide mb-2.5' }, T('m_dec_accusations_feed_title') + ' (' + pubAccusationFeed.length + ')'),
-                                    h('div', { className: 'grid gap-2.5 grid-cols-[repeat(auto-fill,minmax(340px,1fr))]' },
-                                        pubAccusationFeed.map(function (acc, i) {
-                                            var pending = acc.status === 'pending';
-                                            return h('div', {
-                                                key: (acc.tableNumber || '') + '-' + (acc.timestamp || i),
-                                                className: 'rounded-xl border p-3.5 flex flex-col gap-2 ' + (pending ? 'border-rose-500/50 bg-rose-950/20' : 'border-rose-900/40 bg-slate-900/50')
-                                            },
-                                                h('div', { className: 'flex items-center justify-between gap-2' },
-                                                    h('div', { className: 'text-base font-bold truncate' }, T('table_n', { n: acc.tableNumber }) + (acc.teamName ? ' · ' + acc.teamName : '')),
-                                                    pending
-                                                        ? h('span', { className: 'flex-shrink-0 text-sm font-black text-rose-300' }, T('m_dec_feed_pending'))
-                                                        : h('span', { className: 'flex-shrink-0 text-sm font-black text-rose-400' }, T('m_dec_feed_wrong'))
-                                                ),
-                                                acc.suspectTable && h('div', { className: 'text-sm text-slate-300 truncate' }, '🔪 ' + T('table_n', { n: acc.suspectTable }) + (acc.suspectTeamName ? ' · ' + acc.suspectTeamName : '')),
-                                                h('div', { className: 'flex gap-4 text-sm font-medium' },
-                                                    h('span', { className: 'text-blue-300 truncate' }, '🔵 ' + (acc.blueGuess || '—')),
-                                                    h('span', { className: 'text-rose-300 truncate' }, '🔴 ' + (acc.redGuess || '—'))
+                                                e.acc && h('div', { className: 'pt-2 border-t ' + (pending ? 'border-rose-900/40' : 'border-slate-800') + ' flex flex-col gap-1' },
+                                                    h('span', { className: 'text-sm font-black ' + (pending ? 'text-rose-300' : 'text-rose-400') }, pending ? T('m_dec_feed_pending') : T('m_dec_feed_wrong')),
+                                                    e.acc.suspectTable && h('div', { className: 'text-sm text-slate-300 truncate' }, '🔪 ' + T('table_n', { n: e.acc.suspectTable }) + (e.acc.suspectTeamName ? ' · ' + e.acc.suspectTeamName : '')),
+                                                    h('div', { className: 'flex flex-wrap gap-x-4 gap-y-0.5 text-sm font-medium' },
+                                                        h('span', { className: 'text-blue-300 truncate' }, '🔵 ' + (e.acc.blueGuess || '—')),
+                                                        h('span', { className: 'text-rose-300 truncate' }, '🔴 ' + (e.acc.redGuess || '—'))
+                                                    )
                                                 )
                                             );
                                         })
@@ -1418,10 +1406,14 @@
                                 h('div', { className: 'font-bold text-amber-200 mb-1' }, T('m_dec_setup_round_n', { n: gameData ? gameData.round : '—' })),
                                 h('div', { className: 'text-sm text-amber-200/80' }, T('m_dec_setup_hint'))
                             ),
-                            h('div', { className: 'text-sm text-slate-400' },
-                                T('m_dec_cards_progress', { n: sortedClients.filter(function (c) { return c.blueCard || c.redCard; }).length, total: clientCount })
+                            h('div', { className: 'text-sm ' + (cardsReadyCount < clientCount ? 'text-amber-300' : 'text-emerald-400') },
+                                T('m_dec_cards_progress', { n: cardsReadyCount, total: clientCount })
                             ),
-                            h('button', { className: 'rounded-2xl bg-indigo-600 px-6 py-4 text-lg font-black text-white hover:bg-indigo-500 active:scale-95 transition-all', onClick: distributeRoles }, T('m_dec_distribute_roles'))
+                            !clientCount ? null : cardsReadyCount < clientCount && h('div', { className: 'text-xs text-slate-500' }, T('m_dec_cards_progress_hint')),
+                            h('button', {
+                                className: 'rounded-2xl bg-indigo-600 px-6 py-4 text-lg font-black text-white hover:bg-indigo-500 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100',
+                                disabled: !clientCount || cardsReadyCount < clientCount, onClick: distributeRoles
+                            }, T('m_dec_distribute_roles'))
                         ),
 
                         /* RUNNING */
