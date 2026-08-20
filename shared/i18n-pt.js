@@ -611,7 +611,7 @@ I18n.registerStrings('pt', {
     dec_no_stare_warning_two     : '👀 Evita olhar de forma óbvia para estas mesas durante o jogo — podes denunciar quem é quem.',
     dec_accuse_blue_guess        : '🔵 Pista',
     dec_accuse_red_guess         : '🔴 Arma',
-    dec_accuse_pistas_hint       : 'Indica quais pensas serem as duas pistas do assassino antes de acusar.',
+    dec_accuse_pistas_hint       : 'Indica quais pensas serem as duas cartas do assassino antes de acusar.',
     dec_accuse_suspect_label     : '🔪 Quem é o assassino?',
     dec_accuse_suspect_placeholder: 'Escolhe uma mesa',
 

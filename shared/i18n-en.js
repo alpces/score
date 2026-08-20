@@ -611,7 +611,7 @@ I18n.registerStrings('en', {
     dec_no_stare_warning_two     : '👀 Avoid staring at these tables during the game — you might give away who is who.',
     dec_accuse_blue_guess        : '🔵 Clue',
     dec_accuse_red_guess         : '🔴 Weapon',
-    dec_accuse_pistas_hint       : 'State which two clues you think are the murderer\'s before accusing.',
+    dec_accuse_pistas_hint       : 'State which two cards you think are the murderer\'s before accusing.',
     dec_accuse_suspect_label     : '🔪 Who is the murderer?',
     dec_accuse_suspect_placeholder: 'Choose a table',
 
