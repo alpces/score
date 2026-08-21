@@ -65,6 +65,12 @@ I18n.registerStrings('pt', {
     m_h_session_config      : 'Configuração da Sessão',
     m_h_joker_time          : '⏱️ Tempo do Joker (s)',
     m_h_answer_time         : '⏱️ Tempo de Resposta (s)',
+    m_h_jokers_per_team     : '🃏 Jokers por Equipa',
+    m_h_joker_phase_label   : '🃏 Quando pode ser usado',
+    m_h_joker_phase_window  : 'Antes da música (janela dedicada)',
+    m_h_joker_phase_music   : 'Durante a música',
+    m_h_joker_phase_hint    : 'Não aplicável no modo "Durante a música"',
+    m_h_random_category     : '🎲 Categoria Aleatória',
     m_h_categories          : '🏷️ Categorias e Pontuações',
     m_h_rules               : '📋 Regras (visíveis no cliente)',
     m_h_rules_edit_open     : '✏️ Editar',
@@ -90,6 +96,7 @@ I18n.registerStrings('pt', {
 
     // ── Master Hitster — em sessão ───────────────────────────────────────────────
     m_h_phase_waiting     : '⏸ A aguardar ronda',
+    m_h_phase_reveal      : '🎲 A revelar categoria — {{n}}s',
     m_h_phase_music       : '🎵 Prepara a música! — {{n}}s',
     m_h_phase_joker_win   : '🃏 Janela do Joker — {{n}}s',
     m_h_phase_answering   : '✍️ A responder — {{n}}s',
@@ -242,6 +249,8 @@ I18n.registerStrings('pt', {
     h_answer_confirmed      : '✓ Resposta enviada',
     h_visible_only_you      : '(visível só para ti)',
     h_joker_used            : 'já usado',
+    h_joker_used_round      : 'usado nesta ronda',
+    h_category_reveal       : 'A revelar a categoria...',
     h_help_title            : 'Como Jogar',
     h_scores_title          : '🏆 Pontuações',
     h_joker_active          : 'JOKER!',
@@ -251,7 +260,7 @@ I18n.registerStrings('pt', {
     h_rule_phases_title     : 'Fases de cada Ronda',
     h_rule_phases_content   : '🃏 Janela do Joker — tens uns segundos para decidir se usas o joker\n✍️ A Responder — escreve e envia a tua resposta antes do tempo acabar\n✅ Em Revisão — o anfitrião valida as respostas e atribui pontos',
     h_rule_joker_title      : '🃏 O Joker',
-    h_rule_joker_content    : 'Duplica os pontos que ganhas nessa ronda\nCada equipa só tem um joker para todo o jogo\nNão pode ser usado em Timeline Duel\nA equipa cantora não pode usar joker',
+    h_rule_joker_content    : 'Duplica os pontos que ganhas nessa ronda\nCada equipa tem um número limitado de jokers para o jogo\nNão pode ser usado em Timeline Duel\nA equipa cantora não pode usar joker',
     h_rule_cantora_title    : '🎤 A Cantora',
     h_rule_cantora_content  : 'A equipa em último lugar canta a próxima música\nNão precisa de responder\nGanha pontos por cada equipa que acerte (máximo 3)',
 

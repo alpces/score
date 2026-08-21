@@ -65,6 +65,12 @@ I18n.registerStrings('en', {
     m_h_session_config      : 'Session Setup',
     m_h_joker_time          : '⏱️ Joker Timer (s)',
     m_h_answer_time         : '⏱️ Answer Timer (s)',
+    m_h_jokers_per_team     : '🃏 Jokers per Team',
+    m_h_joker_phase_label   : '🃏 When it can be used',
+    m_h_joker_phase_window  : 'Before the music (dedicated window)',
+    m_h_joker_phase_music   : 'During the music',
+    m_h_joker_phase_hint    : 'Not applicable in "During the music" mode',
+    m_h_random_category     : '🎲 Random Category',
     m_h_categories          : '🏷️ Categories & Points',
     m_h_rules               : '📋 Rules (shown to players)',
     m_h_rules_edit_open     : '✏️ Edit',
@@ -90,6 +96,7 @@ I18n.registerStrings('en', {
 
     // ── Master Hitster — in session ──────────────────────────────────────────────
     m_h_phase_waiting     : '⏸ Waiting for round',
+    m_h_phase_reveal      : '🎲 Revealing category — {{n}}s',
     m_h_phase_music       : '🎵 Get the music ready! — {{n}}s',
     m_h_phase_joker_win   : '🃏 Joker Window — {{n}}s',
     m_h_phase_answering   : '✍️ Answering — {{n}}s',
@@ -242,6 +249,8 @@ I18n.registerStrings('en', {
     h_answer_confirmed      : '✓ Answer submitted',
     h_visible_only_you      : '(only visible to you)',
     h_joker_used            : 'already used',
+    h_joker_used_round      : 'used this round',
+    h_category_reveal       : 'Revealing the category...',
     h_help_title            : 'How to Play',
     h_scores_title          : '🏆 Scoring',
     h_joker_active          : 'JOKER!',
@@ -251,7 +260,7 @@ I18n.registerStrings('en', {
     h_rule_phases_title     : 'Phases of Each Round',
     h_rule_phases_content   : '🃏 Joker Window — you have a few seconds to decide whether to use your Joker\n✍️ Answering — write and submit your answer before time runs out\n✅ Review — the host validates answers and awards points',
     h_rule_joker_title      : '🃏 The Joker',
-    h_rule_joker_content    : 'Doubles the points you earn that round\nEach team only has one Joker for the whole game\nCannot be used in Timeline Duel\nThe singing team cannot use the Joker',
+    h_rule_joker_content    : 'Doubles the points you earn that round\nEach team has a limited number of Jokers for the whole game\nCannot be used in Timeline Duel\nThe singing team cannot use the Joker',
     h_rule_cantora_title    : '🎤 The Singer',
     h_rule_cantora_content  : 'The last-place team sings the next song\nThey don\'t need to answer\nThey earn points for each team that gets it right (max 3)',
 

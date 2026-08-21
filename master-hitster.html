@@ -102,6 +102,8 @@
             var categories = s6[0]; var setCategories = s6[1];
             var s7  = _s(10);      var jokerTime = s7[0];          var setJokerTime = s7[1];
             var s8  = _s(25);      var answerTime = s8[0];         var setAnswerTime = s8[1];
+            var s7b = _s(1);       var jokersPerTeam = s7b[0];     var setJokersPerTeam = s7b[1];
+            var s7c = _s('window'); var jokerUsablePhase = s7c[0]; var setJokerUsablePhase = s7c[1];
             var s9  = _s([]);      var availableLogos = s9[0];     var setAvailableLogos = s9[1];
             var s10 = _s([]);      var selectedLogos = s10[0];     var setSelectedLogos = s10[1];
             var s11 = _s([]);      var activeSessions = s11[0];    var setActiveSessions = s11[1];
@@ -124,11 +126,13 @@
             var g9  = _s(true);    var showScores = g9[0];         var setShowScores = g9[1];
             var g10 = _s(false);   var tablesLocked = g10[0];      var setTablesLocked = g10[1];
             var g11 = _s(1);       var roundNumber = g11[0];       var setRoundNumber = g11[1];
+            var g12 = _s(0);       var revealEndAt = g12[0];       var setRevealEndAt = g12[1];
 
             /* —— TIMERS (display) —— */
             var t1  = _s(0);       var jokerDisplay = t1[0];       var setJokerDisplay = t1[1];
             var t2  = _s(0);       var answerDisplay = t2[0];      var setAnswerDisplay = t2[1];
             var t3  = _s(0);       var presenceTick = t3[0];       var setPresenceTick = t3[1];
+            var t4  = _s(0);       var revealDisplay = t4[0];      var setRevealDisplay = t4[1];
 
             /* —— UI —— */
             var u1  = _s({});      var connectedClients = u1[0];   var setConnectedClients = u1[1];
@@ -181,6 +185,13 @@
             var jokerEndRef   = useRef(0);
             var answerEndRef  = useRef(0);
             var answerTimeRef = useRef(25);
+            var revealEndRef      = useRef(0);
+            var tablesRef          = useRef([]);
+            var jokerTimeRef       = useRef(10);
+            var jokersPerTeamRef   = useRef(1);
+            var jokerUsablePhaseRef = useRef('window');
+            var sessionIdRef       = useRef(null);
+            var pendingRoundRef    = useRef(null); // { cat, singing } à espera do fim da revelação
             var archivingRef      = useRef(false); // previne sync durante arquivo
             var syncTimerRef      = useRef(null);  // debounce do sync Firebase
             var jokerProcessedRef = useRef({});    // jokers já processados nesta ronda
@@ -190,12 +201,27 @@
             useEffect(function() { jokerEndRef.current = jokerEndAt; }, [jokerEndAt]);
             useEffect(function() { answerEndRef.current = answerEndAt; }, [answerEndAt]);
             useEffect(function() { answerTimeRef.current = answerTime; }, [answerTime]);
+            useEffect(function() { revealEndRef.current = revealEndAt; }, [revealEndAt]);
+            useEffect(function() { tablesRef.current = tables; }, [tables]);
+            useEffect(function() { jokerTimeRef.current = jokerTime; }, [jokerTime]);
+            useEffect(function() { jokersPerTeamRef.current = jokersPerTeam; }, [jokersPerTeam]);
+            useEffect(function() { jokerUsablePhaseRef.current = jokerUsablePhase; }, [jokerUsablePhase]);
+            useEffect(function() { sessionIdRef.current = sessionId; }, [sessionId]);
 
             /* —— TIMER —— */
             useEffect(function() {
                 var interval = setInterval(function() {
-                    var p = phaseRef.current, jE = jokerEndRef.current, aE = answerEndRef.current, now = Date.now();
-                    if (p === 'joker_window' && jE > 0) {
+                    var p = phaseRef.current, jE = jokerEndRef.current, aE = answerEndRef.current, rE = revealEndRef.current, now = Date.now();
+                    if (p === 'category_reveal' && rE > 0) {
+                        var remR = Math.max(0, Math.ceil((rE - now) / 1000));
+                        setRevealDisplay(remR);
+                        if (remR === 0 && now >= rE) {
+                            revealEndRef.current = 0; setRevealEndAt(0);
+                            var pending = pendingRoundRef.current;
+                            pendingRoundRef.current = null;
+                            if (pending) beginRound(pending.cat, pending.singing);
+                        }
+                    } else if (p === 'joker_window' && jE > 0) {
                         var rem = Math.max(0, Math.ceil((jE - now) / 1000));
                         setJokerDisplay(rem);
                         if (rem === 0 && now >= jE) {
@@ -321,14 +347,15 @@
                     fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
                         gameType: GAME_TYPE, active: true, timestamp: Date.now(),
                         phase: phase, currentCategory: currentCat,
-                        jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt,
+                        jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt, categoryRevealEndAt: revealEndAt,
                         jokerOrder: jokerOrder, roundJokers: roundJokers,
                         singingTeamId: singingTeam ? singingTeam.id : null,
                         showScores: showScores, tablesLocked: tablesLocked,
                         roundNumber: roundNumber,
-                        allJokersUsed: tables.length > 0 && tables.every(function(t) { return t.jokerUsed; }),
+                        jokersPerTeam: jokersPerTeam, jokerUsablePhase: jokerUsablePhase,
+                        allJokersUsed: tables.length > 0 && tables.every(function(t) { return (t.jokerCount || 0) >= jokersPerTeam; }),
                         tables: tables.map(function(t) {
-                            return { id: t.id, name: t.name, score: t.score, jokerUsed: t.jokerUsed || false };
+                            return { id: t.id, name: t.name, score: t.score, jokerCount: t.jokerCount || 0 };
                         }),
                         selectedLogos: selectedLogos,
                         rulesConfig: rulesConfig,
@@ -338,8 +365,9 @@
                     }).catch(function(e) { console.error('Sync:', e); });
                 }, 200);
                 return function() { clearTimeout(syncTimerRef.current); };
-            }, [sessionId, phase, currentCat, jokerEndAt, answerEndAt, jokerOrder, roundJokers,
-                singingTeam, showScores, tablesLocked, roundNumber, tables, selectedLogos, rulesConfig, categories]);
+            }, [sessionId, phase, currentCat, jokerEndAt, answerEndAt, revealEndAt, jokerOrder, roundJokers,
+                singingTeam, showScores, tablesLocked, roundNumber, jokersPerTeam, jokerUsablePhase,
+                tables, selectedLogos, rulesConfig, categories]);
 
             /* —— LISTENER: CLIENTES —— */
             useEffect(function() {
@@ -360,7 +388,7 @@
                                 var id = client.tableNumber;
                                 var idx = merged.findIndex(function(t) { return t.id === id; });
                                 if (idx < 0) {
-                                    merged.push({ id: id, name: client.teamName || ('Mesa ' + id), score: 0, jokerUsed: false });
+                                    merged.push({ id: id, name: client.teamName || ('Mesa ' + id), score: 0, jokerCount: 0 });
                                     changed = true;
                                 } else if (client.teamName && client.teamName !== merged[idx].name) {
                                     merged[idx] = Object.assign({}, merged[idx], { name: client.teamName });
@@ -388,19 +416,25 @@
                 if (!sessionId) return;
                 var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers'), function(snap) {
                     var data = snap.val() || {};
-                    if (phaseRef.current !== 'joker_window') return;
+                    var mode = jokerUsablePhaseRef.current;
+                    var validPhase = mode === 'music' ? phaseRef.current === 'answering' : phaseRef.current === 'joker_window';
+                    if (!validPhase) return;
                     var newIds = [];
                     Object.keys(data).forEach(function(key) {
                         if (jokerProcessedRef.current[key]) return;
                         var entry = data[key];
                         if (!entry || !entry.activated) return;
                         jokerProcessedRef.current[key] = true;
-                        newIds.push(parseInt(key));
+                        var tid = parseInt(key);
+                        var t = tablesRef.current.find(function(tb) { return tb.id === tid; });
+                        var usedSoFar = t ? (t.jokerCount || 0) : 0;
+                        if (usedSoFar >= jokersPerTeamRef.current) return;
+                        newIds.push(tid);
                     });
                     if (newIds.length === 0) return;
                     setJokerOrder(function(prev) {
                         var next = prev.slice();
-                        newIds.forEach(function(id) { if (next.indexOf(id) < 0) next.push(id); });
+                        newIds.forEach(function(id) { next.push(id); });
                         return next;
                     });
                     setRoundJokers(function(prev) {
@@ -410,7 +444,7 @@
                     });
                     setTables(function(prev) {
                         return prev.map(function(t) {
-                            return newIds.indexOf(t.id) >= 0 ? Object.assign({}, t, { jokerUsed: true }) : t;
+                            return newIds.indexOf(t.id) >= 0 ? Object.assign({}, t, { jokerCount: (t.jokerCount || 0) + 1 }) : t;
                         });
                     });
                 });
@@ -445,9 +479,10 @@
                         await fm.set(fm.ref(rtdb, 'sessions/' + code + '/gameState'), {
                             gameType: GAME_TYPE, active: true, timestamp: Date.now(),
                             phase: 'waiting', currentCategory: null,
-                            jokerTimerEndAt: 0, answerTimerEndAt: 0,
+                            jokerTimerEndAt: 0, answerTimerEndAt: 0, categoryRevealEndAt: 0,
                             jokerOrder: [], roundJokers: [], singingTeamId: null,
                             showScores: true, tablesLocked: false, roundNumber: 1,
+                            jokersPerTeam: jokersPerTeam, jokerUsablePhase: jokerUsablePhase,
                             tables: [], selectedLogos: selectedLogos,
                             rulesConfig: rulesConfig,
                             categories: categories.map(function(c) {
@@ -463,14 +498,16 @@
                 setShowExistDialog(false);
                 if (choice === 'resume') {
                     var loadedTables = (data.tables || []).map(function(t) {
-                        return { id: t.id, name: t.name, score: t.score || 0, jokerUsed: t.jokerUsed || false };
+                        return { id: t.id, name: t.name, score: t.score || 0, jokerCount: t.jokerCount || 0 };
                     });
                     setTables(loadedTables); setPhase(data.phase || 'waiting');
                     setCurrentCat(data.currentCategory || null);
                     setJokerEndAt(data.jokerTimerEndAt || 0); setAnswerEndAt(data.answerTimerEndAt || 0);
+                    setRevealEndAt(data.categoryRevealEndAt || 0);
                     setJokerOrder(data.jokerOrder || []); setRoundJokers(data.roundJokers || []);
                     setSingingTeam(null); setShowScores(data.showScores !== false);
                     setTablesLocked(data.tablesLocked || false); setRoundNumber(data.roundNumber || 1);
+                    setJokersPerTeam(data.jokersPerTeam || 1); setJokerUsablePhase(data.jokerUsablePhase || 'window');
                     setSelectedLogos(data.selectedLogos || []);
                     if (Array.isArray(data.rulesConfig) && data.rulesConfig.length > 0) setRulesConfig(data.rulesConfig);
                     setSessionId(code); setSetupDone(true);
@@ -509,18 +546,50 @@
                 if (!res.ok) alert('Erro: ' + (res.error && res.error.message || res.error));
             };
 
-            /* —— INICIAR RONDA —— */
+            /* —— INICIAR RONDA (transição de fase efetiva) —— */
+            // Lê tudo via refs para se manter correto mesmo quando chamada a partir do
+            // temporizador de revelação da categoria (closure capturada uma única vez).
+            var beginRound = function(cat, singing) {
+                jokerProcessedRef.current = {};
+                setCurrentCat(cat); setSingingTeam(singing || null); setRoundJokers([]);
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionIdRef.current + '/histerJokers')).catch(function() {});
+                fm.remove(fm.ref(rtdb, 'sessions/' + sessionIdRef.current + '/textResponses')).catch(function() {});
+                setTextResponses({}); setCheckedAnswers({});
+                revealEndRef.current = 0; setRevealEndAt(0);
+
+                var now = Date.now();
+                if (jokerUsablePhaseRef.current === 'music') {
+                    // Joker usável durante a música: não há janela dedicada — entra logo na resposta.
+                    var aEnd = now + answerTimeRef.current * 1000;
+                    phaseRef.current = 'answering'; jokerEndRef.current = 0; answerEndRef.current = aEnd;
+                    setPhase('answering'); setJokerEndAt(0); setAnswerEndAt(aEnd); setAnswerDisplay(answerTimeRef.current);
+                } else {
+                    var allUsed = tablesRef.current.length > 0 && tablesRef.current.every(function(t) {
+                        return (t.jokerCount || 0) >= jokersPerTeamRef.current;
+                    });
+                    var jTime = allUsed ? window.HitsterGame.JOKER_PREP_SECONDS : jokerTimeRef.current;
+                    var jEnd = now + jTime * 1000;
+                    phaseRef.current = 'joker_window'; jokerEndRef.current = jEnd; answerEndRef.current = 0;
+                    setPhase('joker_window'); setJokerEndAt(jEnd); setAnswerEndAt(0); setJokerDisplay(jTime);
+                }
+            };
+
             var startRound = function(cat, singing) {
                 setShowNewRound(false); setSingToggle(false);
-                jokerProcessedRef.current = {};
-                var allUsed = tables.length > 0 && tables.every(function(t) { return t.jokerUsed; });
-                var jTime = allUsed ? window.HitsterGame.JOKER_PREP_SECONDS : jokerTime;
-                var now = Date.now(), jEnd = now + jTime * 1000;
-                setCurrentCat(cat); setSingingTeam(singing || null); setRoundJokers([]);
-                setPhase('joker_window'); setJokerEndAt(jEnd); setAnswerEndAt(0); setJokerDisplay(jTime);
-                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function() {});
-                fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')).catch(function() {});
-                setTextResponses({}); setCheckedAnswers({});
+                beginRound(cat, singing);
+            };
+
+            /* —— ESCOLHA ALEATÓRIA DE CATEGORIA (com compasso de espera de 3s) —— */
+            var startRandomRound = function(singing) {
+                if (!categories || categories.length === 0) return;
+                setShowNewRound(false); setSingToggle(false);
+                var pick = categories[Math.floor(Math.random() * categories.length)];
+                pendingRoundRef.current = { cat: pick, singing: singing || null };
+                var now = Date.now(), rEnd = now + 3000;
+                revealEndRef.current = rEnd;
+                phaseRef.current = 'category_reveal';
+                setCurrentCat(pick); setSingingTeam(singing || null);
+                setPhase('category_reveal'); setRevealEndAt(rEnd); setRevealDisplay(3);
             };
 
             /* —— CONFIRMAR RESPOSTAS —— */
@@ -550,8 +619,10 @@
             /* —— CANCELAR RONDA —— */
             var cancelRound = function() {
                 if (!confirm(T('m_h_cancel_round'))) return;
+                phaseRef.current = 'waiting'; jokerEndRef.current = 0; answerEndRef.current = 0; revealEndRef.current = 0;
+                pendingRoundRef.current = null;
                 setPhase('waiting'); setCurrentCat(null); setSingingTeam(null);
-                setRoundJokers([]); setJokerEndAt(0); setAnswerEndAt(0); setShowReview(false);
+                setRoundJokers([]); setJokerEndAt(0); setAnswerEndAt(0); setRevealEndAt(0); setShowReview(false);
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')).catch(function(){});
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function(){});
             };
@@ -585,8 +656,9 @@
 
             var resetToSetup = function() {
                 archivingRef.current = false;
+                pendingRoundRef.current = null; revealEndRef.current = 0;
                 setSetupDone(false); setSessionId(null); setTables([]);
-                setPhase('waiting'); setCurrentCat(null); setJokerEndAt(0); setAnswerEndAt(0);
+                setPhase('waiting'); setCurrentCat(null); setJokerEndAt(0); setAnswerEndAt(0); setRevealEndAt(0);
                 setJokerOrder([]); setRoundJokers([]); setSingingTeam(null);
                 setShowScores(true); setTablesLocked(false); setRoundNumber(1);
                 setTextResponses({}); setConnectedClients({});
@@ -613,7 +685,7 @@
 
             /* ====================== RENDER ====================== */
 
-            var allJokersUsed = tables.length > 0 && tables.every(function(t) { return t.jokerUsed; });
+            var allJokersUsed = tables.length > 0 && tables.every(function(t) { return (t.jokerCount || 0) >= jokersPerTeam; });
             var lastPlace = window.HitsterGame.getLastPlace(tables, jokerOrder);
             // Todas as equipas empatadas no mínimo (para sidebar e modal)
             var tiedAtLast = (function() {
@@ -831,13 +903,14 @@
                                 codeError && h('p', { className: 'text-red-600 text-sm mt-1' }, codeError)
                             ),
                             h('div', { className: 'grid grid-cols-2 gap-4' },
-                                h('div', null,
+                                h('div', { className: jokerUsablePhase === 'music' ? 'opacity-40 pointer-events-none' : '' },
                                     h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_h_joker_time')),
                                     h('input', {
                                         type: 'number', min: 5, max: 30, value: jokerTime,
                                         onChange: function(e) { setJokerTime(Math.max(5, Math.min(30, parseInt(e.target.value) || 10))); },
                                         className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
-                                    })
+                                    }),
+                                    jokerUsablePhase === 'music' && h('p', { className: 'text-xs text-gray-500 mt-1' }, T('m_h_joker_phase_hint'))
                                 ),
                                 h('div', null,
                                     h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_h_answer_time')),
@@ -846,6 +919,27 @@
                                         onChange: function(e) { setAnswerTime(Math.max(10, Math.min(60, parseInt(e.target.value) || 25))); },
                                         className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
                                     })
+                                )
+                            ),
+                            h('div', { className: 'grid grid-cols-2 gap-4' },
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_h_jokers_per_team')),
+                                    h('input', {
+                                        type: 'number', min: 1, max: 5, value: jokersPerTeam,
+                                        onChange: function(e) { setJokersPerTeam(Math.max(1, Math.min(5, parseInt(e.target.value) || 1))); },
+                                        className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
+                                    })
+                                ),
+                                h('div', null,
+                                    h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_h_joker_phase_label')),
+                                    h('select', {
+                                        value: jokerUsablePhase,
+                                        onChange: function(e) { setJokerUsablePhase(e.target.value); },
+                                        className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none font-semibold bg-white'
+                                    },
+                                        h('option', { value: 'window' }, T('m_h_joker_phase_window')),
+                                        h('option', { value: 'music' }, T('m_h_joker_phase_music'))
+                                    )
                                 )
                             ),
                             h('div', null,
@@ -1092,7 +1186,13 @@
                             )
                         ),
 
-                        h('p', { className: 'text-sm text-gray-500 mb-3 font-semibold' }, T('m_h_choose_category')),
+                        h('div', { className: 'flex items-center justify-between mb-3' },
+                            h('p', { className: 'text-sm text-gray-500 font-semibold' }, T('m_h_choose_category')),
+                            h('button', {
+                                onClick: function() { startRandomRound(effectiveSinger); },
+                                className: 'px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg text-xs font-bold border border-amber-300 active:scale-95 transition-transform'
+                            }, T('m_h_random_category'))
+                        ),
                         h('div', { className: 'grid grid-cols-2 gap-3' },
                             categories.map(function(cat) {
                                 return h('button', {
@@ -1187,17 +1287,19 @@
             };
 
             var phaseLabel = {
-                'waiting':      T('m_h_phase_waiting'),
-                'joker_window': allJokersUsed ? T('m_h_phase_music', { n: jokerDisplay }) : T('m_h_phase_joker_win', { n: jokerDisplay }),
-                'answering':    T('m_h_phase_answering', { n: answerDisplay }),
-                'reviewing':    T('m_h_phase_reviewing')
+                'waiting':         T('m_h_phase_waiting'),
+                'category_reveal': T('m_h_phase_reveal', { n: revealDisplay }),
+                'joker_window':    allJokersUsed ? T('m_h_phase_music', { n: jokerDisplay }) : T('m_h_phase_joker_win', { n: jokerDisplay }),
+                'answering':       T('m_h_phase_answering', { n: answerDisplay }),
+                'reviewing':       T('m_h_phase_reviewing')
             }[phase] || phase;
 
             var phaseColor = {
-                'waiting':      'bg-slate-700 text-slate-300',
-                'joker_window': 'bg-yellow-500 text-yellow-900',
-                'answering':    'bg-blue-600 text-white',
-                'reviewing':    'bg-green-600 text-white'
+                'waiting':         'bg-slate-700 text-slate-300',
+                'category_reveal': 'bg-amber-500 text-amber-950',
+                'joker_window':    'bg-yellow-500 text-yellow-900',
+                'answering':       'bg-blue-600 text-white',
+                'reviewing':       'bg-green-600 text-white'
             }[phase] || 'bg-slate-700 text-slate-300';
 
             return h('div', { className: 'min-h-screen bg-slate-900 flex flex-col text-white' },
@@ -1241,7 +1343,7 @@
 
                 /* —— BARRA DE FASE —— */
                 h('div', { className: 'px-4 py-2 flex items-center gap-2 flex-wrap bg-slate-800 border-b border-slate-700 flex-shrink-0' },
-                    h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm ' + phaseColor + (phase === 'joker_window' || phase === 'answering' ? ' blink' : '') },
+                    h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm ' + phaseColor + (phase === 'joker_window' || phase === 'answering' || phase === 'category_reveal' ? ' blink' : '') },
                         phaseLabel
                     ),
                     currentCat && h('div', { className: 'bg-yellow-500 text-yellow-900 font-black px-3 py-1 rounded-full text-sm' }, currentCat.name),
@@ -1389,7 +1491,7 @@
                         onClick: function() { setShowNewRound(true); setSelectedSinger(null); },
                         className: 'px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
                     }, T('m_h_new_round', { n: roundNumber })),
-                    (phase === 'joker_window' || phase === 'answering') && h('button', {
+                    (phase === 'joker_window' || phase === 'answering' || phase === 'category_reveal') && h('button', {
                         onClick: cancelRound,
                         className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
                     }, T('m_h_cancel_round_btn')),
@@ -1430,7 +1532,7 @@
                         h('button', {
                             onClick: function() {
                                 if (!confirm(T('m_h_reset_confirm'))) return;
-                                setTables(function(prev) { return prev.map(function(t) { return Object.assign({}, t, { score: 0, jokerUsed: false }); }); });
+                                setTables(function(prev) { return prev.map(function(t) { return Object.assign({}, t, { score: 0, jokerCount: 0 }); }); });
                                 setJokerOrder([]); setRoundJokers([]);
                                 if (sessionId) fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function(){});
                             },

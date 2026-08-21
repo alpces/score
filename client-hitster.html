@@ -96,6 +96,7 @@
             var g9 = _s('');     var submitError = g9[0];     var setSubmitError = g9[1];
             var g10 = _s(false); var showHelp = g10[0];       var setShowHelp = g10[1];
             var g11 = _s('');    var lastSubmitted = g11[0];  var setLastSubmitted = g11[1];
+            var g12 = _s(0);     var revealTimer = g12[0];    var setRevealTimer = g12[1];
 
             // — i18n: estado de língua para forçar re-render quando a língua muda —
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -171,10 +172,11 @@
                 var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
                 var jEnd = gameData ? (gameData.jokerTimerEndAt || 0) : 0;
                 var aEnd = gameData ? (gameData.answerTimerEndAt || 0) : 0;
+                var rEnd = gameData ? (gameData.categoryRevealEndAt || 0) : 0;
 
                 if (phase === 'answering' && aEnd > 0) {
                     localAnswerEndRef.current = aEnd;
-                } else if (phase === 'waiting' || phase === 'joker_window') {
+                } else if (phase === 'waiting' || phase === 'joker_window' || phase === 'category_reveal') {
                     localAnswerEndRef.current = 0;
                     setAnswerTimer(0);
                 }
@@ -183,7 +185,9 @@
 
                 var tick = function() {
                     var now = Date.now();
-                    if (phase === 'joker_window' && jEnd > 0) {
+                    if (phase === 'category_reveal' && rEnd > 0) {
+                        setRevealTimer(Math.max(0, Math.ceil((rEnd - now) / 1000)));
+                    } else if (phase === 'joker_window' && jEnd > 0) {
                         setJokerTimer(Math.max(0, Math.ceil((jEnd - now) / 1000)));
                     } else if (localAnswerEndRef.current > 0) {
                         var rem = Math.max(0, Math.ceil((localAnswerEndRef.current - now) / 1000));
@@ -198,7 +202,8 @@
             }, [
                 gameData ? gameData.phase : null,
                 gameData ? gameData.jokerTimerEndAt : 0,
-                gameData ? gameData.answerTimerEndAt : 0
+                gameData ? gameData.answerTimerEndAt : 0,
+                gameData ? gameData.categoryRevealEndAt : 0
             ]);
 
             // — limpar input quando a fase muda —
@@ -243,9 +248,14 @@
             var pressJoker = async function() {
                 if (!sessionCode || !tableNumber || !gameData) return;
                 var tableId = parseInt(tableNumber);
-                var jokerOrder = gameData.jokerOrder || [];
-                if (jokerOrder.indexOf(tableId) >= 0) return;
-                if (gameData.phase !== 'joker_window') return;
+                var mode = gameData.jokerUsablePhase || 'window';
+                var phaseOk = mode === 'music' ? gameData.phase === 'answering' : gameData.phase === 'joker_window';
+                if (!phaseOk) return;
+                var roundJokersNow = gameData.roundJokers || [];
+                if (roundJokersNow.indexOf(tableId) >= 0) return;
+                var perTeam = gameData.jokersPerTeam || 1;
+                var myT = (gameData.tables || []).find(function(t) { return t.id === tableId; });
+                if (myT && (myT.jokerCount || 0) >= perTeam) return;
                 if (gameData.currentCategory && gameData.currentCategory.isTimeline) return;
                 for (var attempt = 0; attempt < 2; attempt++) {
                     try {
@@ -288,8 +298,6 @@
             var tableId = parseInt(tableNumber || '0');
             var phase = gameData ? (gameData.phase || 'waiting') : 'waiting';
             var cat = gameData ? gameData.currentCategory : null;
-            var jokerOrder = gameData ? (gameData.jokerOrder || []) : [];
-            var myJokerUsed = jokerOrder.indexOf(tableId) >= 0;
             var singingId = gameData ? (gameData.singingTeamId || null) : null;
             var isSinging = singingId === tableId;
             var allTables = gameData ? (gameData.tables || []) : [];
@@ -300,11 +308,17 @@
             var secLogos = selLogos.slice(1);
 
             var allJokersUsed = gameData ? (gameData.allJokersUsed || false) : false;
-            var jokerWindowOpen = phase === 'joker_window';
+            var jokersPerTeam = gameData ? (gameData.jokersPerTeam || 1) : 1;
+            var jokerMode = gameData ? (gameData.jokerUsablePhase || 'window') : 'window';
+            var roundJokersList = gameData ? (gameData.roundJokers || []) : [];
+            var myJokerCount = myTable ? (myTable.jokerCount || 0) : 0;
+            var poolExhausted = myJokerCount >= jokersPerTeam;
+            var usedThisRound = roundJokersList.indexOf(tableId) >= 0;
             var isTimeline = cat && cat.isTimeline;
-            var jokerEnabled = jokerWindowOpen && !myJokerUsed && !isTimeline && !isSinging;
+            var jokerPhaseActive = jokerMode === 'music' ? phase === 'answering' : phase === 'joker_window';
+            var jokerEnabled = jokerPhaseActive && !usedThisRound && !poolExhausted && !isTimeline && !isSinging;
             var showInput = !isSinging && answerTimer > 0;
-            var showCat = cat && (phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
+            var showCat = cat && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
 
             // — seletor de língua: botão com dropdown —
             function LangSelector() {
@@ -483,6 +497,13 @@
                         )
                     ),
 
+                    // revelação da categoria (escolha aleatória)
+                    phase === 'category_reveal' &&
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-3xl font-bold animate-pulse' }, '🎲 ' + revealTimer + 's'),
+                            h('div', { className: 'text-sm opacity-75' }, T('h_category_reveal'))
+                        ),
+
                     // timer joker
                     phase === 'joker_window' &&
                         h('div', { className: 'text-center text-white' },
@@ -514,7 +535,7 @@
                         ),
 
                     // equipa canta
-                    isSinging && (phase === 'joker_window' || phase === 'answering') &&
+                    isSinging && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'answering') &&
                         h('div', { className: 'bg-purple-500 bg-opacity-80 rounded-2xl p-5 w-full max-w-sm text-center text-white shadow-xl' },
                             h('div', { className: 'text-4xl mb-2' }, '🎤'),
                             h('div', { className: 'font-black text-xl' }, T('h_team_sings')),
@@ -571,13 +592,13 @@
                         ),
 
                     // botão joker
-                    (jokerWindowOpen && myJokerUsed)
+                    (jokerPhaseActive && (usedThisRound || poolExhausted))
                         ? h('div', { className: 'w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 bg-gray-700 bg-opacity-60 border-2 border-gray-600 select-none' },
                             h('div', { className: 'text-4xl opacity-40' }, '🃏'),
                             h('div', { className: 'text-xs font-black tracking-wider text-gray-400' }, T('h_joker_inactive')),
-                            h('div', { className: 'text-xs text-gray-500 font-semibold' }, T('h_joker_used'))
+                            h('div', { className: 'text-xs text-gray-500 font-semibold' }, poolExhausted ? T('h_joker_used') : T('h_joker_used_round'))
                           )
-                        : (!myJokerUsed && h('button', {
+                        : (!poolExhausted && h('button', {
                             onClick: jokerEnabled ? pressJoker : undefined,
                             disabled: !jokerEnabled,
                             className: 'relative w-36 h-36 rounded-full font-black text-lg shadow-2xl transition-all transform select-none ' + (
@@ -589,7 +610,10 @@
                             h('div', { className: 'flex flex-col items-center gap-1' },
                                 h('div', { className: 'text-4xl' }, '🃏'),
                                 h('div', { className: 'text-sm font-black tracking-wider' }, jokerEnabled ? T('h_joker_active') : T('h_joker_inactive'))
-                            )
+                            ),
+                            jokersPerTeam > 1 && h('div', {
+                                className: 'absolute -bottom-1 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-white border-opacity-20'
+                            }, (jokersPerTeam - myJokerCount) + '×')
                         ))
                 ),
 
