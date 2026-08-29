@@ -785,26 +785,20 @@ const HitsterGame = {
 
 /**
  * Determina a equipa em último lugar para o modo cantora.
- * Em caso de empate, usa jokerOrder como desempate (quem usou joker primeiro
- * fica com prioridade, garantindo rotação entre as equipas empatadas).
+ * Regra simples e sem ambiguidade: só devolve uma equipa quando o último lugar é
+ * único. Havendo empate entre 2+ equipas, devolve null — cabe sempre ao anfitrião
+ * escolher manualmente qual das equipas empatadas canta, nunca é resolvido
+ * automaticamente (evitar qualquer aparência de escolha arbitrária/injusta).
  *
- * @param {Array}  tables     - Lista de mesas [{ id, score, ... }]
- * @param {Array}  jokerOrder - IDs na ordem em que usaram joker (global, todo o jogo)
- * @returns {Object|null}     - Mesa em último lugar, ou null se não houver mesas
+ * @param {Array}  tables - Lista de mesas [{ id, score, ... }]
+ * @returns {Object|null} - Mesa em último lugar, ou null se não houver mesas ou houver empate
  */
-HitsterGame.getLastPlace = function(tables, jokerOrder) {
+HitsterGame.getLastPlace = function(tables) {
     if (!tables || tables.length === 0) return null;
     var sorted   = tables.slice().sort(function(a, b) { return a.score - b.score; });
     var minScore = sorted[0].score;
     var tied     = sorted.filter(function(t) { return t.score === minScore; });
-    if (tied.length === 1) return tied[0];
-    // Desempate: quem usou joker mais cedo (jokerOrder[0] tem prioridade para cantar)
-    for (var i = 0; i < jokerOrder.length; i++) {
-        for (var j = 0; j < tied.length; j++) {
-            if (tied[j].id === jokerOrder[i]) return tied[j];
-        }
-    }
-    return tied[0];
+    return tied.length === 1 ? tied[0] : null;
 };
 
 // =============================================================================

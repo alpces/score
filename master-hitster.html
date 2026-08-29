@@ -815,11 +815,31 @@
             /* —— CANCELAR RONDA —— */
             var cancelRound = function() {
                 if (!confirm(T('m_h_cancel_round'))) return;
+                // Devolve o joker às equipas que o ativaram nesta ronda — a ronda nunca pontuou,
+                // por isso o joker não pode ficar gasto para nada.
+                var refundIds = roundJokers.slice();
                 phaseRef.current = 'waiting'; jokerEndRef.current = 0; answerEndRef.current = 0; revealEndRef.current = 0;
                 pendingRoundRef.current = null;
                 setPhase('waiting'); setCurrentCat(null); setSingingTeam(null);
                 setRoundJokers([]); setJokerEndAt(0); setAnswerEndAt(0); setRevealEndAt(0); setShowReview(false);
                 setSpinOrder([]); setSpinStartAt(0);
+                if (refundIds.length > 0) {
+                    setTables(function(prev) {
+                        return prev.map(function(t) {
+                            return refundIds.indexOf(t.id) >= 0
+                                ? Object.assign({}, t, { jokerCount: Math.max(0, (t.jokerCount || 0) - 1) })
+                                : t;
+                        });
+                    });
+                    setJokerOrder(function(prev) {
+                        var next = prev.slice();
+                        refundIds.forEach(function(id) {
+                            var idx = next.lastIndexOf(id);
+                            if (idx >= 0) next.splice(idx, 1);
+                        });
+                        return next;
+                    });
+                }
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')).catch(function(){});
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function(){});
             };
@@ -886,17 +906,18 @@
             /* ====================== RENDER ====================== */
 
             var allJokersUsed = tables.length > 0 && tables.every(function(t) { return (t.jokerCount || 0) >= jokersPerTeam; });
-            var lastPlace = window.HitsterGame.getLastPlace(tables, jokerOrder);
             // Todas as equipas empatadas no mínimo (para sidebar e modal)
             var tiedAtLast = (function() {
                 if (!tables.length) return [];
                 var min = Math.min.apply(null, tables.map(function(t) { return t.score; }));
                 return tables.filter(function(t) { return t.score === min; });
             })();
-            // Empate sem desempate por joker → anfitrião escolhe quem é "último"
-            var ambiguousLast = tiedAtLast.length > 1 && !jokerOrder.some(function(jid) {
-                return tiedAtLast.some(function(t) { return t.id === jid; });
-            });
+            // Regra simples e sem ambiguidade: só há "último lugar" definido quando é uma única
+            // equipa. Havendo empate (2+ equipas no mínimo), é sempre o anfitrião a escolher —
+            // nunca se resolve sozinho com base no histórico de jokers, para não parecer arbitrário
+            // ou injusto perante as equipas empatadas.
+            var ambiguousLast = tiedAtLast.length > 1;
+            var lastPlace = tiedAtLast.length === 1 ? tiedAtLast[0] : null;
             var responseCount = Object.keys(textResponses).length;
             var tableCount = tables.length;
 
@@ -2026,7 +2047,7 @@
                         h('h3', { className: 'text-xl font-black text-white mb-4 text-center flex-shrink-0' }, T('m_leaderboard')),
                         h('div', { className: 'space-y-2 overflow-y-auto flex-1' },
                             tables.slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
-                                var isLast = lastPlace && t.id === lastPlace.id;
+                                var isLast = tiedAtLast.some(function(tt) { return tt.id === t.id; });
                                 var medal = ['🥇','🥈','🥉'][idx] || (idx + 1) + '.';
                                 return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl ' + (isLast ? 'bg-amber-900/40 border border-amber-600' : 'bg-slate-700') },
                                     h('div', { className: 'flex items-center gap-2' },

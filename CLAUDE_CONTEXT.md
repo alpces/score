@@ -445,7 +445,14 @@ toda a lógica de jogo vive inline em `master-hitster.html`/`client-hitster.html
   tempo decorrido, sem writes por frame.
 - Modo Cantora: a equipa com **menos pontos** pode cantar a próxima música
   (rotulada como "😎 Equipa Descontraída" em toda a UI — nunca "último lugar",
-  para não ser humilhante); ganha pontos pelos acertos das outras.
+  para não ser humilhante); ganha pontos pelos acertos das outras. Regra de
+  desempate deliberadamente simples: `HitsterGame.getLastPlace(tables)` só
+  devolve uma equipa quando o último lugar é único; havendo 2+ equipas
+  empatadas no mínimo, é **sempre** o anfitrião a escolher manualmente no
+  dropdown do modal de nova ronda — nunca se resolve sozinho (já existiu uma
+  heurística baseada em `jokerOrder` que escolhia a equipa que usara joker mais
+  cedo entre as empatadas; foi removida por poder parecer arbitrária/injusta
+  perante muitas equipas empatadas).
 - Timers absolutos (timestamps), clientes derivam countdown localmente
 - Regras editáveis em runtime no master, sincronizadas via `gameState.rulesConfig` (array de blocos)
 - Categorias também em `gameState.categories` para o cliente mostrar
