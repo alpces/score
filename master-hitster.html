@@ -9,6 +9,7 @@
     <!-- Configuração Firebase, core de sessão partilhado e módulo Hitster -->
     <script src="shared/firebase-config.js"></script>
     <script src="shared/session-core.js"></script>
+    <script src="shared/server-time.js"></script>
     <!-- Bandeiras SVG via flag-icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
     <!-- i18n -->
@@ -151,6 +152,7 @@
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
         var T = I18n.t;
+        ServerTime.init(rtdb, fm);
 
         function App() {
             var _s = function(v) { return useState(v); };
@@ -200,7 +202,7 @@
             /* —— PROJETOR (só leitura) —— */
             var pb1 = _s(null);    var publicState = pb1[0];       var setPublicState = pb1[1];
             var pb2 = _s({});      var publicClients = pb2[0];     var setPublicClients = pb2[1];
-            var pb3 = _s(Date.now()); var nowTick = pb3[0];        var setNowTick = pb3[1];
+            var pb3 = _s(ServerTime.now()); var nowTick = pb3[0];   var setNowTick = pb3[1];
             var pb4 = _s(false);   var psHideScoresLocally = pb4[0]; var setPsHideScoresLocally = pb4[1];
             var pb5 = _s(false);   var showQRPublic = pb5[0];      var setShowQRPublic = pb5[1];
 
@@ -322,7 +324,7 @@
             /* —— TIMER —— */
             useEffect(function() {
                 var interval = setInterval(function() {
-                    var p = phaseRef.current, jE = jokerEndRef.current, aE = answerEndRef.current, rE = revealEndRef.current, now = Date.now();
+                    var p = phaseRef.current, jE = jokerEndRef.current, aE = answerEndRef.current, rE = revealEndRef.current, now = ServerTime.now();
                     if (p === 'category_reveal' && rE > 0) {
                         var remR = Math.max(0, Math.ceil((rE - now) / 1000));
                         setRevealDisplay(remR);
@@ -336,11 +338,10 @@
                         var rem = Math.max(0, Math.ceil((jE - now) / 1000));
                         setJokerDisplay(rem);
                         if (rem === 0 && now >= jE) {
-                            phaseRef.current = 'answering'; jokerEndRef.current = 0;
-                            var newEnd = now + answerTimeRef.current * 1000;
-                            answerEndRef.current = newEnd;
-                            setPhase('answering'); setJokerEndAt(0); setAnswerEndAt(newEnd);
-                            setAnswerDisplay(answerTimeRef.current);
+                            // Janela do joker fechou; aguarda o anfitrião iniciar a fase de
+                            // resposta manualmente — não arranca sozinho nem inicia o temporizador.
+                            phaseRef.current = 'ready'; jokerEndRef.current = 0;
+                            setPhase('ready'); setJokerEndAt(0);
                         }
                     } else if (p === 'answering' && aE > 0) {
                         var rem2 = Math.max(0, Math.ceil((aE - now) / 1000));
@@ -624,7 +625,7 @@
             useEffect(function() {
                 if (masterMode !== 'public') return;
                 var fast = publicState && publicState.phase === 'category_reveal';
-                var id = setInterval(function() { setNowTick(Date.now()); }, fast ? 40 : 250);
+                var id = setInterval(function() { setNowTick(ServerTime.now()); }, fast ? 40 : 250);
                 return function() { clearInterval(id); };
             }, [masterMode, publicState && publicState.phase]);
 
@@ -745,21 +746,28 @@
                 revealEndRef.current = 0; setRevealEndAt(0);
                 setSpinOrder([]); setSpinStartAt(0);
 
-                var now = Date.now();
                 if (jokerUsablePhaseRef.current === 'music') {
-                    // Joker usável durante a música: não há janela dedicada — entra logo na resposta.
-                    var aEnd = now + answerTimeRef.current * 1000;
-                    phaseRef.current = 'answering'; jokerEndRef.current = 0; answerEndRef.current = aEnd;
-                    setPhase('answering'); setJokerEndAt(0); setAnswerEndAt(aEnd); setAnswerDisplay(answerTimeRef.current);
+                    // Joker usável durante a música: sem janela dedicada — aguarda o anfitrião
+                    // dar início à fase de resposta (é aí que o joker também fica disponível).
+                    phaseRef.current = 'ready'; jokerEndRef.current = 0; answerEndRef.current = 0;
+                    setPhase('ready'); setJokerEndAt(0); setAnswerEndAt(0);
                 } else {
                     var allUsed = tablesRef.current.length > 0 && tablesRef.current.every(function(t) {
                         return (t.jokerCount || 0) >= jokersPerTeamRef.current;
                     });
                     var jTime = allUsed ? window.HitsterGame.JOKER_PREP_SECONDS : jokerTimeRef.current;
-                    var jEnd = now + jTime * 1000;
+                    var jEnd = ServerTime.now() + jTime * 1000;
                     phaseRef.current = 'joker_window'; jokerEndRef.current = jEnd; answerEndRef.current = 0;
                     setPhase('joker_window'); setJokerEndAt(jEnd); setAnswerEndAt(0); setJokerDisplay(jTime);
                 }
+            };
+
+            /* —— INICIAR FASE DE RESPOSTA — só acontece quando o anfitrião carrega no botão;
+               é aqui (e só aqui) que o temporizador de resposta começa a contar. —— */
+            var startAnswering = function() {
+                var aEnd = ServerTime.now() + answerTimeRef.current * 1000;
+                phaseRef.current = 'answering'; answerEndRef.current = aEnd;
+                setPhase('answering'); setAnswerEndAt(aEnd); setAnswerDisplay(answerTimeRef.current);
             };
 
             var startRound = function(cat, singing) {
@@ -780,7 +788,7 @@
                 }
                 var plan = buildSpinPlan(pool, pick, SPIN_TOTAL_MS);
                 pendingRoundRef.current = { cat: pick, singing: singing || null };
-                var now = Date.now(), rEnd = now + plan.totalMs;
+                var now = ServerTime.now(), rEnd = now + plan.totalMs;
                 revealEndRef.current = rEnd;
                 phaseRef.current = 'category_reveal';
                 setCurrentCat(pick); setSingingTeam(singing || null);
@@ -1104,7 +1112,7 @@
                             Section('m_h_help_joker_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_joker_body'))),
                             Section('m_h_help_singer_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_singer_body'))),
                             Section('m_h_help_modes_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_modes_body'))),
-                            Section('m_h_help_phases_title', Bullets(['m_h_help_phase_waiting', 'm_h_help_phase_reveal', 'm_h_help_phase_joker', 'm_h_help_phase_answer', 'm_h_help_phase_review'])),
+                            Section('m_h_help_phases_title', Bullets(['m_h_help_phase_waiting', 'm_h_help_phase_reveal', 'm_h_help_phase_joker', 'm_h_help_phase_ready', 'm_h_help_phase_answer', 'm_h_help_phase_review'])),
                             Section('m_h_help_manage_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_manage_body'))),
                             Section('m_h_help_rules_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_rules_body'))),
                             Section('m_h_help_scores_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_scores_body')))
@@ -1457,6 +1465,7 @@
                     'joker_window':    ps.allJokersUsed
                         ? T('m_h_phase_music', { n: Math.max(0, Math.ceil(((ps.jokerTimerEndAt || 0) - nowTick) / 1000)) })
                         : T('m_h_phase_joker_win', { n: Math.max(0, Math.ceil(((ps.jokerTimerEndAt || 0) - nowTick) / 1000)) }),
+                    'ready':           T('m_h_phase_ready'),
                     'answering':       T('m_h_phase_answering', { n: Math.max(0, Math.ceil(((ps.answerTimerEndAt || 0) - nowTick) / 1000)) }),
                     'reviewing':       T('m_h_phase_reviewing')
                 }[ps.phase] || ps.phase;
@@ -1464,6 +1473,7 @@
                     'waiting':         'bg-slate-700 text-slate-300',
                     'category_reveal': 'bg-amber-500 text-amber-950',
                     'joker_window':    'bg-yellow-500 text-yellow-900',
+                    'ready':           'bg-green-600 text-white',
                     'answering':       'bg-blue-600 text-white',
                     'reviewing':       'bg-green-600 text-white'
                 }[ps.phase] || 'bg-slate-700 text-slate-300';
@@ -1503,6 +1513,7 @@
                         timerVal !== null && h('div', {
                             className: 'text-5xl sm:text-6xl font-black mb-6 ' + (timerVal <= 5 ? 'text-red-400 animate-pulse' : 'text-amber-300')
                         }, '⏱️ ' + timerVal + 's'),
+                        ps.phase === 'ready' && h('div', { className: 'text-2xl sm:text-3xl font-black text-green-400 mb-6 animate-pulse' }, T('m_h_phase_ready')),
                         h('div', { className: 'text-base sm:text-lg text-slate-300' }, cat.description),
                         h('div', { className: 'mt-2 inline-block bg-violet-700 text-white text-sm font-bold px-3 py-1 rounded-full' },
                             cat.points + (cat.points === 1 ? ' pt' : ' pts')
@@ -1532,7 +1543,7 @@
                         )
                     ),
                     h('div', { className: 'px-4 py-2 bg-slate-800 border-b border-slate-700 flex-shrink-0' },
-                        h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm inline-block ' + psPhaseColor + (ps.phase === 'joker_window' || ps.phase === 'answering' || ps.phase === 'category_reveal' ? ' blink' : '') },
+                        h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm inline-block ' + psPhaseColor + (ps.phase === 'joker_window' || ps.phase === 'answering' || ps.phase === 'category_reveal' || ps.phase === 'ready' ? ' blink' : '') },
                             psPhaseLabel
                         )
                     ),
@@ -1755,6 +1766,7 @@
                 'waiting':         T('m_h_phase_waiting'),
                 'category_reveal': T('m_h_phase_reveal', { n: revealDisplay }),
                 'joker_window':    allJokersUsed ? T('m_h_phase_music', { n: jokerDisplay }) : T('m_h_phase_joker_win', { n: jokerDisplay }),
+                'ready':           T('m_h_phase_ready'),
                 'answering':       T('m_h_phase_answering', { n: answerDisplay }),
                 'reviewing':       T('m_h_phase_reviewing')
             }[phase] || phase;
@@ -1763,6 +1775,7 @@
                 'waiting':         'bg-slate-700 text-slate-300',
                 'category_reveal': 'bg-amber-500 text-amber-950',
                 'joker_window':    'bg-yellow-500 text-yellow-900',
+                'ready':           'bg-green-600 text-white',
                 'answering':       'bg-blue-600 text-white',
                 'reviewing':       'bg-green-600 text-white'
             }[phase] || 'bg-slate-700 text-slate-300';
@@ -1818,7 +1831,7 @@
 
                 /* —— BARRA DE FASE —— */
                 h('div', { className: 'px-4 py-2 flex items-center gap-2 flex-wrap bg-slate-800 border-b border-slate-700 flex-shrink-0' },
-                    h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm ' + phaseColor + (phase === 'joker_window' || phase === 'answering' || phase === 'category_reveal' ? ' blink' : '') },
+                    h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm ' + phaseColor + (phase === 'joker_window' || phase === 'answering' || phase === 'category_reveal' || phase === 'ready' ? ' blink' : '') },
                         phaseLabel
                     ),
                     currentCat && h('div', { className: 'bg-yellow-500 text-yellow-900 font-black px-3 py-1 rounded-full text-sm' }, currentCat.name),
@@ -1860,7 +1873,7 @@
                                     // Estado da conexão baseado em lastSeen — heartbeat de 15s no cliente.
                                     // <30s = online, 30-60s = ausente, >60s = offline (sem mensagem há muito).
                                     var lastSeen = lastSeenMapRef.current[table.id] || 0;
-                                    var sinceSeen = lastSeen ? (Date.now() - lastSeen) : Infinity;
+                                    var sinceSeen = lastSeen ? (ServerTime.now() - lastSeen) : Infinity;
                                     var connState = !client ? 'gone' : (sinceSeen < 30000 ? 'online' : (sinceSeen < 60000 ? 'idle' : 'offline'));
                                     return h('div', {
                                         key: table.id,
@@ -1966,13 +1979,17 @@
                         onClick: function() { setShowNewRound(true); setSelectedSinger(null); },
                         className: 'px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform'
                     }, T('m_h_new_round', { n: roundNumber })),
-                    (phase === 'joker_window' || phase === 'answering' || phase === 'category_reveal') && h('button', {
+                    phase === 'ready' && h('button', {
+                        onClick: startAnswering,
+                        className: 'px-6 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl font-black text-base shadow-lg blink active:scale-95 transition-transform'
+                    }, T('m_h_start_answering')),
+                    (phase === 'joker_window' || phase === 'answering' || phase === 'category_reveal' || phase === 'ready') && h('button', {
                         onClick: cancelRound,
                         className: 'px-4 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-xl font-bold text-sm'
                     }, T('m_h_cancel_round_btn')),
                     phase === 'answering' && h('button', {
                         onClick: function() {
-                            var newEnd = Date.now() + answerTimeRef.current * 1000;
+                            var newEnd = ServerTime.now() + answerTimeRef.current * 1000;
                             answerEndRef.current = newEnd;
                             setAnswerEndAt(newEnd);
                             setAnswerDisplay(answerTimeRef.current);

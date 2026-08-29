@@ -329,6 +329,28 @@ var res = await SessionCore.archiveSession({ ... });
 if (!res.ok) { alert('Erro ao arquivar: ' + (res.error && res.error.message || res.error)); setClosing(false); return; }
 ```
 
+### Temporizadores partilhados entre dispositivos — usar `ServerTime.now()`, nunca `Date.now()`
+**Porquê**: qualquer temporizador sincronizado entre master/projetor/clientes funciona
+comparando um timestamp absoluto (`Date.now() + duração`) escrito por um dispositivo
+com o `Date.now()` lido por outro. Se os relógios dos dispositivos não estiverem
+alinhados (comum entre telemóveis/portáteis — basta um relógio errado ou fuso mal
+configurado), a comparação fica desfasada: um temporizador pode aparecer já a meio
+assim que chega a outro ecrã, ou uma animação cronometrada (ex: a roleta de categoria
+do Hitster) pode saltar logo para o fim em vez de se ver a animar. Confirmado em
+testes com skew simulado de poucos segundos entre dispositivos.
+
+**Solução**: `shared/server-time.js` (`window.ServerTime`) subscreve
+`.info/serverTimeOffset` do Firebase RTDB — o desvio (ms) entre o relógio deste
+dispositivo e o do servidor — e `ServerTime.now()` devolve `Date.now() + offset`,
+uma estimativa do "tempo verdadeiro" consistente entre todos os dispositivos ligados
+à mesma sessão, sem precisarem de se coordenar entre si. Chamar
+`ServerTime.init(rtdb, fm)` uma vez no arranque (depois de `firebaseReady`), e usar
+`ServerTime.now()` em vez de `Date.now()` em **qualquer** sítio que calcule ou
+compare timestamps de temporizadores partilhados (definir `xEndAt = now + duração`,
+ou comparar `xEndAt - now` para calcular o countdown) — tanto no master como no
+cliente. Não é preciso para timestamps puramente informativos/cosméticos (ex: "hora
+da sessão" no histórico) — só para os que alimentam um countdown real.
+
 ### React-sem-JSX
 Todas as apps usam `var h = React.createElement;`. Sem build step. Listas de elementos passam-se como rest args ou arrays com `key`:
 ```javascript
@@ -421,9 +443,15 @@ botões, modais, fluxo de fases), distinto das regras mostradas aos jogadores.
 ## 🎲 Apps Existentes — Resumo Técnico
 
 ### Mega Hitster (`master-hitster.html`, `client-hitster.html`, `games/hitster.js`)
-Quiz musical. Fases: `waiting → (category_reveal) → joker_window → answering → reviewing → waiting`
-(`category_reveal` só ocorre na escolha aleatória de categoria; a escolha manual salta
-direto para `joker_window`/`answering`). Nota: `games/hitster.js` só fornece
+Quiz musical. Fases: `waiting → (category_reveal) → (joker_window) → ready → answering → reviewing → waiting`
+(`category_reveal` só ocorre na escolha aleatória de categoria; `joker_window` só
+existe no modo `'window'` — no modo `'music'` salta-se direto para `ready`). A fase
+`ready` é deliberadamente **sem temporizador**: entra-se nela automaticamente após a
+janela do joker fechar (ou logo a seguir à escolha da categoria em modo `'music'`),
+mas só se avança para `answering` — e só aí arranca o temporizador de resposta —
+quando o anfitrião carrega em "▶️ Iniciar Respostas" (`startAnswering()`). Isto
+existe para o anfitrião controlar exatamente quando a música (externa ao jogo)
+começa a tocar, em vez de o jogo assumir isso automaticamente. Nota: `games/hitster.js` só fornece
 `DEFAULT_CATEGORIES`/`JOKER_PREP_SECONDS`/`getLastPlace`/`id` — o resto do módulo
 (`processAction`, `getConfigUI`, etc.) é código morto, não está ligado à app real;
 toda a lógica de jogo vive inline em `master-hitster.html`/`client-hitster.html`.

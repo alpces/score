@@ -13,6 +13,7 @@
     <!-- Configuração Firebase, core de cliente partilhado, i18n e módulo Hitster -->
     <script src="shared/firebase-config.js"></script>
     <script src="shared/client-core.js"></script>
+    <script src="shared/server-time.js"></script>
     <script src="shared/i18n.js"></script>
     <script src="shared/i18n-pt.js"></script>
     <script src="shared/i18n-en.js"></script>
@@ -62,6 +63,7 @@
     window.addEventListener('firebaseReady', function() {
         var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, h = React.createElement;
         var rtdb = window.rtdb, fm = window.fbModules;
+        ServerTime.init(rtdb, fm);
 
         // Alias de tradução — lê _current dinamicamente, funciona com re-renders por i18n:change
         var T = I18n.t;
@@ -176,7 +178,7 @@
 
                 if (phase === 'answering' && aEnd > 0) {
                     localAnswerEndRef.current = aEnd;
-                } else if (phase === 'waiting' || phase === 'joker_window' || phase === 'category_reveal') {
+                } else if (phase === 'waiting' || phase === 'joker_window' || phase === 'category_reveal' || phase === 'ready') {
                     localAnswerEndRef.current = 0;
                     setAnswerTimer(0);
                 }
@@ -184,7 +186,7 @@
                 if (timerRef.current) clearInterval(timerRef.current);
 
                 var tick = function() {
-                    var now = Date.now();
+                    var now = ServerTime.now();
                     if (phase === 'category_reveal' && rEnd > 0) {
                         setRevealTimer(Math.max(0, Math.ceil((rEnd - now) / 1000)));
                     } else if (phase === 'joker_window' && jEnd > 0) {
@@ -318,7 +320,7 @@
             var jokerPhaseActive = jokerMode === 'music' ? phase === 'answering' : phase === 'joker_window';
             var jokerEnabled = jokerPhaseActive && !usedThisRound && !poolExhausted && !isTimeline && !isSinging;
             var showInput = !isSinging && answerTimer > 0;
-            var showCat = cat && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'answering' || phase === 'reviewing');
+            var showCat = cat && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'ready' || phase === 'answering' || phase === 'reviewing');
 
             // — seletor de língua: botão com dropdown —
             function LangSelector() {
@@ -511,6 +513,13 @@
                             h('div', { className: 'text-sm opacity-75' }, allJokersUsed ? T('h_preparing_music') : T('h_joker_time'))
                         ),
 
+                    // pronto — aguarda o anfitrião iniciar a fase de resposta
+                    phase === 'ready' && !isSinging &&
+                        h('div', { className: 'text-center text-white' },
+                            h('div', { className: 'text-3xl font-bold animate-pulse' }, '🎤'),
+                            h('div', { className: 'text-sm opacity-75 mt-1' }, T('h_waiting_start'))
+                        ),
+
                     // timer resposta
                     phase === 'answering' && !isSinging &&
                         h('div', { className: 'text-center' },
@@ -535,7 +544,7 @@
                         ),
 
                     // equipa canta
-                    isSinging && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'answering') &&
+                    isSinging && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'ready' || phase === 'answering') &&
                         h('div', { className: 'bg-purple-500 bg-opacity-80 rounded-2xl p-5 w-full max-w-sm text-center text-white shadow-xl' },
                             h('div', { className: 'text-4xl mb-2' }, '🎤'),
                             h('div', { className: 'font-black text-xl' }, T('h_team_sings')),
