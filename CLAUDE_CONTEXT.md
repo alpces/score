@@ -399,22 +399,65 @@ Referência completa: `master-justone.html`. Ao adicionar este padrão a um novo
   secundárias (ex: "📊 Estatísticas") também podem viver na barra inferior com
   `flex-wrap`, em vez de competirem por espaço no header.
 
-Este padrão é **opcional** — Hitster e Diamant não o usam (um único `master-X.html`
-sem escolha de modo). Usar apenas se o jogo tiver um ecrã de projetor partilhado
+Este padrão é **opcional** — Diamant não o usa (um único `master-X.html` sem
+escolha de modo). Usar apenas se o jogo tiver um ecrã de projetor partilhado
 distinto do dispositivo do anfitrião.
+
+**Exceção documentada (Mega Hitster)**: ao contrário de Just One/Deception, a
+Consola do Hitster mantém o seu próprio botão de QR (além do QR no Projetor).
+Justificação: a maioria das sessões de Hitster continua a ser um único
+dispositivo sem projetor, e remover o QR da Consola seria uma regressão para
+esses anfitriões — não seguir esta convenção sem confirmar que deixou de haver
+utilizadores só-Consola.
+
+**Ajuda do anfitrião**: sempre que se adiciona uma funcionalidade nova ao
+master (não ao cliente), documentar também no modal de ajuda do anfitrião
+(`m_h_help_*` no Hitster, `m_j_help_*` no Just One) — Deception ainda não tem
+este modal. O modal cobre o funcionamento da app do lado do anfitrião (setup,
+botões, modais, fluxo de fases), distinto das regras mostradas aos jogadores.
 
 ---
 
 ## 🎲 Apps Existentes — Resumo Técnico
 
 ### Mega Hitster (`master-hitster.html`, `client-hitster.html`, `games/hitster.js`)
-Quiz musical. Fases: `waiting → joker_window → answering → reviewing → waiting`.
+Quiz musical. Fases: `waiting → (category_reveal) → joker_window → answering → reviewing → waiting`
+(`category_reveal` só ocorre na escolha aleatória de categoria; a escolha manual salta
+direto para `joker_window`/`answering`). Nota: `games/hitster.js` só fornece
+`DEFAULT_CATEGORIES`/`JOKER_PREP_SECONDS`/`getLastPlace`/`id` — o resto do módulo
+(`processAction`, `getConfigUI`, etc.) é código morto, não está ligado à app real;
+toda a lógica de jogo vive inline em `master-hitster.html`/`client-hitster.html`.
 - Categorias configuráveis (Ano, ±3, Título, Artista, Década, Timeline Duel)
-- Joker (duplica pontos, 1/jogo/equipa)
-- Modo Cantora (último lugar canta; ganha pelos acertos das outras)
+- Joker: nº de jokers por equipa configurável (`jokersPerTeam`, por defeito 1;
+  cada equipa pode reutilizar em rondas diferentes até esgotar a conta — contado
+  em `table.jokerCount`, não um booleano); e quando pode ser usado
+  (`jokerUsablePhase`: `'window'` = janela dedicada antes da música [default],
+  `'music'` = durante a própria música, sem janela separada). Nunca utilizável em
+  Timeline Duel nem pela equipa cantora.
+- Escolha de categoria: manual (qualquer categoria, incl. Timeline Duel) ou
+  aleatória via botão "🎲 Categoria Aleatória" — o sorteio **exclui sempre**
+  Timeline Duel (`isTimeline: true`), que só pode ser escolhida manualmente. A
+  escolha aleatória entra na fase `category_reveal`: no modo Consola mostra só
+  uma contagem decrescente; no modo Projetor mostra uma **animação de roleta**
+  (ver `buildSpinPlan`/`getSpinStepDurations`/`getCurrentSpinStep`) — plano
+  determinístico (sequência de ids + timestamp de início) escrito uma única vez
+  no Firebase; cada visualizador calcula localmente o passo atual a partir do
+  tempo decorrido, sem writes por frame.
+- Modo Cantora: a equipa com **menos pontos** pode cantar a próxima música
+  (rotulada como "😎 Equipa Descontraída" em toda a UI — nunca "último lugar",
+  para não ser humilhante); ganha pontos pelos acertos das outras.
 - Timers absolutos (timestamps), clientes derivam countdown localmente
 - Regras editáveis em runtime no master, sincronizadas via `gameState.rulesConfig` (array de blocos)
 - Categorias também em `gameState.categories` para o cliente mostrar
+- **Dual-mode Consola/Projetor** (ver secção acima) — `sessionStorage` para
+  `masterMode` (não `localStorage`); Consola mantém QR próprio (exceção
+  documentada); Projetor mostra a roleta, a categoria em destaque + timer, e um
+  placar opcional (`publicShowScores`, independente do `showScores` que só
+  afeta o próprio ecrã da Consola).
+- Modal de ajuda do anfitrião (`m_h_help_*`) acessível do ecrã inicial e da
+  barra inferior da Consola — documenta fluxo, categorias/Timeline Duel, joker,
+  cantora, dual-mode, fases, gestão de mesas, regras e a distinção entre os
+  dois toggles de pontos.
 
 `ReviewModal` é chamado como `ReviewModal()` (não `h(ReviewModal, null)`) para preservar scrollTop ao tickar checkboxes.
 

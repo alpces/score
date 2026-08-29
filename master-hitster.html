@@ -64,6 +64,69 @@
     // URLs e constantes lidas dos scripts partilhados
     var CLIENT_URL = window.AppConfig.CLIENT_HITSTER_URL;
     var GAME_TYPE  = window.HitsterGame.id;
+    var MASTER_MODE_KEY = 'hitsterMasterMode';
+
+    // — nome de equipa + nº de mesa, sempre juntos (usado no modo Projetor) —
+    function teamLabel(table) {
+        if (!table) return '';
+        var tn = I18n.t('table_n', { n: table.id });
+        return table.name ? (table.name + ' (' + tn + ')') : tn;
+    }
+
+    function rankTables(sorted) {
+        // Standard competition ranking: empates partilham a posição, o rank seguinte salta
+        var result = [];
+        var rank = 1;
+        for (var i = 0; i < sorted.length; i++) {
+            if (i > 0 && sorted[i].score < sorted[i - 1].score) rank = i + 1;
+            result.push({ table: sorted[i], rank: rank });
+        }
+        return result;
+    }
+    var RANK_MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
+    /* —— ROLETA DE CATEGORIA — plano determinístico, sem writes por frame —— */
+    var SPIN_TOTAL_MS = 3200;
+    var SPIN_MIN_STEPS = 14;
+    var SPIN_LAPS = 3;
+
+    function getSpinStepDurations(numSteps, totalMs) {
+        var n = Math.max(1, numSteps);
+        var MIN_MS = 70, MAX_MS = 550, POWER = 2.2; // ease-in: passos curtos no início, longos no fim
+        var raw = [];
+        for (var i = 0; i < n; i++) {
+            var t = n === 1 ? 1 : i / (n - 1);
+            raw.push(MIN_MS + (MAX_MS - MIN_MS) * Math.pow(t, POWER));
+        }
+        var sum = raw.reduce(function(a, b) { return a + b; }, 0);
+        var scale = sum > 0 ? totalMs / sum : 1;
+        return raw.map(function(d) { return Math.max(30, Math.round(d * scale)); });
+    }
+
+    function buildSpinPlan(categoryPool, winnerCategory, totalMs) {
+        totalMs = totalMs || SPIN_TOTAL_MS;
+        var poolLen = categoryPool.length;
+        if (poolLen <= 1) return { order: poolLen === 1 ? [categoryPool[0].id] : [], totalMs: 0 };
+        var winnerIndex = categoryPool.findIndex(function(c) { return c.id === winnerCategory.id; });
+        if (winnerIndex < 0) winnerIndex = 0;
+        var laps = Math.max(SPIN_LAPS, Math.ceil(SPIN_MIN_STEPS / poolLen));
+        var totalSteps = laps * poolLen + winnerIndex + 1; // último passo é sempre a vencedora
+        var order = [];
+        for (var i = 0; i < totalSteps; i++) order.push(categoryPool[i % poolLen].id);
+        return { order: order, totalMs: totalMs };
+    }
+
+    function getCurrentSpinStep(order, spinStartAt, totalMs, now) {
+        if (!order || order.length === 0 || !spinStartAt) return null;
+        var durations = getSpinStepDurations(order.length, totalMs);
+        var elapsed = Math.max(0, now - spinStartAt);
+        var cum = 0;
+        for (var i = 0; i < durations.length; i++) {
+            cum += durations[i];
+            if (elapsed < cum) return { index: i, catId: order[i], done: false };
+        }
+        return { index: order.length - 1, catId: order[order.length - 1], done: true };
+    }
 
     var getDefaultRulesConfig = function() {
         return [
@@ -127,6 +190,19 @@
             var g10 = _s(false);   var tablesLocked = g10[0];      var setTablesLocked = g10[1];
             var g11 = _s(1);       var roundNumber = g11[0];       var setRoundNumber = g11[1];
             var g12 = _s(0);       var revealEndAt = g12[0];       var setRevealEndAt = g12[1];
+            var g13 = _s([]);      var spinOrder = g13[0];         var setSpinOrder = g13[1];
+            var g14 = _s(0);       var spinStartAt = g14[0];       var setSpinStartAt = g14[1];
+
+            /* —— MODO (Consola/Projetor) —— */
+            var mm1 = _s(null);    var masterMode = mm1[0];        var setMasterMode = mm1[1]; // null|'console'|'public'
+            var mm2 = _s(false);   var modeChosen = mm2[0];        var setModeChosen = mm2[1];
+
+            /* —— PROJETOR (só leitura) —— */
+            var pb1 = _s(null);    var publicState = pb1[0];       var setPublicState = pb1[1];
+            var pb2 = _s({});      var publicClients = pb2[0];     var setPublicClients = pb2[1];
+            var pb3 = _s(Date.now()); var nowTick = pb3[0];        var setNowTick = pb3[1];
+            var pb4 = _s(false);   var psHideScoresLocally = pb4[0]; var setPsHideScoresLocally = pb4[1];
+            var pb5 = _s(false);   var showQRPublic = pb5[0];      var setShowQRPublic = pb5[1];
 
             /* —— TIMERS (display) —— */
             var t1  = _s(0);       var jokerDisplay = t1[0];       var setJokerDisplay = t1[1];
@@ -150,14 +226,48 @@
             var u14 = _s(getDefaultRulesConfig()); var rulesConfig = u14[0]; var setRulesConfig = u14[1];
             var u15 = _s(false);   var showRulesEdit = u15[0];     var setShowRulesEdit = u15[1];
             var u16 = _s(false);   var rulesSaved = u16[0];        var setRulesSaved = u16[1];
+            var u17 = _s(false);   var publicShowScores = u17[0];  var setPublicShowScores = u17[1];
+            var u18 = _s(false);   var showMasterHelp = u18[0];    var setShowMasterHelp = u18[1];
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
             var lg2 = _s(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
 
-            // Pré-preenche o código da sessão a partir de ?session= (ex: vindo de masters.html)
+            /* —— RESOLUÇÃO DE MODO (Consola/Projetor) — lê ?mode=/?session= e sessionStorage —— */
             useEffect(function() {
-                var fromUrl = new URLSearchParams(window.location.search).get('session');
-                if (fromUrl) setCodeInput(fromUrl.toUpperCase());
+                var params = new URLSearchParams(window.location.search);
+                var urlSession = params.get('session');
+                var urlMode = params.get('mode');
+
+                if (urlMode === 'public' && urlSession) {
+                    setSessionId(urlSession.toUpperCase());
+                    setSetupDone(true);
+                    setMasterMode('public');
+                    try { sessionStorage.setItem(MASTER_MODE_KEY, 'public'); } catch(e) {}
+                    setModeChosen(true);
+                    return;
+                }
+                if (urlSession) setCodeInput(urlSession.toUpperCase());
+                if (urlMode === 'public' || urlMode === 'console') {
+                    setMasterMode(urlMode);
+                    try { sessionStorage.setItem(MASTER_MODE_KEY, urlMode); } catch(e) {}
+                    setModeChosen(true);
+                    return;
+                }
+                var saved;
+                try { saved = sessionStorage.getItem(MASTER_MODE_KEY); } catch(e) {}
+                if (saved === 'console' || saved === 'public') {
+                    setMasterMode(saved);
+                    setModeChosen(true);
+                }
             }, []);
+
+            var switchMode = function() {
+                setMasterMode(null); setModeChosen(false); setShowQR(false); setShowQRPublic(false);
+                try { sessionStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
+            };
+            var chooseMode = function(mode) {
+                setMasterMode(mode); setModeChosen(true);
+                try { sessionStorage.setItem(MASTER_MODE_KEY, mode); } catch(e) {}
+            };
 
             useEffect(function() {
                 var handler = function(e) {
@@ -194,6 +304,7 @@
             var pendingRoundRef    = useRef(null); // { cat, singing } à espera do fim da revelação
             var archivingRef      = useRef(false); // previne sync durante arquivo
             var syncTimerRef      = useRef(null);  // debounce do sync Firebase
+            var publicSyncTimerRef = useRef(null); // debounce do sync publicState (Projetor)
             var jokerProcessedRef = useRef({});    // jokers já processados nesta ronda
             var lastSeenMapRef    = useRef({});    // { tableId: timestamp } actualizado em cada heartbeat sem state
 
@@ -341,18 +452,20 @@
 
             /* —— SYNC FIREBASE (debounced 200ms para colapsar rajadas de writes) —— */
             useEffect(function() {
-                if (!sessionId || archivingRef.current) return;
+                if (!sessionId || masterMode !== 'console' || archivingRef.current) return;
                 if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
                 syncTimerRef.current = setTimeout(function() {
                     fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
                         gameType: GAME_TYPE, active: true, timestamp: Date.now(),
                         phase: phase, currentCategory: currentCat,
                         jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt, categoryRevealEndAt: revealEndAt,
+                        categoryRevealSpinOrder: spinOrder, categoryRevealSpinStartAt: spinStartAt,
                         jokerOrder: jokerOrder, roundJokers: roundJokers,
                         singingTeamId: singingTeam ? singingTeam.id : null,
                         showScores: showScores, tablesLocked: tablesLocked,
                         roundNumber: roundNumber,
                         jokersPerTeam: jokersPerTeam, jokerUsablePhase: jokerUsablePhase,
+                        publicShowScores: publicShowScores,
                         allJokersUsed: tables.length > 0 && tables.every(function(t) { return (t.jokerCount || 0) >= jokersPerTeam; }),
                         tables: tables.map(function(t) {
                             return { id: t.id, name: t.name, score: t.score, jokerCount: t.jokerCount || 0 };
@@ -365,9 +478,41 @@
                     }).catch(function(e) { console.error('Sync:', e); });
                 }, 200);
                 return function() { clearTimeout(syncTimerRef.current); };
-            }, [sessionId, phase, currentCat, jokerEndAt, answerEndAt, revealEndAt, jokerOrder, roundJokers,
-                singingTeam, showScores, tablesLocked, roundNumber, jokersPerTeam, jokerUsablePhase,
-                tables, selectedLogos, rulesConfig, categories]);
+            }, [sessionId, masterMode, phase, currentCat, jokerEndAt, answerEndAt, revealEndAt, spinOrder, spinStartAt,
+                jokerOrder, roundJokers, singingTeam, showScores, tablesLocked, roundNumber, jokersPerTeam, jokerUsablePhase,
+                publicShowScores, tables, selectedLogos, rulesConfig, categories]);
+
+            /* —— SYNC publicState (Projetor) — projeção sanitizada, escrita só pela Consola —— */
+            var buildPublicHitsterState = function() {
+                return {
+                    phase: phase, currentCategory: currentCat,
+                    categoryRevealSpinOrder: spinOrder, categoryRevealSpinStartAt: spinStartAt,
+                    categoryRevealEndAt: revealEndAt,
+                    jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt,
+                    roundJokers: roundJokers,
+                    singingTeamId: singingTeam ? singingTeam.id : null,
+                    tables: tables.map(function(t) { return { id: t.id, name: t.name, score: t.score }; }),
+                    allJokersUsed: tables.length > 0 && tables.every(function(t) { return (t.jokerCount || 0) >= jokersPerTeam; }),
+                    categories: categories.map(function(c) {
+                        return { id: c.id, name: c.name, description: c.description || '', points: c.points, isTimeline: c.isTimeline || false };
+                    }),
+                    roundNumber: roundNumber,
+                    selectedLogos: selectedLogos,
+                    publicShowScores: publicShowScores,
+                    tablesLocked: tablesLocked,
+                    timestamp: Date.now()
+                };
+            };
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'console' || archivingRef.current) return;
+                if (publicSyncTimerRef.current) clearTimeout(publicSyncTimerRef.current);
+                publicSyncTimerRef.current = setTimeout(function() {
+                    fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/publicState'), buildPublicHitsterState())
+                        .catch(function(e) { console.error('Sync publicState:', e); });
+                }, 200);
+                return function() { clearTimeout(publicSyncTimerRef.current); };
+            }, [sessionId, masterMode, phase, currentCat, spinOrder, spinStartAt, revealEndAt, jokerEndAt, answerEndAt,
+                roundJokers, singingTeam, tables, categories, roundNumber, selectedLogos, publicShowScores, tablesLocked]);
 
             /* —— LISTENER: CLIENTES —— */
             useEffect(function() {
@@ -451,6 +596,43 @@
                 return function() { unsub(); };
             }, [sessionId]);
 
+            /* —— LISTENER: publicState (Projetor) —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'public') { setPublicState(null); return; }
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/publicState'), function(snap) {
+                    setPublicState(snap.val() || null);
+                });
+                return function() { unsub(); };
+            }, [sessionId, masterMode]);
+
+            /* —— LISTENER: clients (Projetor) — só teamName/tableNumber, nunca dados sensíveis —— */
+            useEffect(function() {
+                if (!sessionId || masterMode !== 'public') { setPublicClients({}); return; }
+                var unsub = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionId + '/clients'), function(snap) {
+                    var data = snap.val() || {};
+                    var sanitized = {};
+                    Object.keys(data).forEach(function(k) {
+                        var c = data[k];
+                        sanitized[k] = { teamName: c.teamName, tableNumber: c.tableNumber };
+                    });
+                    setPublicClients(sanitized);
+                });
+                return function() { unsub(); };
+            }, [sessionId, masterMode]);
+
+            /* —— TICK do Projetor: 250ms normal, 40ms durante o sorteio (roleta suave) —— */
+            useEffect(function() {
+                if (masterMode !== 'public') return;
+                var fast = publicState && publicState.phase === 'category_reveal';
+                var id = setInterval(function() { setNowTick(Date.now()); }, fast ? 40 : 250);
+                return function() { clearInterval(id); };
+            }, [masterMode, publicState && publicState.phase]);
+
+            /* —— re-armar o overlay de pontos local quando a Consola muda publicShowScores —— */
+            useEffect(function() {
+                setPsHideScoresLocally(false);
+            }, [publicState && !!publicState.publicShowScores]);
+
             /* —— INICIAR SESSÃO —— */
             var initSession = async function() {
                 setCodeError('');
@@ -480,9 +662,11 @@
                             gameType: GAME_TYPE, active: true, timestamp: Date.now(),
                             phase: 'waiting', currentCategory: null,
                             jokerTimerEndAt: 0, answerTimerEndAt: 0, categoryRevealEndAt: 0,
+                            categoryRevealSpinOrder: [], categoryRevealSpinStartAt: 0,
                             jokerOrder: [], roundJokers: [], singingTeamId: null,
                             showScores: true, tablesLocked: false, roundNumber: 1,
                             jokersPerTeam: jokersPerTeam, jokerUsablePhase: jokerUsablePhase,
+                            publicShowScores: false,
                             tables: [], selectedLogos: selectedLogos,
                             rulesConfig: rulesConfig,
                             categories: categories.map(function(c) {
@@ -508,9 +692,12 @@
                     setSingingTeam(null); setShowScores(data.showScores !== false);
                     setTablesLocked(data.tablesLocked || false); setRoundNumber(data.roundNumber || 1);
                     setJokersPerTeam(data.jokersPerTeam || 1); setJokerUsablePhase(data.jokerUsablePhase || 'window');
+                    setPublicShowScores(data.publicShowScores === true);
+                    setSpinOrder([]); setSpinStartAt(0);
                     setSelectedLogos(data.selectedLogos || []);
                     if (Array.isArray(data.rulesConfig) && data.rulesConfig.length > 0) setRulesConfig(data.rulesConfig);
                     setSessionId(code); setSetupDone(true);
+                    setMasterMode(null); setModeChosen(false);
                 } else if (choice === 'new') {
                     var res = await SessionCore.archiveSession({
                         rtdb: rtdb, fm: fm, sessionId: code, gameType: GAME_TYPE,
@@ -556,6 +743,7 @@
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionIdRef.current + '/textResponses')).catch(function() {});
                 setTextResponses({}); setCheckedAnswers({});
                 revealEndRef.current = 0; setRevealEndAt(0);
+                setSpinOrder([]); setSpinStartAt(0);
 
                 var now = Date.now();
                 if (jokerUsablePhaseRef.current === 'music') {
@@ -579,17 +767,25 @@
                 beginRound(cat, singing);
             };
 
-            /* —— ESCOLHA ALEATÓRIA DE CATEGORIA (com compasso de espera de 3s) —— */
+            /* —— ESCOLHA ALEATÓRIA DE CATEGORIA (roleta — Timeline Duel nunca entra, é sempre escolha manual) —— */
             var startRandomRound = function(singing) {
-                if (!categories || categories.length === 0) return;
+                var pool = categories.filter(function(c) { return !c.isTimeline; });
+                if (!pool || pool.length === 0) return;
                 setShowNewRound(false); setSingToggle(false);
-                var pick = categories[Math.floor(Math.random() * categories.length)];
+                var pick = pool[Math.floor(Math.random() * pool.length)];
+                if (pool.length === 1) {
+                    // Só há uma categoria elegível — nada para sortear, entra logo como escolha manual.
+                    beginRound(pick, singing || null);
+                    return;
+                }
+                var plan = buildSpinPlan(pool, pick, SPIN_TOTAL_MS);
                 pendingRoundRef.current = { cat: pick, singing: singing || null };
-                var now = Date.now(), rEnd = now + 3000;
+                var now = Date.now(), rEnd = now + plan.totalMs;
                 revealEndRef.current = rEnd;
                 phaseRef.current = 'category_reveal';
                 setCurrentCat(pick); setSingingTeam(singing || null);
-                setPhase('category_reveal'); setRevealEndAt(rEnd); setRevealDisplay(3);
+                setSpinOrder(plan.order); setSpinStartAt(now);
+                setPhase('category_reveal'); setRevealEndAt(rEnd); setRevealDisplay(Math.ceil(plan.totalMs / 1000));
             };
 
             /* —— CONFIRMAR RESPOSTAS —— */
@@ -623,6 +819,7 @@
                 pendingRoundRef.current = null;
                 setPhase('waiting'); setCurrentCat(null); setSingingTeam(null);
                 setRoundJokers([]); setJokerEndAt(0); setAnswerEndAt(0); setRevealEndAt(0); setShowReview(false);
+                setSpinOrder([]); setSpinStartAt(0);
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')).catch(function(){});
                 fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/histerJokers')).catch(function(){});
             };
@@ -659,6 +856,7 @@
                 pendingRoundRef.current = null; revealEndRef.current = 0;
                 setSetupDone(false); setSessionId(null); setTables([]);
                 setPhase('waiting'); setCurrentCat(null); setJokerEndAt(0); setAnswerEndAt(0); setRevealEndAt(0);
+                setSpinOrder([]); setSpinStartAt(0);
                 setJokerOrder([]); setRoundJokers([]); setSingingTeam(null);
                 setShowScores(true); setTablesLocked(false); setRoundNumber(1);
                 setTextResponses({}); setConnectedClients({});
@@ -666,6 +864,8 @@
                 setShowLeaderboard(false); setShowQR(false); setShowEndModal(false);
                 setShowManage(false); setCodeInput(''); setCodeError('');
                 setHistInfoClients({});
+                setMasterMode(null); setModeChosen(false); setPublicState(null); setPublicClients({});
+                setPublicShowScores(false); setShowQRPublic(false); setPsHideScoresLocally(false);
             };
 
             /* —— REMOVER MESA —— */
@@ -855,6 +1055,43 @@
                 );
             }
 
+            /* —— MODAL DE AJUDA DO ANFITRIÃO (setup + consola) —— */
+            var MasterHelpModal = function() {
+                var Section = function(titleKey, body) {
+                    return h('div', null,
+                        h('div', { className: 'font-black text-gray-800 mb-1' }, T(titleKey)),
+                        body
+                    );
+                };
+                var Bullets = function(keys) {
+                    return h('ul', { className: 'list-disc list-inside space-y-1 text-xs text-gray-600' },
+                        keys.map(function(k, i) { return h('li', { key: i }, T(k)); })
+                    );
+                };
+                return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-start justify-center z-50 p-4 overflow-y-auto', onClick: function() { setShowMasterHelp(false); } },
+                    h('div', { className: 'bg-white rounded-2xl shadow-2xl w-full max-w-lg my-8 overflow-hidden', onClick: function(e) { e.stopPropagation(); } },
+                        h('div', { className: 'bg-violet-700 px-5 py-4 flex items-center justify-between' },
+                            h('span', { className: 'font-black text-white text-lg' }, T('m_h_help_show')),
+                            h('button', { onClick: function() { setShowMasterHelp(false); }, className: 'text-white text-xl font-bold opacity-70 hover:opacity-100' }, '✕')
+                        ),
+                        h('div', { className: 'p-5 space-y-4 text-sm text-gray-700' },
+                            Section('m_h_help_flow_title', h('ol', { className: 'list-decimal list-inside space-y-1 text-xs' },
+                                ['m_h_help_flow_1', 'm_h_help_flow_2', 'm_h_help_flow_3', 'm_h_help_flow_4', 'm_h_help_flow_5', 'm_h_help_flow_6']
+                                    .map(function(k, i) { return h('li', { key: i }, T(k)); })
+                            )),
+                            Section('m_h_help_categories_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_categories_body'))),
+                            Section('m_h_help_joker_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_joker_body'))),
+                            Section('m_h_help_singer_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_singer_body'))),
+                            Section('m_h_help_modes_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_modes_body'))),
+                            Section('m_h_help_phases_title', Bullets(['m_h_help_phase_waiting', 'm_h_help_phase_reveal', 'm_h_help_phase_joker', 'm_h_help_phase_answer', 'm_h_help_phase_review'])),
+                            Section('m_h_help_manage_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_manage_body'))),
+                            Section('m_h_help_rules_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_rules_body'))),
+                            Section('m_h_help_scores_title', h('p', { className: 'text-xs text-gray-600' }, T('m_h_help_scores_body')))
+                        )
+                    )
+                );
+            };
+
             /* —— ECRÃ DE SETUP —— */
             if (!setupDone) {
                 return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 p-4' },
@@ -989,7 +1226,7 @@
                                                     className: 'w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center font-bold focus:border-violet-500 outline-none'
                                                 }),
                                                 h('span', { className: 'text-xs text-gray-500 w-6' }, 'pts'),
-                                                cat.isTimeline && h('span', { className: 'text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full flex-shrink-0' }, 'Final')
+                                                cat.isTimeline && h('span', { className: 'text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full flex-shrink-0' }, T('m_h_timeline_badge'))
                                             ),
                                             h('input', {
                                                 type: 'text', value: cat.description || '',
@@ -1108,13 +1345,18 @@
                                 className: 'w-full py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-black text-xl shadow-lg active:scale-95 transition-transform'
                             }, T('m_h_start_session'))
                         ),
-                        h('div', { className: 'mt-4 text-center' },
+                        h('div', { className: 'mt-4 flex items-center justify-center gap-4' },
                             h('button', {
                                 onClick: function() { setShowHistory(true); },
                                 className: 'text-violet-300 hover:text-white text-sm font-semibold'
-                            }, T('m_view_history'))
+                            }, T('m_view_history')),
+                            h('button', {
+                                onClick: function() { setShowMasterHelp(true); },
+                                className: 'text-violet-300 hover:text-white text-sm font-semibold'
+                            }, T('m_h_help_show'))
                         )
                     ),
+                    showMasterHelp && MasterHelpModal(),
                     showExistDialog && existingData && h('div', { className: 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4' },
                         h('div', { className: 'bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full' },
                             h('div', { className: 'text-3xl text-center mb-3' }, '⚠️'),
@@ -1132,7 +1374,200 @@
                 );
             }
 
-            /* ===================== ECRÃ DE JOGO ===================== */
+            /* —— ESCOLHA DE MODO (Consola/Projetor) —— */
+            if (setupDone && !modeChosen) {
+                return h('div', { className: 'min-h-screen bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4' },
+                    h('div', { className: 'max-w-md w-full text-center' },
+                        h('div', { className: 'text-5xl mb-2' }, '🎵'),
+                        h('h1', { className: 'text-3xl font-black text-white mb-1' }, 'Mega Hitster'),
+                        h('p', { className: 'text-violet-300 mb-8 font-mono text-lg' }, sessionId),
+                        h('div', { className: 'space-y-4' },
+                            h('button', {
+                                onClick: function() { chooseMode('console'); },
+                                className: 'w-full bg-white rounded-2xl p-5 text-left shadow-xl hover:scale-[1.02] transition-transform active:scale-95'
+                            },
+                                h('div', { className: 'text-3xl mb-1' }, '🎮'),
+                                h('div', { className: 'font-black text-lg text-gray-800' }, T('m_h_mode_console_label')),
+                                h('div', { className: 'text-sm text-gray-500 mt-1' }, T('m_h_mode_console_hint'))
+                            ),
+                            h('button', {
+                                onClick: function() { chooseMode('public'); },
+                                className: 'w-full bg-white rounded-2xl p-5 text-left shadow-xl hover:scale-[1.02] transition-transform active:scale-95'
+                            },
+                                h('div', { className: 'text-3xl mb-1' }, '📺'),
+                                h('div', { className: 'font-black text-lg text-gray-800' }, T('m_h_mode_public_label')),
+                                h('div', { className: 'text-sm text-gray-500 mt-1' }, T('m_h_mode_public_hint'))
+                            )
+                        )
+                    )
+                );
+            }
+
+            /* ===================== MODO PROJETOR ===================== */
+            if (masterMode === 'public') {
+                if (!publicState) {
+                    return h('div', { className: 'min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-4 text-center' },
+                        h('div', { className: 'text-5xl mb-4' }, '🎵'),
+                        h('div', { className: 'text-xl font-bold' }, T('m_h_public_waiting_data')),
+                        h('div', { className: 'font-mono text-violet-400 mt-2 text-lg' }, sessionId),
+                        h('button', { onClick: switchMode, className: 'mt-8 text-violet-300 hover:text-white text-sm font-semibold' }, T('m_h_mode_switch'))
+                    );
+                }
+
+                var ps = publicState;
+                var psTables = (ps.tables || []).slice();
+                Object.keys(publicClients).forEach(function(k) {
+                    var c = publicClients[k];
+                    if (!psTables.some(function(t) { return t.id === c.tableNumber; })) {
+                        psTables.push({ id: c.tableNumber, name: c.teamName || '', score: 0 });
+                    }
+                });
+                psTables.sort(function(a, b) { return a.id - b.id; });
+
+                var psSpin = getCurrentSpinStep(ps.categoryRevealSpinOrder, ps.categoryRevealSpinStartAt, SPIN_TOTAL_MS, nowTick);
+                var psSingingTeam = ps.singingTeamId != null ? psTables.find(function(t) { return t.id === ps.singingTeamId; }) : null;
+                var psJokerNames = (ps.roundJokers || [])
+                    .map(function(id) { return teamLabel(psTables.find(function(t) { return t.id === id; })); })
+                    .filter(Boolean);
+
+                var psPhaseLabel = {
+                    'waiting':         T('m_h_phase_waiting'),
+                    'category_reveal': T('m_h_phase_reveal', { n: Math.max(0, Math.ceil(((ps.categoryRevealEndAt || 0) - nowTick) / 1000)) }),
+                    'joker_window':    ps.allJokersUsed
+                        ? T('m_h_phase_music', { n: Math.max(0, Math.ceil(((ps.jokerTimerEndAt || 0) - nowTick) / 1000)) })
+                        : T('m_h_phase_joker_win', { n: Math.max(0, Math.ceil(((ps.jokerTimerEndAt || 0) - nowTick) / 1000)) }),
+                    'answering':       T('m_h_phase_answering', { n: Math.max(0, Math.ceil(((ps.answerTimerEndAt || 0) - nowTick) / 1000)) }),
+                    'reviewing':       T('m_h_phase_reviewing')
+                }[ps.phase] || ps.phase;
+                var psPhaseColor = {
+                    'waiting':         'bg-slate-700 text-slate-300',
+                    'category_reveal': 'bg-amber-500 text-amber-950',
+                    'joker_window':    'bg-yellow-500 text-yellow-900',
+                    'answering':       'bg-blue-600 text-white',
+                    'reviewing':       'bg-green-600 text-white'
+                }[ps.phase] || 'bg-slate-700 text-slate-300';
+
+                var RouletteView = function() {
+                    return h('div', { className: 'w-full max-w-3xl grid grid-cols-2 sm:grid-cols-3 gap-4' },
+                        (ps.categories || []).map(function(cat) {
+                            var isHighlighted = !cat.isTimeline && psSpin && psSpin.catId === cat.id;
+                            return h('div', {
+                                key: cat.id,
+                                className: 'rounded-2xl p-4 text-center transition-all duration-100 ' + (
+                                    cat.isTimeline ? 'bg-slate-800 opacity-40 border-2 border-slate-700' :
+                                    isHighlighted ? 'bg-amber-400 text-amber-950 scale-110 ring-4 ring-amber-200 shadow-2xl' :
+                                    'bg-slate-800 text-slate-300 border-2 border-slate-700'
+                                )
+                            },
+                                h('div', { className: 'font-black text-lg' }, cat.name),
+                                cat.isTimeline && h('div', { className: 'text-xs mt-1 text-slate-500' }, T('m_h_timeline_manual_only'))
+                            );
+                        })
+                    );
+                };
+
+                var CategoryFocusView = function() {
+                    var cat = ps.currentCategory;
+                    if (!cat) return h('div', { className: 'text-center text-white opacity-75' },
+                        h('div', { className: 'text-6xl mb-4' }, '🎵'),
+                        h('div', { className: 'text-2xl font-semibold' }, T('m_h_phase_waiting'))
+                    );
+                    var timerVal = ps.phase === 'joker_window'
+                        ? Math.max(0, Math.ceil(((ps.jokerTimerEndAt || 0) - nowTick) / 1000))
+                        : ps.phase === 'answering'
+                            ? Math.max(0, Math.ceil(((ps.answerTimerEndAt || 0) - nowTick) / 1000))
+                            : null;
+                    return h('div', { className: 'text-center max-w-3xl' },
+                        h('div', { className: 'text-6xl sm:text-7xl font-black text-white mb-4' }, cat.name),
+                        timerVal !== null && h('div', {
+                            className: 'text-5xl sm:text-6xl font-black mb-6 ' + (timerVal <= 5 ? 'text-red-400 animate-pulse' : 'text-amber-300')
+                        }, '⏱️ ' + timerVal + 's'),
+                        h('div', { className: 'text-base sm:text-lg text-slate-300' }, cat.description),
+                        h('div', { className: 'mt-2 inline-block bg-violet-700 text-white text-sm font-bold px-3 py-1 rounded-full' },
+                            cat.points + (cat.points === 1 ? ' pt' : ' pts')
+                        ),
+                        psJokerNames.length > 0 && h('div', { className: 'mt-4 text-sm text-amber-300' },
+                            '🃏 ' + psJokerNames.join(', ')
+                        )
+                    );
+                };
+
+                return h('div', { className: 'min-h-screen bg-slate-900 flex flex-col text-white' },
+                    h('div', { className: 'bg-violet-900 px-4 py-2 flex items-center gap-3 flex-shrink-0 shadow-xl' },
+                        h('div', { className: 'text-lg font-black' }, '🎵 Mega Hitster'),
+                        h('div', { className: 'flex items-center gap-2 bg-violet-800 rounded-lg px-3 py-1' },
+                            h('span', { className: 'text-xs opacity-60' }, T('m_h_session_label')),
+                            h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId)
+                        ),
+                        h('div', { className: 'ml-auto flex items-center gap-2' },
+                            h('button', {
+                                onClick: function() { setShowQRPublic(true); },
+                                className: 'bg-white text-violet-900 hover:bg-violet-100 px-3 py-1.5 rounded-lg font-bold text-sm'
+                            }, '📱 QR'),
+                            h('button', {
+                                onClick: switchMode,
+                                className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                            }, T('m_h_mode_switch'))
+                        )
+                    ),
+                    h('div', { className: 'px-4 py-2 bg-slate-800 border-b border-slate-700 flex-shrink-0' },
+                        h('div', { className: 'px-4 py-1.5 rounded-full font-bold text-sm inline-block ' + psPhaseColor + (ps.phase === 'joker_window' || ps.phase === 'answering' || ps.phase === 'category_reveal' ? ' blink' : '') },
+                            psPhaseLabel
+                        )
+                    ),
+                    h('div', { className: 'px-4 py-2 bg-slate-800/60 border-b border-slate-700 flex-shrink-0 flex items-center gap-2 flex-wrap' },
+                        psTables.length === 0
+                            ? h('span', { className: 'text-slate-500 text-sm italic' }, T('m_h_waiting_tables'))
+                            : psTables.map(function(t) {
+                                var isSinging = psSingingTeam && psSingingTeam.id === t.id;
+                                return h('div', {
+                                    key: t.id,
+                                    className: 'px-3 py-1 rounded-full text-sm font-bold transition-all ' + (
+                                        isSinging ? 'bg-purple-600 text-white scale-105' : 'bg-slate-700 text-slate-200'
+                                    )
+                                }, (isSinging ? '🎤 ' : '') + teamLabel(t));
+                            })
+                    ),
+                    h('div', { className: 'flex-1 flex items-center justify-center p-6' },
+                        ps.phase === 'category_reveal' ? RouletteView() : CategoryFocusView()
+                    ),
+                    ps.publicShowScores && !psHideScoresLocally && h('div', {
+                        className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4',
+                        onClick: function() { setPsHideScoresLocally(true); }
+                    },
+                        h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm', onClick: function(e) { e.stopPropagation(); } },
+                            h('h3', { className: 'text-xl font-black text-white mb-4 text-center' }, T('m_leaderboard')),
+                            h('div', { className: 'space-y-2' },
+                                rankTables(psTables.slice().sort(function(a, b) { return b.score - a.score; })).map(function(item) {
+                                    var t = item.table, medal = RANK_MEDALS[item.rank] || item.rank + '.';
+                                    return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl bg-slate-700' },
+                                        h('div', { className: 'flex items-center gap-2' },
+                                            h('span', { className: 'text-xl' }, medal),
+                                            h('span', { className: 'font-bold text-white' }, teamLabel(t))
+                                        ),
+                                        h('span', { className: 'text-2xl font-black text-violet-400' }, t.score)
+                                    );
+                                })
+                            ),
+                            h('button', { onClick: function() { setPsHideScoresLocally(true); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white' }, T('close'))
+                        )
+                    ),
+                    showQRPublic && h('div', {
+                        className: 'fixed inset-0 bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex flex-col items-center justify-center z-50 cursor-pointer',
+                        onClick: function() { setShowQRPublic(false); }
+                    },
+                        h('img', {
+                            src: qrUrl, alt: 'QR Code',
+                            className: 'w-[min(80vw,80vh)] h-[min(80vw,80vh)] bg-white p-4 rounded-2xl shadow-2xl',
+                            onClick: function(e) { e.stopPropagation(); }
+                        }),
+                        h('div', { className: 'text-6xl font-black text-white mt-6 tracking-widest' }, sessionId),
+                        h('div', { className: 'text-violet-300 mt-3 text-sm' }, T('m_tap_to_go_back'))
+                    )
+                );
+            }
+
+            /* ===================== ECRÃ DE JOGO (CONSOLA) ===================== */
 
             var NewRoundModal = function() {
                 // Usa variáveis calculadas no render: tiedAtLast, ambiguousLast, lastPlace
@@ -1141,6 +1576,7 @@
                 var effectiveSinger = singToggle
                     ? (ambiguousLast ? (selectedSinger || tiedAtLast[0]) : lp)
                     : null;
+                var randomEligible = categories.filter(function(c) { return !c.isTimeline; });
 
                 return h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function(e) { if (e.target === e.currentTarget) setShowNewRound(false); } },
                     h('div', { className: 'bg-white rounded-2xl shadow-2xl p-5 w-full max-w-lg slide-in max-h-[90vh] overflow-y-auto' },
@@ -1186,20 +1622,28 @@
                             )
                         ),
 
-                        h('div', { className: 'flex items-center justify-between mb-3' },
+                        h('div', { className: 'flex items-center justify-between mb-1' },
                             h('p', { className: 'text-sm text-gray-500 font-semibold' }, T('m_h_choose_category')),
                             h('button', {
                                 onClick: function() { startRandomRound(effectiveSinger); },
-                                className: 'px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg text-xs font-bold border border-amber-300 active:scale-95 transition-transform'
+                                disabled: randomEligible.length === 0,
+                                title: randomEligible.length === 0 ? T('m_h_random_excludes_timeline') : undefined,
+                                className: 'px-3 py-1.5 rounded-lg text-xs font-bold border active:scale-95 transition-transform ' + (
+                                    randomEligible.length === 0
+                                        ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                        : 'bg-amber-100 hover:bg-amber-200 text-amber-800 border-amber-300'
+                                )
                             }, T('m_h_random_category'))
                         ),
+                        h('p', { className: 'text-xs text-gray-400 mb-3' }, T('m_h_random_excludes_timeline')),
                         h('div', { className: 'grid grid-cols-2 gap-3' },
                             categories.map(function(cat) {
                                 return h('button', {
                                     key: cat.id,
                                     onClick: function() { startRound(cat, effectiveSinger); },
-                                    className: 'text-left p-3 rounded-xl border-2 border-gray-200 hover:border-violet-400 hover:bg-violet-50 transition-all active:scale-95 ' + (cat.isTimeline ? 'border-purple-300 bg-purple-50' : '')
+                                    className: 'relative text-left p-3 rounded-xl border-2 border-gray-200 hover:border-violet-400 hover:bg-violet-50 transition-all active:scale-95 ' + (cat.isTimeline ? 'border-purple-300 bg-purple-50' : '')
                                 },
+                                    cat.isTimeline && h('div', { className: 'absolute top-2 right-2 text-[10px] font-bold text-purple-500' }, T('m_h_timeline_manual_only')),
                                     h('div', { className: 'font-black text-gray-800 text-sm' }, cat.name),
                                     h('div', { className: 'text-xs text-gray-500 mt-0.5' }, cat.description),
                                     h('div', { className: 'mt-2 inline-block bg-violet-100 text-violet-700 text-xs font-bold px-2 py-0.5 rounded-full' },
@@ -1305,39 +1749,49 @@
             return h('div', { className: 'min-h-screen bg-slate-900 flex flex-col text-white' },
 
                 /* —— HEADER —— */
-                h('div', { className: 'bg-violet-900 px-4 py-2 flex items-center gap-3 flex-shrink-0 shadow-xl relative' },
-                    h('div', { className: 'text-lg font-black' }, '🎵 Mega Hitster'),
-                    h('div', { className: 'flex items-center gap-2 bg-violet-800 rounded-lg px-3 py-1' },
-                        h('span', { className: 'text-xs opacity-60' }, T('m_h_session_label')),
-                        h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId),
+                h('div', { className: 'bg-violet-900 px-4 py-2 flex-shrink-0 shadow-xl relative' },
+                    h('div', { className: 'flex items-center gap-3' },
+                        h('div', { className: 'text-lg font-black' }, '🎵 Mega Hitster'),
+                        h('div', { className: 'flex items-center gap-2 bg-violet-800 rounded-lg px-3 py-1' },
+                            h('span', { className: 'text-xs opacity-60' }, T('m_h_session_label')),
+                            h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId),
+                            h('button', {
+                                onClick: function() {
+                                    navigator.clipboard.writeText(CLIENT_URL + '?session=' + sessionId);
+                                    setCodeCopied(true);
+                                    setTimeout(function() { setCodeCopied(false); }, 2000);
+                                },
+                                className: 'text-xs bg-violet-700 hover:bg-violet-600 px-2 py-0.5 rounded'
+                            }, codeCopied ? '✓' : '📋')
+                        ),
+                        selectedLogos.length > 0 && h('img', {
+                            src: selectedLogos[0], alt: 'logo',
+                            className: 'hidden sm:block absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 object-contain pointer-events-none',
+                            onError: function(e) { e.target.style.display = 'none'; }
+                        }),
                         h('button', {
-                            onClick: function() {
-                                navigator.clipboard.writeText(CLIENT_URL + '?session=' + sessionId);
-                                setCodeCopied(true);
-                                setTimeout(function() { setCodeCopied(false); }, 2000);
-                            },
-                            className: 'text-xs bg-violet-700 hover:bg-violet-600 px-2 py-0.5 rounded'
-                        }, codeCopied ? '✓' : '📋')
+                            onClick: function() { setShowEndModal(true); },
+                            className: 'ml-auto bg-red-700 hover:bg-red-600 px-3 py-1.5 rounded-lg text-sm font-bold'
+                        }, T('m_h_exit'))
                     ),
-                    h('button', {
-                        onClick: function() { setShowQR(true); },
-                        className: 'bg-white text-violet-900 hover:bg-violet-100 px-3 py-1.5 rounded-lg font-bold text-sm'
-                    }, '📱 QR'),
-                    selectedLogos.length > 0 && h('img', {
-                        src: selectedLogos[0], alt: 'logo',
-                        className: 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 object-contain pointer-events-none',
-                        onError: function(e) { e.target.style.display = 'none'; }
-                    }),
-                    h('div', { className: 'flex items-center gap-2 ml-auto' },
+                    h('div', { className: 'flex items-center gap-2 flex-wrap mt-1.5' },
                         h('div', { className: 'text-xs opacity-70' }, T('m_h_tables_online', { tables: tableCount, online: Object.keys(connectedClients).length })),
+                        h('button', {
+                            onClick: function() { setShowQR(true); },
+                            className: 'bg-white text-violet-900 hover:bg-violet-100 px-3 py-1.5 rounded-lg font-bold text-sm'
+                        }, '📱 QR'),
                         h('button', {
                             onClick: function() { setShowScores(!showScores); },
                             className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
                         }, showScores ? T('m_h_hide_pts') : T('m_h_show_pts')),
                         h('button', {
-                            onClick: function() { setShowEndModal(true); },
-                            className: 'bg-red-700 hover:bg-red-600 px-3 py-1.5 rounded-lg text-sm font-bold'
-                        }, T('m_h_exit'))
+                            onClick: function() { setPublicShowScores(!publicShowScores); },
+                            className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                        }, publicShowScores ? T('m_h_pub_scores_hide') : T('m_h_pub_scores_show')),
+                        h('button', {
+                            onClick: switchMode,
+                            className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                        }, T('m_h_mode_switch'))
                     )
                 ),
 
@@ -1541,11 +1995,16 @@
                         h('button', {
                             onClick: function() { setShowLeaderboard(true); },
                             className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
-                        }, T('m_h_ranking'))
+                        }, T('m_h_ranking')),
+                        h('button', {
+                            onClick: function() { setShowMasterHelp(true); },
+                            className: 'px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-bold text-sm'
+                        }, '❓')
                     )
                 ),
 
                 /* —— MODAIS —— */
+                showMasterHelp && MasterHelpModal(),
 
                 // QR full-screen
                 showQR && h('div', {
