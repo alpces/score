@@ -10,6 +10,8 @@
     <script src="shared/firebase-config.js"></script>
     <script src="shared/session-core.js"></script>
     <script src="shared/server-time.js"></script>
+    <!-- ClientCore só usado aqui para attachWakeLock (manter ecrã ligado) -->
+    <script src="shared/client-core.js"></script>
     <!-- Bandeiras SVG via flag-icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
     <!-- i18n -->
@@ -230,6 +232,7 @@
             var u16 = _s(false);   var rulesSaved = u16[0];        var setRulesSaved = u16[1];
             var u17 = _s(false);   var publicShowScores = u17[0];  var setPublicShowScores = u17[1];
             var u18 = _s(false);   var showMasterHelp = u18[0];    var setShowMasterHelp = u18[1];
+            var u19 = _s(false);   var jokersPanelCollapsed = u19[0]; var setJokersPanelCollapsed = u19[1];
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
             var lg2 = _s(false); var showLangDrop = lg2[0]; var setShowLangDrop = lg2[1];
 
@@ -360,6 +363,13 @@
                 var iv = setInterval(function() { setPresenceTick(function(n) { return n + 1; }); }, 5000);
                 return function() { clearInterval(iv); };
             }, []);
+
+            /* —— WAKE LOCK: mantém o ecrã ligado durante a sessão (Consola e Projetor) —— */
+            useEffect(function() {
+                if (!setupDone || !sessionId) return;
+                var lock = ClientCore.attachWakeLock();
+                return function() { lock.release(); };
+            }, [setupDone, sessionId]);
 
             /* —— LOGOS —— */
             useEffect(function() {
@@ -1513,14 +1523,26 @@
                         timerVal !== null && h('div', {
                             className: 'text-5xl sm:text-6xl font-black mb-6 ' + (timerVal <= 5 ? 'text-red-400 animate-pulse' : 'text-amber-300')
                         }, '⏱️ ' + timerVal + 's'),
-                        ps.phase === 'ready' && h('div', { className: 'text-2xl sm:text-3xl font-black text-green-400 mb-6 animate-pulse' }, T('m_h_phase_ready')),
-                        h('div', { className: 'text-base sm:text-lg text-slate-300' }, cat.description),
-                        h('div', { className: 'mt-2 inline-block bg-violet-700 text-white text-sm font-bold px-3 py-1 rounded-full' },
+                        h('div', { className: 'text-lg sm:text-xl text-slate-300' }, cat.description),
+                        h('div', { className: 'mt-3 inline-block bg-violet-700 text-white text-base font-bold px-4 py-1.5 rounded-full' },
                             cat.points + (cat.points === 1 ? ' pt' : ' pts')
-                        ),
-                        psJokerNames.length > 0 && h('div', { className: 'mt-4 text-sm text-amber-300' },
-                            '🃏 ' + psJokerNames.join(', ')
                         )
+                    );
+                };
+
+                var JokerSidebar = function() {
+                    return h('div', { className: 'w-72 bg-slate-800/80 border-l border-slate-700 flex-shrink-0 p-4 overflow-y-auto' },
+                        h('div', { className: 'text-sm font-black uppercase tracking-wide text-amber-400 mb-3' }, T('m_h_jokers_used_round')),
+                        psJokerNames.length === 0
+                            ? h('div', { className: 'text-slate-500 text-sm italic' }, T('m_h_no_jokers'))
+                            : h('div', { className: 'space-y-2' },
+                                psJokerNames.map(function(name, idx) {
+                                    return h('div', { key: idx, className: 'flex items-center gap-3 bg-amber-900/30 border border-amber-700/40 rounded-xl px-3 py-2' },
+                                        h('div', { className: 'w-7 h-7 bg-yellow-500 rounded-full flex items-center justify-center text-sm font-black text-yellow-900 flex-shrink-0' }, idx + 1),
+                                        h('div', { className: 'text-base font-bold text-white truncate' }, name)
+                                    );
+                                })
+                            )
                     );
                 };
 
@@ -1560,8 +1582,11 @@
                                 }, (isSinging ? '🎤 ' : '') + teamLabel(t));
                             })
                     ),
-                    h('div', { className: 'flex-1 flex items-center justify-center p-6' },
-                        ps.phase === 'category_reveal' ? RouletteView() : CategoryFocusView()
+                    h('div', { className: 'flex-1 flex overflow-hidden' },
+                        h('div', { className: 'flex-1 flex items-center justify-center p-6' },
+                            ps.phase === 'category_reveal' ? RouletteView() : CategoryFocusView()
+                        ),
+                        JokerSidebar()
                     ),
                     ps.publicShowScores && !psHideScoresLocally && h('div', {
                         className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4',
@@ -1921,8 +1946,9 @@
                               )
                     ),
 
-                    /* —— PAINEL LATERAL —— */
-                    h('div', { className: 'w-60 bg-slate-800 border-l border-slate-700 flex flex-col overflow-hidden flex-shrink-0' },
+                    /* —— PAINEL LATERAL —— (escondido em ecrãs estreitos/telemóvel; nesse caso o
+                       botão "🏆 Ranking" da barra inferior abre o mesmo conteúdo em modal) —— */
+                    h('div', { className: 'hidden lg:flex w-60 bg-slate-800 border-l border-slate-700 lg:flex-col overflow-hidden flex-shrink-0' },
                         h('div', { className: 'p-3 bg-amber-900/30 border-b border-amber-700/40' },
                             h('div', { className: 'text-xs font-bold text-amber-400 mb-1 uppercase tracking-wide' }, T('m_h_last_place_panel')),
                             tiedAtLast.length === 0
@@ -1941,31 +1967,43 @@
                                         showScores && h('div', { className: 'text-lg font-black text-amber-400' }, lastPlace.score + ' pts')
                                       )
                         ),
-                        h('div', { className: 'p-3 border-b border-slate-700 flex-shrink-0' },
-                            h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, T('m_h_jokers_used')),
-                            jokerOrder.length === 0
-                                ? h('div', { className: 'text-slate-500 text-xs italic' }, T('m_h_no_jokers'))
-                                : h('div', { className: 'space-y-1' },
-                                    jokerOrder.map(function(tableId, idx) {
-                                        var t = tables.find(function(tb) { return tb.id === tableId; });
-                                        return h('div', { key: tableId, className: 'flex items-center gap-2' },
-                                            h('div', { className: 'w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center text-xs font-black text-yellow-900' }, idx + 1),
-                                            h('div', { className: 'text-sm font-semibold text-slate-300 truncate' }, t ? (t.name || T('table_n', { n: tableId })) : T('table_n', { n: tableId }))
-                                        );
-                                    })
-                                )
+                        h('div', { className: 'border-b border-slate-700 flex-shrink-0' },
+                            h('button', {
+                                onClick: function() { setJokersPanelCollapsed(!jokersPanelCollapsed); },
+                                className: 'w-full flex items-center justify-between p-3 text-left'
+                            },
+                                h('div', { className: 'text-xs font-bold text-slate-400 uppercase tracking-wide' }, T('m_h_jokers_used_round')),
+                                h('span', { className: 'text-slate-500 text-xs' }, jokersPanelCollapsed ? '▼' : '▲')
+                            ),
+                            !jokersPanelCollapsed && h('div', { className: 'px-3 pb-3' },
+                                roundJokers.length === 0
+                                    ? h('div', { className: 'text-slate-500 text-xs italic' }, T('m_h_no_jokers'))
+                                    : h('div', { className: 'space-y-1' },
+                                        roundJokers.map(function(tableId, idx) {
+                                            var t = tables.find(function(tb) { return tb.id === tableId; });
+                                            return h('div', { key: tableId, className: 'flex items-center gap-2' },
+                                                h('div', { className: 'w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center text-xs font-black text-yellow-900' }, idx + 1),
+                                                h('div', { className: 'text-sm font-semibold text-slate-300 truncate' }, t ? (t.name || T('table_n', { n: tableId })) : T('table_n', { n: tableId }))
+                                            );
+                                        })
+                                    )
+                            )
                         ),
                         showScores && h('div', { className: 'flex-1 overflow-y-auto p-3' },
                             h('div', { className: 'text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide' }, T('m_h_ranking')),
                             h('div', { className: 'space-y-1' },
                                 tables.slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
                                     var medal = ['🥇','🥈','🥉'][idx] || '';
+                                    var jokersLeft = Math.max(0, jokersPerTeam - (t.jokerCount || 0));
                                     return h('div', { key: t.id, className: 'flex items-center justify-between text-sm' },
-                                        h('div', { className: 'flex items-center gap-1' },
+                                        h('div', { className: 'flex items-center gap-1 min-w-0' },
                                             h('span', null, medal || (idx + 1) + '.'),
-                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-28' }, t.name || T('table_n', { n: t.id }))
+                                            h('span', { className: 'font-semibold text-slate-300 truncate max-w-24' }, t.name || T('table_n', { n: t.id }))
                                         ),
-                                        h('span', { className: 'font-black text-violet-400' }, t.score)
+                                        h('div', { className: 'flex items-center gap-2 flex-shrink-0' },
+                                            h('span', { className: 'text-xs text-amber-400', title: T('m_h_jokers_left_title') }, '🃏' + jokersLeft),
+                                            h('span', { className: 'font-black text-violet-400' }, t.score)
+                                        )
                                     );
                                 })
                             )
@@ -2062,21 +2100,39 @@
                 showLeaderboard && h('div', { className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4', onClick: function() { setShowLeaderboard(false); } },
                     h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm max-h-[85vh] flex flex-col slide-in', onClick: function(e) { e.stopPropagation(); } },
                         h('h3', { className: 'text-xl font-black text-white mb-4 text-center flex-shrink-0' }, T('m_leaderboard')),
-                        h('div', { className: 'space-y-2 overflow-y-auto flex-1' },
-                            tables.slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
-                                var isLast = tiedAtLast.some(function(tt) { return tt.id === t.id; });
-                                var medal = ['🥇','🥈','🥉'][idx] || (idx + 1) + '.';
-                                return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl ' + (isLast ? 'bg-amber-900/40 border border-amber-600' : 'bg-slate-700') },
-                                    h('div', { className: 'flex items-center gap-2' },
-                                        h('span', { className: 'text-xl' }, medal),
-                                        h('div', null,
-                                            h('div', { className: 'font-bold text-white' }, t.name || T('table_n', { n: t.id })),
-                                            isLast && h('div', { className: 'text-xs text-amber-400 font-semibold' }, T('m_h_last_place_tag'))
+                        h('div', { className: 'overflow-y-auto flex-1' },
+                            roundJokers.length > 0 && h('div', { className: 'mb-4 bg-amber-900/20 border border-amber-700/40 rounded-xl p-3' },
+                                h('div', { className: 'text-xs font-bold text-amber-400 mb-2 uppercase tracking-wide' }, T('m_h_jokers_used_round')),
+                                h('div', { className: 'space-y-1' },
+                                    roundJokers.map(function(tableId, idx) {
+                                        var jt = tables.find(function(tb) { return tb.id === tableId; });
+                                        return h('div', { key: tableId, className: 'flex items-center gap-2' },
+                                            h('div', { className: 'w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center text-xs font-black text-yellow-900 flex-shrink-0' }, idx + 1),
+                                            h('div', { className: 'text-sm font-semibold text-slate-200 truncate' }, jt ? (jt.name || T('table_n', { n: tableId })) : T('table_n', { n: tableId }))
+                                        );
+                                    })
+                                )
+                            ),
+                            h('div', { className: 'space-y-2' },
+                                tables.slice().sort(function(a,b) { return b.score - a.score; }).map(function(t, idx) {
+                                    var isLast = tiedAtLast.some(function(tt) { return tt.id === t.id; });
+                                    var medal = ['🥇','🥈','🥉'][idx] || (idx + 1) + '.';
+                                    var jokersLeft = Math.max(0, jokersPerTeam - (t.jokerCount || 0));
+                                    return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl ' + (isLast ? 'bg-amber-900/40 border border-amber-600' : 'bg-slate-700') },
+                                        h('div', { className: 'flex items-center gap-2 min-w-0' },
+                                            h('span', { className: 'text-xl flex-shrink-0' }, medal),
+                                            h('div', { className: 'min-w-0' },
+                                                h('div', { className: 'font-bold text-white truncate' }, t.name || T('table_n', { n: t.id })),
+                                                isLast && h('div', { className: 'text-xs text-amber-400 font-semibold' }, T('m_h_last_place_tag'))
+                                            )
+                                        ),
+                                        h('div', { className: 'flex items-center gap-3 flex-shrink-0' },
+                                            h('span', { className: 'text-xs text-amber-400', title: T('m_h_jokers_left_title') }, '🃏' + jokersLeft),
+                                            h('span', { className: 'text-2xl font-black text-violet-400' }, t.score)
                                         )
-                                    ),
-                                    h('div', { className: 'text-2xl font-black text-violet-400' }, t.score)
-                                );
-                            })
+                                    );
+                                })
+                            )
                         ),
                         h('button', { onClick: function() { setShowLeaderboard(false); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white flex-shrink-0' }, T('close'))
                     )
@@ -2090,11 +2146,25 @@
                             ? h('p', { className: 'text-slate-400 text-center italic' }, T('m_h_no_tables_conn'))
                             : h('div', { className: 'space-y-2 max-h-80 overflow-y-auto' },
                                 tables.map(function(table) {
-                                    var online = !!connectedClients[table.id];
+                                    // Mesmo cálculo de estado (baseado em heartbeat, não só em existir o nó em
+                                    // clients/) usado na grelha principal — evita mostrar "Online" para uma
+                                    // equipa cujo heartbeat já está parado há muito tempo.
+                                    var lastSeenMg = lastSeenMapRef.current[table.id] || 0;
+                                    var sinceSeenMg = lastSeenMg ? (ServerTime.now() - lastSeenMg) : Infinity;
+                                    var connStateMg = !connectedClients[table.id] ? 'gone' : (sinceSeenMg < 30000 ? 'online' : (sinceSeenMg < 60000 ? 'idle' : 'offline'));
+                                    var statusLabelMg = {
+                                        online:  T('m_h_conn_online').trim(),
+                                        idle:    T('m_h_conn_idle').trim(),
+                                        offline: T('m_h_conn_offline').trim(),
+                                        gone:    T('m_h_conn_gone').trim()
+                                    }[connStateMg];
+                                    var statusColorMg = {
+                                        online: 'text-green-400', idle: 'text-amber-400', offline: 'text-red-400', gone: 'text-slate-500'
+                                    }[connStateMg];
                                     return h('div', { key: table.id, className: 'flex items-center justify-between p-2 rounded-lg border border-slate-600' },
                                         h('div', null,
                                             h('div', { className: 'font-bold text-sm text-white' }, table.name || T('table_n', { n: table.id })),
-                                            h('div', { className: 'text-xs ' + (online ? 'text-green-400' : 'text-slate-500') }, online ? '● Online' : '○ Offline')
+                                            h('div', { className: 'text-xs ' + statusColorMg }, statusLabelMg)
                                         ),
                                         h('button', {
                                             onClick: function(id) { return function() { removeTable(id); }; }(table.id),
