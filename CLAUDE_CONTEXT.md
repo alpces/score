@@ -493,6 +493,20 @@ toda a lógica de jogo vive inline em `master-hitster.html`/`client-hitster.html
   barra inferior da Consola — documenta fluxo, categorias/Timeline Duel, joker,
   cantora, dual-mode, fases, gestão de mesas, regras e a distinção entre os
   dois toggles de pontos.
+- Projetor **não** mostra os jokers ativados em tempo real (nem um painel
+  lateral próprio para isso) — em vez disso, `confirmValidation()` calcula
+  `lastRoundResults` (categoria + por equipa: resposta, se usou joker, pontos
+  ganhos nessa ronda) e só aparece no Projetor **depois** de o anfitrião
+  aprovar as respostas (fase `waiting` com `lastRoundResults` presente),
+  substituindo o ecrã genérico de espera até à ronda seguinte começar
+  (`beginRound()` limpa-o). Sincronizado só via `publicState`, não
+  `gameState` — é conteúdo só de projeção.
+- `client-hitster.html`: a resposta já submetida (texto + estado "Enviado")
+  é restaurada a partir de `textResponses/{mesa}` sempre que o listener
+  desse nó dispara com um valor existente — não só quando é removido. Sem
+  isto, um refresh do cliente a meio da fase de resposta fazia a resposta já
+  enviada "desaparecer" do ecrã (o texto ficava só em estado React local,
+  nunca era relido do Firebase).
 
 `ReviewModal` é chamado como `ReviewModal()` (não `h(ReviewModal, null)`) para preservar scrollTop ao tickar checkboxes.
 

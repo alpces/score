@@ -165,6 +165,8 @@ I18n.registerStrings('pt', {
     m_h_jokers_used_round : '🃏 Jokers Usados (nesta ronda)',
     m_h_no_jokers         : 'Nenhum joker usado',
     m_h_jokers_left_title : 'Jokers restantes',
+    m_h_results_title     : '✅ Resultados da Ronda',
+    m_h_results_singing   : '🎤 Cantou — sem resposta',
     m_h_ranking           : '🏆 Ranking',
     m_h_new_round         : '🎵 Nova Ronda #{{n}}',
     m_h_cancel_round_btn  : '✕ Cancelar Ronda',

@@ -196,6 +196,7 @@
             var g12 = _s(0);       var revealEndAt = g12[0];       var setRevealEndAt = g12[1];
             var g13 = _s([]);      var spinOrder = g13[0];         var setSpinOrder = g13[1];
             var g14 = _s(0);       var spinStartAt = g14[0];       var setSpinStartAt = g14[1];
+            var g15 = _s(null);    var lastRoundResults = g15[0];  var setLastRoundResults = g15[1];
 
             /* —— MODO (Consola/Projetor) —— */
             var mm1 = _s(null);    var masterMode = mm1[0];        var setMasterMode = mm1[1]; // null|'console'|'public'
@@ -511,6 +512,7 @@
                     selectedLogos: selectedLogos,
                     publicShowScores: publicShowScores,
                     tablesLocked: tablesLocked,
+                    lastRoundResults: lastRoundResults,
                     timestamp: Date.now()
                 };
             };
@@ -523,7 +525,8 @@
                 }, 200);
                 return function() { clearTimeout(publicSyncTimerRef.current); };
             }, [sessionId, masterMode, phase, currentCat, spinOrder, spinStartAt, revealEndAt, jokerEndAt, answerEndAt,
-                roundJokers, singingTeam, tables, categories, roundNumber, selectedLogos, publicShowScores, tablesLocked]);
+                roundJokers, singingTeam, tables, categories, roundNumber, selectedLogos, publicShowScores, tablesLocked,
+                lastRoundResults]);
 
             /* —— LISTENER: CLIENTES —— */
             useEffect(function() {
@@ -755,6 +758,7 @@
                 setTextResponses({}); setCheckedAnswers({});
                 revealEndRef.current = 0; setRevealEndAt(0);
                 setSpinOrder([]); setSpinStartAt(0);
+                setLastRoundResults(null);
 
                 if (jokerUsablePhaseRef.current === 'music') {
                     // Joker usável durante a música: sem janela dedicada — aguarda o anfitrião
@@ -812,6 +816,7 @@
                 var pts = currentCat.points, singingId = singingTeam ? singingTeam.id : null;
                 var correctIds = Object.keys(checkedAnswers).filter(function(k) { return checkedAnswers[k]; }).map(Number);
                 var correctNonSinging = correctIds.filter(function(id) { return id !== singingId; });
+                var singBonus = singingId !== null ? Math.min(correctNonSinging.length, 3) * pts : 0;
                 var newTables = tables.map(function(t) {
                     if (t.id === singingId) return t;
                     if (correctIds.indexOf(t.id) < 0) return t;
@@ -819,14 +824,30 @@
                     return Object.assign({}, t, { score: t.score + pts * mult });
                 });
                 if (singingId !== null) {
-                    var sp = Math.min(correctNonSinging.length, 3) * pts;
                     newTables = newTables.map(function(t) {
-                        return t.id === singingId ? Object.assign({}, t, { score: t.score + sp }) : t;
+                        return t.id === singingId ? Object.assign({}, t, { score: t.score + singBonus }) : t;
                     });
                 }
+
+                // Resultados da ronda — capturados agora (antes de textResponses ser limpo) para
+                // o Projetor mostrar, uma vez aprovadas, a resposta/joker/pontos de cada equipa.
+                var results = tables.map(function(t) {
+                    if (t.id === singingId) {
+                        return { id: t.id, name: t.name, isSinging: true, correct: null, usedJoker: false, text: null, pointsGained: singBonus };
+                    }
+                    var correct = correctIds.indexOf(t.id) >= 0;
+                    var usedJoker = roundJokers.indexOf(t.id) >= 0;
+                    var resp = textResponses[t.id];
+                    return {
+                        id: t.id, name: t.name, isSinging: false, correct: correct, usedJoker: usedJoker,
+                        text: resp ? resp.text : null, pointsGained: correct ? pts * (usedJoker ? 2 : 1) : 0
+                    };
+                });
+
                 setTables(newTables); setPhase('waiting'); setCurrentCat(null); setSingingTeam(null);
                 setRoundJokers([]); setJokerEndAt(0); setAnswerEndAt(0);
                 setRoundNumber(function(n) { return n + 1; }); setCheckedAnswers({}); setShowReview(false);
+                setLastRoundResults({ category: currentCat, results: results });
                 try { await fm.remove(fm.ref(rtdb, 'sessions/' + sessionId + '/textResponses')); } catch(e) {}
             };
 
@@ -894,7 +915,7 @@
                 pendingRoundRef.current = null; revealEndRef.current = 0;
                 setSetupDone(false); setSessionId(null); setTables([]);
                 setPhase('waiting'); setCurrentCat(null); setJokerEndAt(0); setAnswerEndAt(0); setRevealEndAt(0);
-                setSpinOrder([]); setSpinStartAt(0);
+                setSpinOrder([]); setSpinStartAt(0); setLastRoundResults(null);
                 setJokerOrder([]); setRoundJokers([]); setSingingTeam(null);
                 setShowScores(true); setTablesLocked(false); setRoundNumber(1);
                 setTextResponses({}); setConnectedClients({});
@@ -1465,10 +1486,6 @@
 
                 var psSpin = getCurrentSpinStep(ps.categoryRevealSpinOrder, ps.categoryRevealSpinStartAt, SPIN_TOTAL_MS, nowTick);
                 var psSingingTeam = ps.singingTeamId != null ? psTables.find(function(t) { return t.id === ps.singingTeamId; }) : null;
-                var psJokerNames = (ps.roundJokers || [])
-                    .map(function(id) { return teamLabel(psTables.find(function(t) { return t.id === id; })); })
-                    .filter(Boolean);
-
                 var psPhaseLabel = {
                     'waiting':         T('m_h_phase_waiting'),
                     'category_reveal': T('m_h_phase_reveal', { n: Math.max(0, Math.ceil(((ps.categoryRevealEndAt || 0) - nowTick) / 1000)) }),
@@ -1489,17 +1506,17 @@
                 }[ps.phase] || 'bg-slate-700 text-slate-300';
 
                 var RouletteView = function() {
-                    return h('div', { className: 'w-full max-w-3xl grid grid-cols-2 sm:grid-cols-3 gap-4' },
+                    return h('div', { className: 'w-full flex-1 flex flex-col gap-3' },
                         (ps.categories || []).filter(function(cat) { return !cat.isTimeline; }).map(function(cat) {
                             var isHighlighted = psSpin && psSpin.catId === cat.id;
                             return h('div', {
                                 key: cat.id,
-                                className: 'rounded-2xl p-4 text-center transition-all duration-100 ' + (
-                                    isHighlighted ? 'bg-amber-400 text-amber-950 scale-110 ring-4 ring-amber-200 shadow-2xl' :
+                                className: 'flex-1 min-h-0 flex items-center justify-center rounded-2xl transition-all duration-100 ' + (
+                                    isHighlighted ? 'bg-amber-400 text-amber-950 scale-[1.03] ring-4 ring-amber-200 shadow-2xl' :
                                     'bg-slate-800 text-slate-300 border-2 border-slate-700'
                                 )
                             },
-                                h('div', { className: 'font-black text-lg' }, cat.name)
+                                h('div', { className: 'font-black text-3xl sm:text-4xl md:text-5xl' }, cat.name)
                             );
                         })
                     );
@@ -1528,19 +1545,35 @@
                     );
                 };
 
-                var JokerSidebar = function() {
-                    return h('div', { className: 'w-72 bg-slate-800/80 border-l border-slate-700 flex-shrink-0 p-4 overflow-y-auto' },
-                        h('div', { className: 'text-sm font-black uppercase tracking-wide text-amber-400 mb-3' }, T('m_h_jokers_used_round')),
-                        psJokerNames.length === 0
-                            ? h('div', { className: 'text-slate-500 text-sm italic' }, T('m_h_no_jokers'))
-                            : h('div', { className: 'space-y-2' },
-                                psJokerNames.map(function(name, idx) {
-                                    return h('div', { key: idx, className: 'flex items-center gap-3 bg-amber-900/30 border border-amber-700/40 rounded-xl px-3 py-2' },
-                                        h('div', { className: 'w-7 h-7 bg-yellow-500 rounded-full flex items-center justify-center text-sm font-black text-yellow-900 flex-shrink-0' }, idx + 1),
-                                        h('div', { className: 'text-base font-bold text-white truncate' }, name)
-                                    );
-                                })
-                            )
+                var RoundResultsView = function() {
+                    var lr = ps.lastRoundResults;
+                    if (!lr) return null;
+                    return h('div', { className: 'w-full max-w-3xl' },
+                        h('div', { className: 'text-center mb-6' },
+                            h('div', { className: 'text-sm uppercase tracking-wide text-slate-400 mb-1' }, T('m_h_results_title')),
+                            h('div', { className: 'text-3xl sm:text-4xl font-black text-white' }, lr.category ? lr.category.name : '')
+                        ),
+                        h('div', { className: 'space-y-2' },
+                            lr.results.slice().sort(function(a, b) { return b.pointsGained - a.pointsGained; }).map(function(r) {
+                                var t = psTables.find(function(tt) { return tt.id === r.id; });
+                                var label = t ? teamLabel(t) : T('table_n', { n: r.id });
+                                return h('div', { key: r.id, className: 'flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3' },
+                                    h('div', { className: 'flex-1 min-w-0' },
+                                        h('div', { className: 'flex items-center gap-2' },
+                                            h('span', { className: 'font-bold text-white text-lg truncate' }, label),
+                                            r.usedJoker && h('span', { className: 'text-xl flex-shrink-0' }, '🃏'),
+                                            r.isSinging && h('span', { className: 'text-xl flex-shrink-0' }, '🎤')
+                                        ),
+                                        h('div', { className: 'text-sm text-slate-400 truncate mt-0.5' },
+                                            r.isSinging ? T('m_h_results_singing') : (r.text ? '"' + r.text + '"' : T('m_h_no_answer'))
+                                        )
+                                    ),
+                                    h('div', {
+                                        className: 'text-2xl font-black flex-shrink-0 ' + (r.pointsGained > 0 ? 'text-green-400' : 'text-slate-600')
+                                    }, (r.pointsGained > 0 ? '+' : '') + r.pointsGained)
+                                );
+                            })
+                        )
                     );
                 };
 
@@ -1580,11 +1613,14 @@
                                 }, (isSinging ? '🎤 ' : '') + teamLabel(t));
                             })
                     ),
-                    h('div', { className: 'flex-1 flex overflow-hidden' },
-                        h('div', { className: 'flex-1 flex items-center justify-center p-6' },
-                            ps.phase === 'category_reveal' ? RouletteView() : CategoryFocusView()
-                        ),
-                        JokerSidebar()
+                    h('div', {
+                        className: 'flex-1 overflow-hidden p-6 flex ' + (
+                            ps.phase === 'category_reveal' ? 'flex-col' : 'items-center justify-center'
+                        )
+                    },
+                        ps.phase === 'category_reveal'
+                            ? RouletteView()
+                            : (ps.phase === 'waiting' && ps.lastRoundResults ? RoundResultsView() : CategoryFocusView())
                     ),
                     ps.publicShowScores && !psHideScoresLocally && h('div', {
                         className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4',

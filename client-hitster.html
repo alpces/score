@@ -160,11 +160,19 @@
                 if (autoRecon && sessionCode && tableNumber) handleConnect(true);
             }, [autoRecon, sessionCode, tableNumber]);
 
-            // — listener game-específico: textResponses —
+            // — listener game-específico: textResponses — também restaura o estado local
+            // (texto + confirmação) após um refresh, para a resposta já enviada não "desaparecer".
             useEffect(function() {
                 if (!connected || !sessionCode || !tableNumber) return;
                 var unsubTxt = fm.onValue(fm.ref(rtdb, 'sessions/' + sessionCode + '/textResponses/' + tableNumber), function(snap) {
-                    if (!snap.val()) setTextSubmitted(false);
+                    var val = snap.val();
+                    if (!val) {
+                        setTextSubmitted(false);
+                    } else {
+                        setTextSubmitted(true);
+                        setLastSubmitted(val.text || '');
+                        setTextInput(function(prev) { return prev || val.text || ''; });
+                    }
                 });
                 return function() { unsubTxt(); };
             }, [connected, sessionCode, tableNumber, resubKey]);

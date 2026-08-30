@@ -165,6 +165,8 @@ I18n.registerStrings('en', {
     m_h_jokers_used_round : '🃏 Jokers Used (this round)',
     m_h_no_jokers         : 'No joker used',
     m_h_jokers_left_title : 'Jokers remaining',
+    m_h_results_title     : '✅ Round Results',
+    m_h_results_singing   : '🎤 Sang — no answer needed',
     m_h_ranking           : '🏆 Rankings',
     m_h_new_round         : '🎵 New Round #{{n}}',
     m_h_cancel_round_btn  : '✕ Cancel Round',
