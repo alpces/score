@@ -1490,18 +1490,16 @@
 
                 var RouletteView = function() {
                     return h('div', { className: 'w-full max-w-3xl grid grid-cols-2 sm:grid-cols-3 gap-4' },
-                        (ps.categories || []).map(function(cat) {
-                            var isHighlighted = !cat.isTimeline && psSpin && psSpin.catId === cat.id;
+                        (ps.categories || []).filter(function(cat) { return !cat.isTimeline; }).map(function(cat) {
+                            var isHighlighted = psSpin && psSpin.catId === cat.id;
                             return h('div', {
                                 key: cat.id,
                                 className: 'rounded-2xl p-4 text-center transition-all duration-100 ' + (
-                                    cat.isTimeline ? 'bg-slate-800 opacity-40 border-2 border-slate-700' :
                                     isHighlighted ? 'bg-amber-400 text-amber-950 scale-110 ring-4 ring-amber-200 shadow-2xl' :
                                     'bg-slate-800 text-slate-300 border-2 border-slate-700'
                                 )
                             },
-                                h('div', { className: 'font-black text-lg' }, cat.name),
-                                cat.isTimeline && h('div', { className: 'text-xs mt-1 text-slate-500' }, T('m_h_timeline_manual_only'))
+                                h('div', { className: 'font-black text-lg' }, cat.name)
                             );
                         })
                     );
