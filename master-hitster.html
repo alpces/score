@@ -1545,31 +1545,41 @@
                     );
                 };
 
+                var RESULTS_COMPACT_THRESHOLD = 6;
                 var RoundResultsView = function() {
                     var lr = ps.lastRoundResults;
                     if (!lr) return null;
-                    return h('div', { className: 'w-full max-w-3xl' },
-                        h('div', { className: 'text-center mb-6' },
-                            h('div', { className: 'text-sm uppercase tracking-wide text-slate-400 mb-1' }, T('m_h_results_title')),
-                            h('div', { className: 'text-3xl sm:text-4xl font-black text-white' }, lr.category ? lr.category.name : '')
+                    var n = lr.results.length;
+                    var compact = n > RESULTS_COMPACT_THRESHOLD;
+                    var cols = n <= 4 ? 'grid-cols-1' : n <= 8 ? 'grid-cols-2' : n <= 15 ? 'grid-cols-3' : n <= 24 ? 'grid-cols-4' : 'grid-cols-5';
+                    return h('div', { className: 'w-full mx-auto flex flex-col ' + (compact ? 'flex-1 min-h-0 max-w-6xl' : 'max-w-3xl') },
+                        h('div', { className: 'text-center flex-shrink-0 ' + (compact ? 'mb-2' : 'mb-6') },
+                            h('div', { className: (compact ? 'text-xs' : 'text-sm') + ' uppercase tracking-wide text-slate-400' }, T('m_h_results_title')),
+                            h('div', { className: 'font-black text-white ' + (compact ? 'text-xl sm:text-2xl' : 'text-3xl sm:text-4xl mb-1') }, lr.category ? lr.category.name : ''),
+                            lr.category && lr.category.description && h('div', {
+                                className: 'text-slate-400 ' + (compact ? 'text-xs mt-0.5 truncate' : 'text-base')
+                            }, lr.category.description)
                         ),
-                        h('div', { className: 'space-y-2' },
+                        h('div', { className: 'grid ' + cols + ' gap-2 content-start ' + (compact ? 'flex-1 min-h-0 overflow-hidden' : '') },
                             lr.results.slice().sort(function(a, b) { return b.pointsGained - a.pointsGained; }).map(function(r) {
                                 var t = psTables.find(function(tt) { return tt.id === r.id; });
                                 var label = t ? teamLabel(t) : T('table_n', { n: r.id });
-                                return h('div', { key: r.id, className: 'flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3' },
+                                return h('div', {
+                                    key: r.id,
+                                    className: 'flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl min-w-0 ' + (compact ? 'px-3 py-1.5' : 'px-4 py-3')
+                                },
                                     h('div', { className: 'flex-1 min-w-0' },
-                                        h('div', { className: 'flex items-center gap-2' },
-                                            h('span', { className: 'font-bold text-white text-lg truncate' }, label),
-                                            r.usedJoker && h('span', { className: 'text-xl flex-shrink-0' }, '🃏'),
-                                            r.isSinging && h('span', { className: 'text-xl flex-shrink-0' }, '🎤')
+                                        h('div', { className: 'flex items-center gap-1.5 min-w-0' },
+                                            h('span', { className: 'font-bold text-white truncate ' + (compact ? 'text-sm' : 'text-lg') }, label),
+                                            r.usedJoker && h('span', { className: (compact ? 'text-xs' : 'text-xl') + ' flex-shrink-0' }, '🃏'),
+                                            r.isSinging && h('span', { className: (compact ? 'text-xs' : 'text-xl') + ' flex-shrink-0' }, '🎤')
                                         ),
-                                        h('div', { className: 'text-sm text-slate-400 truncate mt-0.5' },
+                                        h('div', { className: 'text-slate-400 truncate ' + (compact ? 'text-xs' : 'text-sm mt-0.5') },
                                             r.isSinging ? T('m_h_results_singing') : (r.text ? '"' + r.text + '"' : T('m_h_no_answer'))
                                         )
                                     ),
                                     h('div', {
-                                        className: 'text-2xl font-black flex-shrink-0 ' + (r.pointsGained > 0 ? 'text-green-400' : 'text-slate-600')
+                                        className: 'font-black flex-shrink-0 ' + (compact ? 'text-sm' : 'text-2xl') + ' ' + (r.pointsGained > 0 ? 'text-green-400' : 'text-slate-600')
                                     }, (r.pointsGained > 0 ? '+' : '') + r.pointsGained)
                                 );
                             })
@@ -1613,15 +1623,18 @@
                                 }, (isSinging ? '🎤 ' : '') + teamLabel(t));
                             })
                     ),
-                    h('div', {
-                        className: 'flex-1 overflow-hidden p-6 flex ' + (
-                            ps.phase === 'category_reveal' ? 'flex-col' : 'items-center justify-center'
-                        )
-                    },
-                        ps.phase === 'category_reveal'
-                            ? RouletteView()
-                            : (ps.phase === 'waiting' && ps.lastRoundResults ? RoundResultsView() : CategoryFocusView())
-                    ),
+                    (function() {
+                        var showingResults = ps.phase === 'waiting' && !!ps.lastRoundResults;
+                        var manyResults = showingResults && ps.lastRoundResults.results.length > RESULTS_COMPACT_THRESHOLD;
+                        var stretchLayout = ps.phase === 'category_reveal' || manyResults;
+                        return h('div', {
+                            className: 'flex-1 overflow-hidden p-6 flex ' + (stretchLayout ? 'flex-col' : 'items-center justify-center')
+                        },
+                            ps.phase === 'category_reveal'
+                                ? RouletteView()
+                                : (showingResults ? RoundResultsView() : CategoryFocusView())
+                        );
+                    })(),
                     ps.publicShowScores && !psHideScoresLocally && h('div', {
                         className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4',
                         onClick: function() { setPsHideScoresLocally(true); }
