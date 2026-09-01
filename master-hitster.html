@@ -207,7 +207,7 @@
             var pb2 = _s({});      var publicClients = pb2[0];     var setPublicClients = pb2[1];
             var pb3 = _s(ServerTime.now()); var nowTick = pb3[0];   var setNowTick = pb3[1];
             var pb4 = _s(false);   var psHideScoresLocally = pb4[0]; var setPsHideScoresLocally = pb4[1];
-            var pb5 = _s(false);   var showQRPublic = pb5[0];      var setShowQRPublic = pb5[1];
+            var pb5 = _s(false);   var psHideQRLocally = pb5[0];    var setPsHideQRLocally = pb5[1];
 
             /* —— TIMERS (display) —— */
             var t1  = _s(0);       var jokerDisplay = t1[0];       var setJokerDisplay = t1[1];
@@ -232,6 +232,7 @@
             var u15 = _s(false);   var showRulesEdit = u15[0];     var setShowRulesEdit = u15[1];
             var u16 = _s(false);   var rulesSaved = u16[0];        var setRulesSaved = u16[1];
             var u17 = _s(false);   var publicShowScores = u17[0];  var setPublicShowScores = u17[1];
+            var u20 = _s(false);   var publicShowQR = u20[0];      var setPublicShowQR = u20[1];
             var u18 = _s(false);   var showMasterHelp = u18[0];    var setShowMasterHelp = u18[1];
             var u19 = _s(false);   var jokersPanelCollapsed = u19[0]; var setJokersPanelCollapsed = u19[1];
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -267,7 +268,7 @@
             }, []);
 
             var switchMode = function() {
-                setMasterMode(null); setModeChosen(false); setShowQR(false); setShowQRPublic(false);
+                setMasterMode(null); setModeChosen(false); setShowQR(false); setPsHideQRLocally(false);
                 try { sessionStorage.removeItem(MASTER_MODE_KEY); } catch(e) {}
             };
             var chooseMode = function(mode) {
@@ -477,13 +478,14 @@
                         showScores: showScores, tablesLocked: tablesLocked,
                         roundNumber: roundNumber,
                         jokersPerTeam: jokersPerTeam, jokerUsablePhase: jokerUsablePhase,
-                        publicShowScores: publicShowScores,
+                        publicShowScores: publicShowScores, publicShowQR: publicShowQR,
                         allJokersUsed: tables.length > 0 && tables.every(function(t) { return (t.jokerCount || 0) >= jokersPerTeam; }),
                         tables: tables.map(function(t) {
                             return { id: t.id, name: t.name, score: t.score, jokerCount: t.jokerCount || 0 };
                         }),
                         selectedLogos: selectedLogos,
                         rulesConfig: rulesConfig,
+                        lastRoundResults: lastRoundResults,
                         categories: categories.map(function(c) {
                             return { id: c.id, name: c.name, description: c.description || '', points: c.points, isTimeline: c.isTimeline || false };
                         })
@@ -492,7 +494,7 @@
                 return function() { clearTimeout(syncTimerRef.current); };
             }, [sessionId, masterMode, phase, currentCat, jokerEndAt, answerEndAt, revealEndAt, spinOrder, spinStartAt,
                 jokerOrder, roundJokers, singingTeam, showScores, tablesLocked, roundNumber, jokersPerTeam, jokerUsablePhase,
-                publicShowScores, tables, selectedLogos, rulesConfig, categories]);
+                publicShowScores, publicShowQR, tables, selectedLogos, rulesConfig, categories, lastRoundResults]);
 
             /* —— SYNC publicState (Projetor) — projeção sanitizada, escrita só pela Consola —— */
             var buildPublicHitsterState = function() {
@@ -511,6 +513,7 @@
                     roundNumber: roundNumber,
                     selectedLogos: selectedLogos,
                     publicShowScores: publicShowScores,
+                    publicShowQR: publicShowQR,
                     tablesLocked: tablesLocked,
                     lastRoundResults: lastRoundResults,
                     timestamp: Date.now()
@@ -525,7 +528,7 @@
                 }, 200);
                 return function() { clearTimeout(publicSyncTimerRef.current); };
             }, [sessionId, masterMode, phase, currentCat, spinOrder, spinStartAt, revealEndAt, jokerEndAt, answerEndAt,
-                roundJokers, singingTeam, tables, categories, roundNumber, selectedLogos, publicShowScores, tablesLocked,
+                roundJokers, singingTeam, tables, categories, roundNumber, selectedLogos, publicShowScores, publicShowQR, tablesLocked,
                 lastRoundResults]);
 
             /* —— LISTENER: CLIENTES —— */
@@ -647,6 +650,11 @@
                 setPsHideScoresLocally(false);
             }, [publicState && !!publicState.publicShowScores]);
 
+            /* —— re-armar o overlay de QR local quando a Consola muda publicShowQR —— */
+            useEffect(function() {
+                setPsHideQRLocally(false);
+            }, [publicState && !!publicState.publicShowQR]);
+
             /* —— INICIAR SESSÃO —— */
             var initSession = async function() {
                 setCodeError('');
@@ -680,7 +688,7 @@
                             jokerOrder: [], roundJokers: [], singingTeamId: null,
                             showScores: true, tablesLocked: false, roundNumber: 1,
                             jokersPerTeam: (jokersPerTeam || 1), jokerUsablePhase: jokerUsablePhase,
-                            publicShowScores: false,
+                            publicShowScores: false, publicShowQR: false,
                             tables: [], selectedLogos: selectedLogos,
                             rulesConfig: rulesConfig,
                             categories: categories.map(function(c) {
@@ -707,6 +715,7 @@
                     setTablesLocked(data.tablesLocked || false); setRoundNumber(data.roundNumber || 1);
                     setJokersPerTeam(data.jokersPerTeam || 1); setJokerUsablePhase(data.jokerUsablePhase || 'window');
                     setPublicShowScores(data.publicShowScores === true);
+                    setPublicShowQR(data.publicShowQR === true);
                     setSpinOrder([]); setSpinStartAt(0);
                     setSelectedLogos(data.selectedLogos || []);
                     if (Array.isArray(data.rulesConfig) && data.rulesConfig.length > 0) setRulesConfig(data.rulesConfig);
@@ -924,7 +933,7 @@
                 setShowManage(false); setCodeInput(''); setCodeError('');
                 setHistInfoClients({});
                 setMasterMode(null); setModeChosen(false); setPublicState(null); setPublicClients({});
-                setPublicShowScores(false); setShowQRPublic(false); setPsHideScoresLocally(false);
+                setPublicShowScores(false); setPublicShowQR(false); setPsHideScoresLocally(false); setPsHideQRLocally(false);
             };
 
             /* —— REMOVER MESA —— */
@@ -1590,13 +1599,34 @@
                     );
                 };
 
-                var RESULTS_COMPACT_THRESHOLD = 6;
+                var RESULTS_COMPACT_THRESHOLD = 4;
+                // Camadas de tamanho — quantas mais equipas, menor a letra, mas as linhas da
+                // grelha esticam sempre (auto-rows-fr) para ocupar todo o espaço disponível,
+                // em vez de deixar espaço vazio por baixo (era a queixa original).
+                var RESULTS_SIZE_TIERS = [
+                    { max: 6,  cols: 'grid-cols-2', name: 'text-base', icon: 'text-lg',  ans: 'text-sm',     pts: 'text-xl',  pad: 'px-4 py-2.5' },
+                    { max: 9,  cols: 'grid-cols-3', name: 'text-base', icon: 'text-lg',  ans: 'text-sm',     pts: 'text-xl',  pad: 'px-4 py-2.5' },
+                    { max: 12, cols: 'grid-cols-3', name: 'text-sm',   icon: 'text-base',ans: 'text-xs',     pts: 'text-lg',  pad: 'px-3 py-2' },
+                    { max: 16, cols: 'grid-cols-4', name: 'text-sm',   icon: 'text-base',ans: 'text-xs',     pts: 'text-lg',  pad: 'px-3 py-2' },
+                    { max: 20, cols: 'grid-cols-4', name: 'text-xs',   icon: 'text-sm',  ans: 'text-[11px]', pts: 'text-base',pad: 'px-2.5 py-1.5' },
+                    { max: 30, cols: 'grid-cols-5', name: 'text-xs',   icon: 'text-sm',  ans: 'text-[11px]', pts: 'text-base',pad: 'px-2.5 py-1.5' },
+                    { max: Infinity, cols: 'grid-cols-6', name: 'text-[11px]', icon: 'text-xs', ans: 'text-[10px]', pts: 'text-sm', pad: 'px-2 py-1' }
+                ];
+                // Classificação (ranking) tem menos conteúdo por linha do que os resultados da
+                // ronda, por isso pode manter letra maior para o mesmo número de equipas.
+                var LEADERBOARD_SIZE_TIERS = [
+                    { max: 10, cols: 'grid-cols-3', medal: 'text-xl',  name: 'text-base',    score: 'text-xl',  pad: 'px-3 py-2.5' },
+                    { max: 15, cols: 'grid-cols-4', medal: 'text-lg',  name: 'text-sm',       score: 'text-lg',  pad: 'px-3 py-2' },
+                    { max: 20, cols: 'grid-cols-4', medal: 'text-base',name: 'text-xs',       score: 'text-base',pad: 'px-2.5 py-1.5' },
+                    { max: 30, cols: 'grid-cols-5', medal: 'text-sm',  name: 'text-xs',       score: 'text-sm',  pad: 'px-2 py-1.5' },
+                    { max: Infinity, cols: 'grid-cols-6', medal: 'text-xs', name: 'text-[11px]', score: 'text-xs', pad: 'px-2 py-1' }
+                ];
                 var RoundResultsView = function() {
                     var lr = ps.lastRoundResults;
                     if (!lr) return null;
                     var n = lr.results.length;
                     var compact = n > RESULTS_COMPACT_THRESHOLD;
-                    var cols = n <= 4 ? 'grid-cols-1' : n <= 8 ? 'grid-cols-2' : n <= 15 ? 'grid-cols-3' : n <= 24 ? 'grid-cols-4' : 'grid-cols-5';
+                    var tier = RESULTS_SIZE_TIERS.find(function(t) { return n <= t.max; });
                     return h('div', { className: 'w-full mx-auto flex flex-col ' + (compact ? 'flex-1 min-h-0 max-w-6xl' : 'max-w-3xl') },
                         h('div', { className: 'text-center flex-shrink-0 ' + (compact ? 'mb-2' : 'mb-6') },
                             h('div', { className: (compact ? 'text-xs' : 'text-sm') + ' uppercase tracking-wide text-slate-400' }, T('m_h_results_title')),
@@ -1605,26 +1635,28 @@
                                 className: 'text-slate-400 ' + (compact ? 'text-xs mt-0.5 truncate' : 'text-base')
                             }, lr.category.description)
                         ),
-                        h('div', { className: 'grid ' + cols + ' gap-2 content-start ' + (compact ? 'flex-1 min-h-0 overflow-hidden' : '') },
+                        h('div', {
+                            className: 'grid ' + (compact ? tier.cols : 'grid-cols-1') + ' gap-2 ' + (compact ? 'flex-1 min-h-0 auto-rows-fr' : '')
+                        },
                             lr.results.slice().sort(function(a, b) { return b.pointsGained - a.pointsGained; }).map(function(r) {
                                 var t = psTables.find(function(tt) { return tt.id === r.id; });
                                 var label = t ? teamLabel(t) : T('table_n', { n: r.id });
                                 return h('div', {
                                     key: r.id,
-                                    className: 'flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl min-w-0 ' + (compact ? 'px-3 py-1.5' : 'px-4 py-3')
+                                    className: 'flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl min-w-0 ' + (compact ? tier.pad : 'px-4 py-3')
                                 },
                                     h('div', { className: 'flex-1 min-w-0' },
                                         h('div', { className: 'flex items-center gap-1.5 min-w-0' },
-                                            h('span', { className: 'font-bold text-white truncate ' + (compact ? 'text-sm' : 'text-lg') }, label),
-                                            r.usedJoker && h('span', { className: (compact ? 'text-xs' : 'text-xl') + ' flex-shrink-0' }, '🃏'),
-                                            r.isSinging && h('span', { className: (compact ? 'text-xs' : 'text-xl') + ' flex-shrink-0' }, '🎤')
+                                            h('span', { className: 'font-bold text-white truncate ' + (compact ? tier.name : 'text-lg') }, label),
+                                            r.usedJoker && h('span', { className: (compact ? tier.icon : 'text-xl') + ' flex-shrink-0' }, '🃏'),
+                                            r.isSinging && h('span', { className: (compact ? tier.icon : 'text-xl') + ' flex-shrink-0' }, '🎤')
                                         ),
-                                        h('div', { className: 'text-slate-400 truncate ' + (compact ? 'text-xs' : 'text-sm mt-0.5') },
+                                        h('div', { className: 'text-slate-400 truncate ' + (compact ? tier.ans : 'text-sm mt-0.5') },
                                             r.isSinging ? T('m_h_results_singing') : (r.text ? '"' + r.text + '"' : T('m_h_no_answer'))
                                         )
                                     ),
                                     h('div', {
-                                        className: 'font-black flex-shrink-0 ' + (compact ? 'text-sm' : 'text-2xl') + ' ' + (r.pointsGained > 0 ? 'text-green-400' : 'text-slate-600')
+                                        className: 'font-black flex-shrink-0 ' + (compact ? tier.pts : 'text-2xl') + ' ' + (r.pointsGained > 0 ? 'text-green-400' : 'text-slate-600')
                                     }, (r.pointsGained > 0 ? '+' : '') + r.pointsGained)
                                 );
                             })
@@ -1640,10 +1672,6 @@
                             h('span', { className: 'font-mono font-bold tracking-wider' }, sessionId)
                         ),
                         h('div', { className: 'ml-auto flex items-center gap-2' },
-                            h('button', {
-                                onClick: function() { setShowQRPublic(true); },
-                                className: 'bg-white text-violet-900 hover:bg-violet-100 px-3 py-1.5 rounded-lg font-bold text-sm'
-                            }, '📱 QR'),
                             h('button', {
                                 onClick: switchMode,
                                 className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
@@ -1680,30 +1708,44 @@
                                 : (showingResults ? RoundResultsView() : CategoryFocusView())
                         );
                     })(),
-                    ps.publicShowScores && !psHideScoresLocally && h('div', {
-                        className: 'fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4',
-                        onClick: function() { setPsHideScoresLocally(true); }
-                    },
-                        h('div', { className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-6 w-full max-w-sm max-h-[85vh] flex flex-col', onClick: function(e) { e.stopPropagation(); } },
-                            h('h3', { className: 'text-xl font-black text-white mb-4 text-center flex-shrink-0' }, T('m_leaderboard')),
-                            h('div', { className: 'space-y-2 overflow-y-auto flex-1' },
-                                rankTables(psTables.slice().sort(function(a, b) { return b.score - a.score; })).map(function(item) {
-                                    var t = item.table, medal = RANK_MEDALS[item.rank] || item.rank + '.';
-                                    return h('div', { key: t.id, className: 'flex items-center justify-between p-3 rounded-xl bg-slate-700' },
-                                        h('div', { className: 'flex items-center gap-2' },
-                                            h('span', { className: 'text-xl' }, medal),
-                                            h('span', { className: 'font-bold text-white' }, teamLabel(t))
-                                        ),
-                                        h('span', { className: 'text-2xl font-black text-violet-400' }, t.score)
-                                    );
-                                })
-                            ),
-                            h('button', { onClick: function() { setPsHideScoresLocally(true); }, className: 'mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white flex-shrink-0' }, T('close'))
-                        )
-                    ),
-                    showQRPublic && h('div', {
+                    ps.publicShowScores && !psHideScoresLocally && (function() {
+                        var ranked = rankTables(psTables.slice().sort(function(a, b) { return b.score - a.score; }));
+                        var n = ranked.length;
+                        var tier = LEADERBOARD_SIZE_TIERS.find(function(t) { return n <= t.max; });
+                        var manyTeams = n > 6;
+                        return h('div', {
+                            className: 'fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4 sm:p-8',
+                            onClick: function() { setPsHideScoresLocally(true); }
+                        },
+                            h('div', {
+                                className: 'bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-5 sm:p-6 w-full h-full max-w-6xl flex flex-col',
+                                onClick: function(e) { e.stopPropagation(); }
+                            },
+                                h('h3', { className: 'font-black text-white text-center flex-shrink-0 ' + (manyTeams ? 'text-lg mb-2' : 'text-2xl mb-4') }, T('m_leaderboard')),
+                                h('div', {
+                                    className: 'grid gap-2 flex-1 min-h-0 ' + (manyTeams ? (tier.cols + ' auto-rows-fr') : 'grid-cols-1 content-start')
+                                },
+                                    ranked.map(function(item) {
+                                        var t = item.table, medal = RANK_MEDALS[item.rank] || item.rank + '.';
+                                        return h('div', {
+                                            key: t.id,
+                                            className: 'flex items-center justify-between rounded-xl bg-slate-700 min-w-0 ' + (manyTeams ? tier.pad : 'p-3')
+                                        },
+                                            h('div', { className: 'flex items-center gap-2 min-w-0' },
+                                                h('span', { className: manyTeams ? tier.medal : 'text-xl' }, medal),
+                                                h('span', { className: 'font-bold text-white truncate ' + (manyTeams ? tier.name : '') }, teamLabel(t))
+                                            ),
+                                            h('span', { className: 'font-black text-violet-400 flex-shrink-0 ' + (manyTeams ? tier.score : 'text-2xl') }, t.score)
+                                        );
+                                    })
+                                ),
+                                h('button', { onClick: function() { setPsHideScoresLocally(true); }, className: 'mt-3 w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white flex-shrink-0' }, T('close'))
+                            )
+                        );
+                    })(),
+                    ps.publicShowQR && !psHideQRLocally && h('div', {
                         className: 'fixed inset-0 bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-900 flex flex-col items-center justify-center z-50 cursor-pointer',
-                        onClick: function() { setShowQRPublic(false); }
+                        onClick: function() { setPsHideQRLocally(true); }
                     },
                         h('img', {
                             src: qrUrl, alt: 'QR Code',
@@ -1939,6 +1981,10 @@
                             onClick: function() { setPublicShowScores(!publicShowScores); },
                             className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
                         }, publicShowScores ? T('m_h_pub_scores_hide') : T('m_h_pub_scores_show')),
+                        h('button', {
+                            onClick: function() { setPublicShowQR(!publicShowQR); },
+                            className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'
+                        }, publicShowQR ? T('m_h_pub_qr_hide') : T('m_h_pub_qr_show')),
                         h('button', {
                             onClick: switchMode,
                             className: 'bg-violet-800 hover:bg-violet-700 px-3 py-1.5 rounded-lg text-xs font-semibold'

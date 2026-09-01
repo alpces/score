@@ -333,6 +333,10 @@
             useEffect(function() { if (!jokerEnabled) setShowJokerConfirm(false); }, [jokerEnabled]);
             var showInput = !isSinging && answerTimer > 0;
             var showCat = cat && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'ready' || phase === 'answering' || phase === 'reviewing');
+            var lastRoundResults = gameData ? gameData.lastRoundResults : null;
+            var myLastResult = lastRoundResults && Array.isArray(lastRoundResults.results)
+                ? lastRoundResults.results.find(function(r) { return r.id === tableId; })
+                : null;
 
             // — seletor de língua: botão com dropdown —
             function LangSelector() {
@@ -540,8 +544,28 @@
                             }, answerTimer <= 0 ? T('h_time_up') : ('⏱️ ' + answerTimer + 's'))
                         ),
 
-                    // aguardar
-                    phase === 'waiting' &&
+                    // aguardar — mostra o resultado da ronda anterior, se ainda disponível
+                    phase === 'waiting' && myLastResult &&
+                        h('div', { className: 'w-full max-w-sm text-center' },
+                            h('div', {
+                                className: 'rounded-2xl p-5 shadow-xl ' + (
+                                    myLastResult.isSinging ? 'bg-purple-500 bg-opacity-80 text-white' :
+                                    myLastResult.pointsGained > 0 ? 'bg-green-500 bg-opacity-90 text-green-950' :
+                                    'bg-white bg-opacity-10 text-white'
+                                )
+                            },
+                                h('div', { className: 'text-5xl mb-2' }, myLastResult.isSinging ? '🎤' : (myLastResult.pointsGained > 0 ? '✅' : '❌')),
+                                h('div', { className: 'font-black text-xl mb-1' },
+                                    myLastResult.isSinging ? T('h_results_singing') : (myLastResult.pointsGained > 0 ? T('h_results_correct') : T('h_results_wrong'))
+                                ),
+                                h('div', { className: 'font-black text-3xl' },
+                                    (myLastResult.pointsGained > 0 ? '+' : '') + myLastResult.pointsGained + ' ' + T(Math.abs(myLastResult.pointsGained) === 1 ? 'h_pt' : 'h_pts')
+                                ),
+                                myLastResult.usedJoker && h('div', { className: 'text-sm font-bold mt-2 opacity-90' }, '🃏 ' + T('h_results_joker_used'))
+                            ),
+                            h('div', { className: 'text-white opacity-60 text-sm font-semibold mt-3' }, T('h_waiting_round'))
+                        ),
+                    phase === 'waiting' && !myLastResult &&
                         h('div', { className: 'text-center text-white opacity-75' },
                             h('div', { className: 'text-5xl mb-3' }, '🎵'),
                             h('div', { className: 'text-lg font-semibold' }, T('h_waiting_round'))

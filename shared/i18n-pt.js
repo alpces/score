@@ -78,6 +78,8 @@ I18n.registerStrings('pt', {
     m_h_mode_switch         : '🔄 Trocar modo',
     m_h_pub_scores_show     : '📺 Mostrar pts no projetor',
     m_h_pub_scores_hide     : '📺 Ocultar pts no projetor',
+    m_h_pub_qr_show         : '📱 Mostrar QR no projetor',
+    m_h_pub_qr_hide         : '📱 Ocultar QR no projetor',
     m_h_public_waiting_data : 'A aguardar dados da consola...',
 
     // ── Master Hitster — Ajuda do anfitrião ─────────────────────────────────────
@@ -302,6 +304,10 @@ I18n.registerStrings('pt', {
     h_joker_confirm_title   : 'Usar o Joker?',
     h_joker_confirm_body    : 'Vai duplicar os pontos desta ronda se acertarem — mas só têm um número limitado de jokers. Confirmam?',
     h_joker_confirm_yes     : '🃏 Sim, usar Joker',
+    h_results_correct       : 'Acertaram!',
+    h_results_wrong         : 'Não foi desta vez',
+    h_results_singing       : 'Cantaram — sem resposta',
+    h_results_joker_used    : 'Usaram o Joker',
     h_category_reveal       : 'A revelar a categoria...',
     h_help_title            : 'Como Jogar',
     h_scores_title          : '🏆 Pontuações',
