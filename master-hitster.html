@@ -317,11 +317,11 @@
             useEffect(function() { phaseRef.current = phase; }, [phase]);
             useEffect(function() { jokerEndRef.current = jokerEndAt; }, [jokerEndAt]);
             useEffect(function() { answerEndRef.current = answerEndAt; }, [answerEndAt]);
-            useEffect(function() { answerTimeRef.current = answerTime; }, [answerTime]);
+            useEffect(function() { answerTimeRef.current = answerTime || 25; }, [answerTime]);
             useEffect(function() { revealEndRef.current = revealEndAt; }, [revealEndAt]);
             useEffect(function() { tablesRef.current = tables; }, [tables]);
-            useEffect(function() { jokerTimeRef.current = jokerTime; }, [jokerTime]);
-            useEffect(function() { jokersPerTeamRef.current = jokersPerTeam; }, [jokersPerTeam]);
+            useEffect(function() { jokerTimeRef.current = jokerTime || 10; }, [jokerTime]);
+            useEffect(function() { jokersPerTeamRef.current = jokersPerTeam || 1; }, [jokersPerTeam]);
             useEffect(function() { jokerUsablePhaseRef.current = jokerUsablePhase; }, [jokerUsablePhase]);
             useEffect(function() { sessionIdRef.current = sessionId; }, [sessionId]);
 
@@ -469,7 +469,7 @@
                 syncTimerRef.current = setTimeout(function() {
                     fm.set(fm.ref(rtdb, 'sessions/' + sessionId + '/gameState'), {
                         gameType: GAME_TYPE, active: true, timestamp: Date.now(),
-                        phase: phase, currentCategory: currentCat,
+                        phase: phase, currentCategory: (phase === 'category_reveal' ? null : currentCat),
                         jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt, categoryRevealEndAt: revealEndAt,
                         categoryRevealSpinOrder: spinOrder, categoryRevealSpinStartAt: spinStartAt,
                         jokerOrder: jokerOrder, roundJokers: roundJokers,
@@ -497,7 +497,7 @@
             /* —— SYNC publicState (Projetor) — projeção sanitizada, escrita só pela Consola —— */
             var buildPublicHitsterState = function() {
                 return {
-                    phase: phase, currentCategory: currentCat,
+                    phase: phase, currentCategory: (phase === 'category_reveal' ? null : currentCat),
                     categoryRevealSpinOrder: spinOrder, categoryRevealSpinStartAt: spinStartAt,
                     categoryRevealEndAt: revealEndAt,
                     jokerTimerEndAt: jokerEndAt, answerTimerEndAt: answerEndAt,
@@ -679,12 +679,12 @@
                             categoryRevealSpinOrder: [], categoryRevealSpinStartAt: 0,
                             jokerOrder: [], roundJokers: [], singingTeamId: null,
                             showScores: true, tablesLocked: false, roundNumber: 1,
-                            jokersPerTeam: jokersPerTeam, jokerUsablePhase: jokerUsablePhase,
+                            jokersPerTeam: (jokersPerTeam || 1), jokerUsablePhase: jokerUsablePhase,
                             publicShowScores: false,
                             tables: [], selectedLogos: selectedLogos,
                             rulesConfig: rulesConfig,
                             categories: categories.map(function(c) {
-                                return { id: c.id, name: c.name, description: c.description || '', points: c.points, isTimeline: c.isTimeline || false };
+                                return { id: c.id, name: c.name, description: c.description || '', points: (parseInt(c.points, 10) || 1), isTimeline: c.isTimeline || false };
                             })
                         });
                     } catch(e) { console.error('Init:', e); }
@@ -1204,7 +1204,18 @@
                                     h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_h_joker_time')),
                                     h('input', {
                                         type: 'number', min: 5, max: 30, value: jokerTime,
-                                        onChange: function(e) { setJokerTime(Math.max(5, Math.min(30, parseInt(e.target.value) || 10))); },
+                                        onChange: function(e) {
+                                            var v = e.target.value;
+                                            if (v === '') { setJokerTime(''); return; }
+                                            var n = parseInt(v, 10);
+                                            if (!isNaN(n)) setJokerTime(n);
+                                        },
+                                        onBlur: function() {
+                                            setJokerTime(function(prev) {
+                                                var n = parseInt(prev, 10);
+                                                return Math.max(5, Math.min(30, isNaN(n) ? 10 : n));
+                                            });
+                                        },
                                         className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
                                     }),
                                     jokerUsablePhase === 'music' && h('p', { className: 'text-xs text-gray-500 mt-1' }, T('m_h_joker_phase_hint'))
@@ -1213,7 +1224,18 @@
                                     h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_h_answer_time')),
                                     h('input', {
                                         type: 'number', min: 10, max: 60, value: answerTime,
-                                        onChange: function(e) { setAnswerTime(Math.max(10, Math.min(60, parseInt(e.target.value) || 25))); },
+                                        onChange: function(e) {
+                                            var v = e.target.value;
+                                            if (v === '') { setAnswerTime(''); return; }
+                                            var n = parseInt(v, 10);
+                                            if (!isNaN(n)) setAnswerTime(n);
+                                        },
+                                        onBlur: function() {
+                                            setAnswerTime(function(prev) {
+                                                var n = parseInt(prev, 10);
+                                                return Math.max(10, Math.min(60, isNaN(n) ? 25 : n));
+                                            });
+                                        },
                                         className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
                                     })
                                 )
@@ -1223,7 +1245,18 @@
                                     h('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, T('m_h_jokers_per_team')),
                                     h('input', {
                                         type: 'number', min: 1, max: 5, value: jokersPerTeam,
-                                        onChange: function(e) { setJokersPerTeam(Math.max(1, Math.min(5, parseInt(e.target.value) || 1))); },
+                                        onChange: function(e) {
+                                            var v = e.target.value;
+                                            if (v === '') { setJokersPerTeam(''); return; }
+                                            var n = parseInt(v, 10);
+                                            if (!isNaN(n)) setJokersPerTeam(n);
+                                        },
+                                        onBlur: function() {
+                                            setJokersPerTeam(function(prev) {
+                                                var n = parseInt(prev, 10);
+                                                return Math.max(1, Math.min(5, isNaN(n) ? 1 : n));
+                                            });
+                                        },
                                         className: 'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-violet-500 outline-none text-center text-lg font-bold'
                                     })
                                 ),
@@ -1279,9 +1312,21 @@
                                                 h('input', {
                                                     type: 'number', min: 1, max: 20, value: cat.points,
                                                     onChange: function(e) {
+                                                        var v = e.target.value;
                                                         var nc = categories.slice();
-                                                        nc[idx] = Object.assign({}, nc[idx], { points: Math.max(1, parseInt(e.target.value) || 1) });
+                                                        if (v === '') { nc[idx] = Object.assign({}, nc[idx], { points: '' }); setCategories(nc); setCatsSaved(false); return; }
+                                                        var n = parseInt(v, 10);
+                                                        if (isNaN(n)) return;
+                                                        nc[idx] = Object.assign({}, nc[idx], { points: n });
                                                         setCategories(nc); setCatsSaved(false);
+                                                    },
+                                                    onBlur: function() {
+                                                        setCategories(function(prev) {
+                                                            var nc = prev.slice();
+                                                            var n = parseInt(nc[idx].points, 10);
+                                                            nc[idx] = Object.assign({}, nc[idx], { points: Math.max(1, Math.min(20, isNaN(n) ? 1 : n)) });
+                                                            return nc;
+                                                        });
                                                     },
                                                     className: 'w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center font-bold focus:border-violet-500 outline-none'
                                                 }),

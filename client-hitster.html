@@ -99,6 +99,7 @@
             var g10 = _s(false); var showHelp = g10[0];       var setShowHelp = g10[1];
             var g11 = _s('');    var lastSubmitted = g11[0];  var setLastSubmitted = g11[1];
             var g12 = _s(0);     var revealTimer = g12[0];    var setRevealTimer = g12[1];
+            var g13 = _s(false); var showJokerConfirm = g13[0]; var setShowJokerConfirm = g13[1];
 
             // — i18n: estado de língua para forçar re-render quando a língua muda —
             var lg1 = _s(I18n.getCurrentLang()); var lang = lg1[0]; var setLang = lg1[1];
@@ -279,6 +280,8 @@
                 }
             };
 
+            var confirmJoker = function() { setShowJokerConfirm(false); pressJoker(); };
+
             var submitText = async function() {
                 if (!textInput.trim() || sending || answerTimer <= 0) return;
                 setSending(true);
@@ -327,6 +330,7 @@
             var isTimeline = cat && cat.isTimeline;
             var jokerPhaseActive = jokerMode === 'music' ? phase === 'answering' : phase === 'joker_window';
             var jokerEnabled = jokerPhaseActive && !usedThisRound && !poolExhausted && !isTimeline && !isSinging;
+            useEffect(function() { if (!jokerEnabled) setShowJokerConfirm(false); }, [jokerEnabled]);
             var showInput = !isSinging && answerTimer > 0;
             var showCat = cat && (phase === 'category_reveal' || phase === 'joker_window' || phase === 'ready' || phase === 'answering' || phase === 'reviewing');
 
@@ -616,7 +620,7 @@
                             h('div', { className: 'text-xs text-gray-500 font-semibold' }, poolExhausted ? T('h_joker_used') : T('h_joker_used_round'))
                           )
                         : (!poolExhausted && h('button', {
-                            onClick: jokerEnabled ? pressJoker : undefined,
+                            onClick: jokerEnabled ? function() { setShowJokerConfirm(true); } : undefined,
                             disabled: !jokerEnabled,
                             className: 'relative w-36 h-36 rounded-full font-black text-lg shadow-2xl transition-all transform select-none ' + (
                                 jokerEnabled
@@ -693,6 +697,28 @@
 
                             return ruleBlocks.concat([scoresBlock]);
                         })()
+                    )
+                ),
+
+                // confirmação do joker (evita toques acidentais)
+                showJokerConfirm && h('div', {
+                    className: 'absolute inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-6',
+                    onClick: function(e) { if (e.target === e.currentTarget) setShowJokerConfirm(false); }
+                },
+                    h('div', { className: 'bg-slate-900 border border-yellow-500 border-opacity-30 rounded-3xl w-full max-w-sm p-6 text-center' },
+                        h('div', { className: 'text-5xl mb-3' }, '🃏'),
+                        h('div', { className: 'font-black text-white text-xl mb-2' }, T('h_joker_confirm_title')),
+                        h('div', { className: 'text-slate-300 text-sm mb-6' }, T('h_joker_confirm_body')),
+                        h('div', { className: 'flex flex-col gap-2' },
+                            h('button', {
+                                onClick: confirmJoker,
+                                className: 'w-full py-3 bg-yellow-500 hover:bg-yellow-400 text-yellow-950 rounded-xl font-black text-base active:scale-95 transition-transform'
+                            }, T('h_joker_confirm_yes')),
+                            h('button', {
+                                onClick: function() { setShowJokerConfirm(false); },
+                                className: 'w-full py-3 bg-white bg-opacity-10 hover:bg-opacity-20 text-white rounded-xl font-bold text-sm active:scale-95 transition-transform'
+                            }, T('m_cancel'))
+                        )
                     )
                 ),
 
