@@ -322,6 +322,28 @@ I18n.registerStrings('pt', {
     h_rule_cantora_title    : '🎤 A Cantora',
     h_rule_cantora_content  : 'A Equipa Descontraída (a que está com menos pontos) canta a próxima música\nNão precisa de responder\nGanha pontos por cada equipa que acerte (máximo 3)',
 
+    // ── Hitster: mensagens de honestidade (fase "Pronto", antes da caixa de resposta) ──
+    h_honesty_msg_1         : '🕵️ O Shazam apanha a música... mas não apanha a vergonha de ganhar assim.',
+    h_honesty_msg_2         : '😇 Confiamos em vocês. Não nos façam arrepender.',
+    h_honesty_msg_3         : '🎶 Ninguém se lembra de quem ganhou. Todos se lembram de quem batotou.',
+    h_honesty_msg_4         : '🏆 Um pódio ganho com Shazam sabe a quê? A nada.',
+    h_honesty_msg_5         : '👀 A equipa do lado também sabe como o Shazam funciona. Just saying.',
+    h_honesty_msg_6         : '🎵 A música é para ouvir com o coração, não com uma app.',
+    h_honesty_msg_7         : '😅 Vale mesmo a pena trocar a diversão por 5 pontinhos?',
+    h_honesty_msg_8         : '🙈 Boa altura para pousar o telemóvel no meio da mesa...',
+    h_honesty_msg_9         : '🎉 Jogo limpo é uma boa história para contar depois. Batota não é.',
+    h_honesty_msg_10        : '🌟 Adivinhar bem é bom. Adivinhar bem por mérito próprio é lendário.',
+    h_honesty_msg_11        : '🃏 Já usaram o Joker desta ronda. Não precisam de usar o Shazam também.',
+    h_honesty_msg_12        : '💭 Pergunta rápida: preferem ganhar, ou preferem ganhar com orgulho?',
+    h_honesty_msg_13        : '🎈 O verdadeiro prémio de hoje é rir-se com os amigos. O resto é bónus.',
+    h_honesty_msg_14        : '🎤 Cantem, discutam teorias malucas, mas não pesquisem.',
+    h_honesty_msg_15        : '🍀 A receita desta ronda é sorte, memória e amizade — não Wi-Fi.',
+    h_honesty_msg_16        : '🤝 Ganhar sozinho não sabe a nada. Ganhar juntos, sim.',
+    h_honesty_msg_17        : '🎯 Se acertarem de cabeça, esse ponto vale o triplo em orgulho.',
+    h_honesty_msg_18        : '🧠 Confiem na vossa memória. Ela é mais forte do que pensam.',
+    h_honesty_msg_19        : '🙃 A app não vos vai apanhar. As vossas consciências, talvez.',
+    h_honesty_msg_20        : '✨ Divirtam-se como se ninguém estivesse a contar pontos.',
+
     // ── Diamant ──────────────────────────────────────────────────────────────
     d_title                 : 'Diamant',
     d_team                  : 'Equipa',

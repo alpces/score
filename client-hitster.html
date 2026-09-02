@@ -529,11 +529,15 @@
                             h('div', { className: 'text-sm opacity-75' }, allJokersUsed ? T('h_preparing_music') : T('h_joker_time'))
                         ),
 
-                    // pronto — aguarda o anfitrião iniciar a fase de resposta
+                    // pronto — aguarda o anfitrião iniciar a fase de resposta; aproveita a
+                    // pausa para uma mensagem (diferente a cada ronda) a apelar à honestidade
                     phase === 'ready' && !isSinging &&
-                        h('div', { className: 'text-center text-white' },
-                            h('div', { className: 'text-3xl font-bold animate-pulse' }, '🎤'),
-                            h('div', { className: 'text-sm opacity-75 mt-1' }, T('h_waiting_start'))
+                        h('div', { className: 'text-center text-white w-full max-w-sm' },
+                            h('div', { className: 'text-3xl font-bold animate-pulse mb-3' }, '🎤'),
+                            gameData && gameData.honestyMsgKey && h('div', {
+                                className: 'bg-white bg-opacity-10 border border-white border-opacity-20 rounded-2xl px-4 py-3 text-base font-semibold mb-3'
+                            }, T(gameData.honestyMsgKey)),
+                            h('div', { className: 'text-sm opacity-75' }, T('h_waiting_start'))
                         ),
 
                     // timer resposta

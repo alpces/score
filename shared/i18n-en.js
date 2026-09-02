@@ -322,6 +322,28 @@ I18n.registerStrings('en', {
     h_rule_cantora_title    : '🎤 The Singer',
     h_rule_cantora_content  : 'The Chill Team (lowest score) sings the next song\nThey don\'t need to answer\nThey earn points for each team that gets it right (max 3)',
 
+    // ── Hitster: honesty messages ("Ready" phase, before the answer box) ──
+    h_honesty_msg_1         : '🕵️ Shazam can name the song... but it can\'t name the shame of winning like that.',
+    h_honesty_msg_2         : '😇 We trust you. Don\'t make us regret it.',
+    h_honesty_msg_3         : '🎶 Nobody remembers who won. Everybody remembers who cheated.',
+    h_honesty_msg_4         : '🏆 What does a podium won with Shazam taste like? Nothing.',
+    h_honesty_msg_5         : '👀 The team next to you knows how Shazam works too. Just saying.',
+    h_honesty_msg_6         : '🎵 Music is meant to be heard with your heart, not an app.',
+    h_honesty_msg_7         : '😅 Is it really worth trading the fun for 5 little points?',
+    h_honesty_msg_8         : '🙈 Good time to put the phone face-down in the middle of the table...',
+    h_honesty_msg_9         : '🎉 Fair play makes a good story later. Cheating doesn\'t.',
+    h_honesty_msg_10        : '🌟 Guessing right is good. Guessing right on your own merit is legendary.',
+    h_honesty_msg_11        : '🃏 You already used your Joker this round. No need to use Shazam too.',
+    h_honesty_msg_12        : '💭 Quick question: would you rather win, or win with pride?',
+    h_honesty_msg_13        : '🎈 Tonight\'s real prize is laughing with friends. Everything else is a bonus.',
+    h_honesty_msg_14        : '🎤 Sing, argue over wild theories, but don\'t look it up.',
+    h_honesty_msg_15        : '🍀 This round\'s recipe is luck, memory, and friendship — not Wi-Fi.',
+    h_honesty_msg_16        : '🤝 Winning alone tastes like nothing. Winning together does.',
+    h_honesty_msg_17        : '🎯 Get it right from memory and that point is worth triple in pride.',
+    h_honesty_msg_18        : '🧠 Trust your memory. It\'s stronger than you think.',
+    h_honesty_msg_19        : '🙃 The app won\'t catch you. Your conscience might.',
+    h_honesty_msg_20        : '✨ Have fun like nobody\'s counting the points.',
+
     // ── Diamant ──────────────────────────────────────────────────────────────
     d_title                 : 'Diamant',
     d_team                  : 'Team',

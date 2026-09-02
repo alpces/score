@@ -131,6 +131,22 @@
         return { index: order.length - 1, catId: order[order.length - 1], done: true };
     }
 
+    // Mensagens de honestidade (fase "Pronto") — sorteadas sem repetir até esgotar o baralho.
+    var HONESTY_MSG_KEYS = [
+        'h_honesty_msg_1', 'h_honesty_msg_2', 'h_honesty_msg_3', 'h_honesty_msg_4', 'h_honesty_msg_5',
+        'h_honesty_msg_6', 'h_honesty_msg_7', 'h_honesty_msg_8', 'h_honesty_msg_9', 'h_honesty_msg_10',
+        'h_honesty_msg_11', 'h_honesty_msg_12', 'h_honesty_msg_13', 'h_honesty_msg_14', 'h_honesty_msg_15',
+        'h_honesty_msg_16', 'h_honesty_msg_17', 'h_honesty_msg_18', 'h_honesty_msg_19', 'h_honesty_msg_20'
+    ];
+    var shuffleIndices = function(n) {
+        var arr = []; for (var i = 0; i < n; i++) arr.push(i);
+        for (var j = arr.length - 1; j > 0; j--) {
+            var k = Math.floor(Math.random() * (j + 1));
+            var tmp = arr[j]; arr[j] = arr[k]; arr[k] = tmp;
+        }
+        return arr;
+    };
+
     var getDefaultRulesConfig = function() {
         return [
             { id: 'phases',  title: I18n.t('h_rule_phases_title'),  content: I18n.t('h_rule_phases_content')  },
@@ -197,6 +213,7 @@
             var g13 = _s([]);      var spinOrder = g13[0];         var setSpinOrder = g13[1];
             var g14 = _s(0);       var spinStartAt = g14[0];       var setSpinStartAt = g14[1];
             var g15 = _s(null);    var lastRoundResults = g15[0];  var setLastRoundResults = g15[1];
+            var g16 = _s('');      var honestyMsgKey = g16[0];     var setHonestyMsgKey = g16[1];
 
             /* —— MODO (Consola/Projetor) —— */
             var mm1 = _s(null);    var masterMode = mm1[0];        var setMasterMode = mm1[1]; // null|'console'|'public'
@@ -313,6 +330,19 @@
             var syncTimerRef      = useRef(null);  // debounce do sync Firebase
             var publicSyncTimerRef = useRef(null); // debounce do sync publicState (Projetor)
             var jokerProcessedRef = useRef({});    // jokers já processados nesta ronda
+            var honestyOrderRef   = useRef([]);    // baralho (índices) das mensagens de honestidade
+            var honestyPosRef     = useRef(0);     // posição atual no baralho
+
+            /* —— escolhe a próxima mensagem de honestidade sem repetir até esgotar o baralho —— */
+            var pickHonestyMsg = function() {
+                if (honestyOrderRef.current.length === 0 || honestyPosRef.current >= honestyOrderRef.current.length) {
+                    honestyOrderRef.current = shuffleIndices(HONESTY_MSG_KEYS.length);
+                    honestyPosRef.current = 0;
+                }
+                var idx = honestyOrderRef.current[honestyPosRef.current];
+                honestyPosRef.current++;
+                return HONESTY_MSG_KEYS[idx];
+            };
             var lastSeenMapRef    = useRef({});    // { tableId: timestamp } actualizado em cada heartbeat sem state
 
             useEffect(function() { phaseRef.current = phase; }, [phase]);
@@ -486,6 +516,7 @@
                         selectedLogos: selectedLogos,
                         rulesConfig: rulesConfig,
                         lastRoundResults: lastRoundResults,
+                        honestyMsgKey: honestyMsgKey,
                         categories: categories.map(function(c) {
                             return { id: c.id, name: c.name, description: c.description || '', points: c.points, isTimeline: c.isTimeline || false };
                         })
@@ -494,7 +525,7 @@
                 return function() { clearTimeout(syncTimerRef.current); };
             }, [sessionId, masterMode, phase, currentCat, jokerEndAt, answerEndAt, revealEndAt, spinOrder, spinStartAt,
                 jokerOrder, roundJokers, singingTeam, showScores, tablesLocked, roundNumber, jokersPerTeam, jokerUsablePhase,
-                publicShowScores, publicShowQR, tables, selectedLogos, rulesConfig, categories, lastRoundResults]);
+                publicShowScores, publicShowQR, tables, selectedLogos, rulesConfig, categories, lastRoundResults, honestyMsgKey]);
 
             /* —— SYNC publicState (Projetor) — projeção sanitizada, escrita só pela Consola —— */
             var buildPublicHitsterState = function() {
@@ -516,6 +547,7 @@
                     publicShowQR: publicShowQR,
                     tablesLocked: tablesLocked,
                     lastRoundResults: lastRoundResults,
+                    honestyMsgKey: honestyMsgKey,
                     timestamp: Date.now()
                 };
             };
@@ -529,7 +561,7 @@
                 return function() { clearTimeout(publicSyncTimerRef.current); };
             }, [sessionId, masterMode, phase, currentCat, spinOrder, spinStartAt, revealEndAt, jokerEndAt, answerEndAt,
                 roundJokers, singingTeam, tables, categories, roundNumber, selectedLogos, publicShowScores, publicShowQR, tablesLocked,
-                lastRoundResults]);
+                lastRoundResults, honestyMsgKey]);
 
             /* —— LISTENER: CLIENTES —— */
             useEffect(function() {
@@ -768,6 +800,7 @@
                 revealEndRef.current = 0; setRevealEndAt(0);
                 setSpinOrder([]); setSpinStartAt(0);
                 setLastRoundResults(null);
+                setHonestyMsgKey(pickHonestyMsg());
 
                 if (jokerUsablePhaseRef.current === 'music') {
                     // Joker usável durante a música: sem janela dedicada — aguarda o anfitrião
@@ -1595,7 +1628,10 @@
                         h('div', { className: 'text-lg sm:text-xl text-slate-300' }, cat.description),
                         h('div', { className: 'mt-3 inline-block bg-violet-700 text-white text-base font-bold px-4 py-1.5 rounded-full' },
                             cat.points + (cat.points === 1 ? ' pt' : ' pts')
-                        )
+                        ),
+                        ps.phase === 'ready' && ps.honestyMsgKey && h('div', {
+                            className: 'mt-8 mx-auto max-w-xl bg-white bg-opacity-10 border border-white border-opacity-20 rounded-2xl px-6 py-4 text-lg sm:text-xl font-semibold text-amber-100'
+                        }, T(ps.honestyMsgKey))
                     );
                 };
 
